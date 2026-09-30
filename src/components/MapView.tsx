@@ -1,6 +1,11 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
-import { type GeoJSONSource, type LngLatBoundsLike, type StyleSpecification } from "maplibre-gl";
+import {
+  type GeoJSONSource,
+  type LayerSpecification,
+  type LngLatBoundsLike,
+  type StyleSpecification,
+} from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 // MapLibre worker'ı kendi yanında arar; bu Vite paketinde ve tauri:// adresinde
 // çalışmadığı için worker'ı Vite'a ayrı parça olarak paketletip adresini veriyoruz.
@@ -108,6 +113,68 @@ const STYLE: StyleSpecification = {
     { id: "base-satellite", type: "raster", source: "satellite", layout: { visibility: "none" } },
   ],
 };
+
+/**
+ * Sade ve Koyu için OpenFreeMap vektör stilleri (anahtar gerektirmez).
+ * Vektör karolar her yakınlaşmada yeniden çizildiği için pikselleşmez.
+ * Yüklenemezlerse STYLE içindeki Esri Canvas raster altlıkları kullanılır.
+ */
+const VECTOR_STYLES: Partial<Record<BaseLayer, string>> = {
+  light: "https://tiles.openfreemap.org/styles/positron",
+  dark: "https://tiles.openfreemap.org/styles/dark",
+};
+
+/** Raster altlıkların görüntü bulunan en yüksek düzeyi; bunun bir üstüne
+ * kadar yakınlaşılabilir, daha fazlası yalnızca bulanık büyütme olurdu. */
+const RASTER_MAX_ZOOM: Record<BaseLayer, number> = {
+  light: 16,
+  dark: 16,
+  osm: 19,
+  topo: 17,
+  satellite: 19,
+};
+
+/**
+ * Vektör stilin kaynaklarını ve katmanlarını mevcut haritaya, izlerin altına
+ * ekler. Katman adları "base-<id>-v-" ile başlar; böylece altlık değiştirme
+ * mantığı onları diğer altlık katmanları gibi açıp kapatır.
+ */
+async function addVectorBase(map: maplibregl.Map, id: BaseLayer, url: string): Promise<boolean> {
+  const res = await fetch(url);
+  if (!res.ok) return false;
+  const style = (await res.json()) as StyleSpecification;
+  if (!style.layers?.length || !style.sources) return false;
+  const srcPrefix = `${id}-v-`;
+  for (const [name, src] of Object.entries(style.sources)) {
+    if (!map.getSource(srcPrefix + name)) map.addSource(srcPrefix + name, src);
+  }
+  if (style.glyphs) map.setGlyphs(style.glyphs);
+  const before = map.getLayer("heat") ? "heat" : undefined;
+  let added = 0;
+  for (const layer of style.layers) {
+    const l = { ...layer, id: `base-${id}-v-${layer.id}` } as LayerSpecification & {
+      source?: string;
+      layout?: Record<string, unknown>;
+    };
+    if (typeof l.source === "string") l.source = srcPrefix + l.source;
+    // Simge sayfası (sprite) eklenmiyor; simgeli katmanlar yalnızca yazıyla çizilir.
+    const { "icon-image": _icon, ...layout } = (l.layout ?? {}) as Record<string, unknown>;
+    l.layout = { ...layout, visibility: "none" };
+    try {
+      map.addLayer(l as LayerSpecification, before);
+      added++;
+    } catch (e) {
+      // Bu MapLibre sürümüne uymayan tek bir katman altlığın tamamını bozmasın.
+      console.warn("Altlık katmanı atlandı:", layer.id, e);
+    }
+  }
+  if (added === 0) return false;
+  // Aynı altlığın raster yedeği artık gereksiz.
+  for (const lid of [`base-${id}`, `base-${id}-labels`]) {
+    if (map.getLayer(lid)) map.removeLayer(lid);
+  }
+  return true;
+}
 
 function tracksGeoJSON(files: FileEntry[]): GeoJSON.FeatureCollection {
   return {
@@ -272,6 +339,8 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
   const chooser = useRef<maplibregl.Popup | null>(null);
   /** İmleç konumunu şu an harita mı belirliyor. */
   const mapHovering = useRef(false);
+  /** Vektör stilleri: yükleniyor / yüklendi / yüklenemedi (raster yedek). */
+  const vectorState = useRef<Partial<Record<BaseLayer, "loading" | "ok" | "failed">>>({});
 
   const { files, selected, detail, hoverIdx, range, trackColorBy, heatmap, followCursor, baseLayer } = props;
 
@@ -695,13 +764,34 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
   }, [detail, hoverIdx, followCursor]);
 
   useEffect(() => {
-    whenReady((map) => {
+    const apply = (map: maplibregl.Map, base: BaseLayer) => {
       for (const { id } of map.getStyle().layers) {
         if (!id.startsWith("base-")) continue;
-        const on = id === `base-${baseLayer}` || id.startsWith(`base-${baseLayer}-`);
+        const on = id === `base-${base}` || id.startsWith(`base-${base}-`);
         map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
       }
-      map.setPaintProperty("tracks-casing", "line-color", baseLayer === "dark" ? "#000000" : "#ffffff");
+      // Vektör stil yüklenirken sınır konmaz (kayıtlı yakın görünüm geri
+      // çekilmesin); yalnızca raster altlıkta görüntünün bittiği düzeyde durulur.
+      const vector = VECTOR_STYLES[base] && vectorState.current[base] !== "failed";
+      map.setMaxZoom(vector ? 22 : RASTER_MAX_ZOOM[base] + 1);
+      map.setPaintProperty("tracks-casing", "line-color", base === "dark" ? "#000000" : "#ffffff");
+    };
+    whenReady((map) => {
+      apply(map, baseLayer);
+      const url = VECTOR_STYLES[baseLayer];
+      if (!url || vectorState.current[baseLayer]) return;
+      vectorState.current[baseLayer] = "loading";
+      const id = baseLayer;
+      addVectorBase(map, id, url)
+        .catch((e) => {
+          console.warn("Vektör altlık yüklenemedi, raster yedek kullanılıyor:", e);
+          return false;
+        })
+        .then((ok) => {
+          vectorState.current[id] = ok ? "ok" : "failed";
+          // Bu arada harita kapatılmadıysa güncel altlığa göre yeniden uygula.
+          if (mapRef.current === map) apply(map, live.current.baseLayer);
+        });
     });
   }, [baseLayer]);
 
