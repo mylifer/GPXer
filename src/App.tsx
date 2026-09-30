@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { open } from "@tauri-apps/plugin-dialog";
-import { expandPaths, loadDetail, loadFiles, takePendingPaths, type Detail } from "./api";
+import { ask, open } from "@tauri-apps/plugin-dialog";
+import {
+  expandPaths,
+  libraryFiles,
+  loadDetail,
+  loadFiles,
+  removeFiles,
+  takePendingPaths,
+  type Detail,
+} from "./api";
 import { BASE_LAYERS, MapView, type BaseLayer, type MapHandle } from "./components/MapView";
 import { Sidebar, type Filters } from "./components/Sidebar";
 import { DetailPanel } from "./components/DetailPanel";
@@ -17,6 +25,14 @@ interface LoadError {
   path: string;
   message: string;
 }
+
+interface Duplicate {
+  path: string;
+  /** Kütüphanedeki aynı içerikli dosyanın adı. */
+  existing: string;
+}
+
+const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 
 function readPref<T extends string>(key: string, fallback: T): T {
   try {
@@ -46,6 +62,7 @@ export default function App() {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [loading, setLoading] = useState<{ done: number; total: number } | null>(null);
   const [errors, setErrors] = useState<LoadError[]>([]);
+  const [duplicates, setDuplicates] = useState<Duplicate[]>([]);
   const [dragging, setDragging] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showSpeed, setShowSpeed] = useState(() => readPref<string>("showSpeed", "0") === "1");
@@ -128,6 +145,11 @@ export default function App() {
       const wasEmpty = filesRef.current.length === 0;
       const added: FileEntry[] = [];
       const newErrors: LoadError[] = [];
+      const newDuplicates: Duplicate[] = [];
+      const existingOf = (path: string) => {
+        const f = [...filesRef.current, ...added].find((x) => x.summary.path === path);
+        return f ? f.summary.name || f.summary.fileName : baseName(path);
+      };
       setLoading({ done: 0, total: todo.length });
       for (let i = 0; i < todo.length; i += CHUNK) {
         const results = await loadFiles(todo.slice(i, i + CHUNK));
@@ -135,6 +157,10 @@ export default function App() {
         for (const r of results) {
           if (r.status === "ok") {
             batch.push({ summary: r.file, color: PALETTE[colorCounter.current++ % PALETTE.length], visible: true });
+          } else if (r.status === "duplicate") {
+            newDuplicates.push({ path: r.path, existing: existingOf(r.existing) });
+            // Tek bir dosya açıldıysa ve zaten kütüphanedeyse onu seç.
+            if (todo.length === 1) setSelected(r.existing);
           } else {
             newErrors.push({ path: r.path, message: r.message });
           }
@@ -145,6 +171,7 @@ export default function App() {
       }
       setLoading(null);
       if (newErrors.length) setErrors((prev) => [...prev, ...newErrors]);
+      if (newDuplicates.length) setDuplicates((prev) => [...prev, ...newDuplicates]);
       if (added.length === 1) setSelected(added[0].summary.path);
       if (added.length > 0) {
         // İlk yüklemede hepsini, sonradan eklemede yalnızca yenileri göster.
@@ -166,10 +193,25 @@ export default function App() {
     if (res) openPaths(Array.isArray(res) ? res : [res]);
   }, [openPaths]);
 
-  const closeAll = useCallback(() => {
+  const closeAll = useCallback(async () => {
+    const all = filesRef.current.map((f) => f.summary.path);
+    if (all.length === 0) return;
+    const ok = await ask(`Kütüphanedeki ${all.length} dosyanın tamamı silinsin mi? Orijinal dosyalarınız etkilenmez.`, {
+      title: "Kütüphaneyi temizle",
+      kind: "warning",
+      okLabel: "Temizle",
+      cancelLabel: "Vazgeç",
+    });
+    if (!ok) return;
+    try {
+      await removeFiles(all);
+    } catch (e) {
+      setErrors((prev) => [...prev, { path: "", message: String(e) }]);
+    }
     setFiles([]);
     setSelected(null);
     setErrors([]);
+    setDuplicates([]);
     colorCounter.current = 0;
   }, []);
 
@@ -210,7 +252,10 @@ export default function App() {
         }
       }),
     );
-    drainPending();
+    // Önce kütüphane, ardından işletim sisteminden gelen dosyalar yüklenir.
+    libraryFiles()
+      .then(openPaths)
+      .finally(drainPending);
     return () => unlisten.forEach((p) => p.then((fn) => fn()));
   }, [openPaths, pickFiles, pickFolder, closeAll, fitAll]);
 
@@ -263,6 +308,7 @@ export default function App() {
   );
 
   const remove = useCallback((path: string) => {
+    removeFiles([path]).catch((e) => setErrors((prev) => [...prev, { path, message: String(e) }]));
     setFiles((prev) => prev.filter((f) => f.summary.path !== path));
     setSelected((s) => (s === path ? null : s));
   }, []);
@@ -324,22 +370,44 @@ export default function App() {
             )}
           </div>
           <UpdateNotice />
-          {errors.length > 0 && (
-            <div className="toast error">
-              <div className="toast-head">
-                <strong>{errors.length} dosya açılamadı</strong>
-                <button className="icon-btn" onClick={() => setErrors([])} title="Kapat">
-                  ×
-                </button>
-              </div>
-              <ul>
-                {errors.slice(0, 5).map((e, i) => (
-                  <li key={i}>
-                    <span className="path">{e.path.split(/[\\/]/).pop()}</span> {e.message}
-                  </li>
-                ))}
-                {errors.length > 5 && <li>… ve {errors.length - 5} dosya daha</li>}
-              </ul>
+          {(duplicates.length > 0 || errors.length > 0) && (
+            <div className="toasts">
+              {duplicates.length > 0 && (
+                <div className="toast info">
+                  <div className="toast-head">
+                    <strong>{duplicates.length} dosya zaten kütüphanede, eklenmedi</strong>
+                    <button className="icon-btn" onClick={() => setDuplicates([])} title="Kapat">
+                      ×
+                    </button>
+                  </div>
+                  <ul>
+                    {duplicates.slice(0, 5).map((d, i) => (
+                      <li key={i}>
+                        <span className="path">{baseName(d.path)}</span> → {d.existing}
+                      </li>
+                    ))}
+                    {duplicates.length > 5 && <li>… ve {duplicates.length - 5} dosya daha</li>}
+                  </ul>
+                </div>
+              )}
+              {errors.length > 0 && (
+                <div className="toast error">
+                  <div className="toast-head">
+                    <strong>{errors.length} dosya açılamadı</strong>
+                    <button className="icon-btn" onClick={() => setErrors([])} title="Kapat">
+                      ×
+                    </button>
+                  </div>
+                  <ul>
+                    {errors.slice(0, 5).map((e, i) => (
+                      <li key={i}>
+                        <span className="path">{e.path.split(/[\\/]/).pop()}</span> {e.message}
+                      </li>
+                    ))}
+                    {errors.length > 5 && <li>… ve {errors.length - 5} dosya daha</li>}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>

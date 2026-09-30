@@ -396,6 +396,25 @@ label.check {
   border-left: 4px solid var(--danger);
 }
 
+.toast.info {
+  border-left: 4px solid var(--accent);
+}
+
+/* Hata ve kopya bildirimleri sağ üstte alt alta durur. */
+.toasts {
+  position: absolute;
+  right: 56px;
+  top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 380px;
+}
+
+.toasts .toast {
+  position: static;
+}
+
 .toast-head {
   display: flex;
   align-items: center;

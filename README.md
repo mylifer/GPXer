@@ -15,6 +15,11 @@ ile yazılmıştır.
   gezinince haritada konum işaretlenir; sürükleyerek yakınlaştırılır.
 - **Çoklu dosya:** her dosya ayrı renkte; arama, tarih aralığı filtresi,
   sıralama, tek tek ya da toplu gizleme; filtrelenen dosyaların toplamları.
+- **Kütüphane:** açılan dosyaların kopyası uygulamanın veri klasörüne
+  kaydedilir ve her açılışta yeniden yüklenir; orijinal dosya silinse ya da
+  taşınsa da kayıt kaybolmaz. Listeden kaldırılan dosya kütüphaneden silinir.
+- **Kopya tespiti:** aynı kayıt (farklı adla ya da farklı biçimde kaydedilmiş
+  olsa bile) ikinci kez eklenmez; hangi dosyanın kopyası olduğu gösterilir.
 - **Açma yolları:** sürükle-bırak (dosya ya da klasör), *Dosya → Dosya Aç…*
   (Ctrl/⌘+O), *Klasör Aç…* (Ctrl/⌘+Shift+O, alt klasörler dahil taranır) ve
   `.gpx` dosyalarına çift tıklama. Uygulama açıkken çift tıklanan dosya mevcut

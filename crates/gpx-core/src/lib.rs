@@ -181,6 +181,35 @@ pub fn summarize(gpx: &Gpx, path: &str, file_size: u64) -> Result<FileSummary, L
     })
 }
 
+/// Dosyanın içeriğine göre parmak izi: iz/rota noktalarının konum ve
+/// zamanları ile işaret noktalarından hesaplanır. Aynı kaydın farklı adla ya
+/// da farklı biçimlendirmeyle kaydedilmiş kopyaları aynı değeri verir.
+/// Sürümler arasında değişmemesi için FNV-1a kullanılır.
+pub fn fingerprint(gpx: &Gpx) -> u64 {
+    const PRIME: u64 = 0x100_0000_01b3;
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |bytes: &[u8]| {
+        for b in bytes {
+            h ^= u64::from(*b);
+            h = h.wrapping_mul(PRIME);
+        }
+    };
+    for seg in primary_segments(gpx) {
+        eat(b"S");
+        for p in seg {
+            eat(&p.lat.to_le_bytes());
+            eat(&p.lon.to_le_bytes());
+            eat(&p.time.unwrap_or(i64::MIN).to_le_bytes());
+        }
+    }
+    for w in &gpx.waypoints {
+        eat(b"W");
+        eat(&w.point.lat.to_le_bytes());
+        eat(&w.point.lon.to_le_bytes());
+    }
+    h
+}
+
 pub fn build_detail(gpx: &Gpx) -> Detail {
     let segments = primary_segments(gpx);
     let total: usize = segments.iter().map(|s| s.len()).sum();

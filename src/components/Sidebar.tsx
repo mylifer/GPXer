@@ -72,7 +72,7 @@ const Row = memo(function Row({
       </div>
       <button
         className="icon-btn remove"
-        title="Kapat"
+        title="Kütüphaneden kaldır"
         onClick={(e) => {
           e.stopPropagation();
           onRemove(s.path);
@@ -114,7 +114,7 @@ export function Sidebar(p: Props) {
           Klasör Aç
         </button>
         {p.files.length > 0 && (
-          <button className="btn ghost" onClick={p.onCloseAll} title="Tümünü kapat">
+          <button className="btn ghost" onClick={p.onCloseAll} title="Kütüphaneyi temizle">
             Temizle
           </button>
         )}

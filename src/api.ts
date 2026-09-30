@@ -51,9 +51,12 @@ export interface Detail {
 
 export type LoadResult =
   | { status: "ok"; file: FileSummary }
-  | { status: "error"; path: string; message: string };
+  | { status: "error"; path: string; message: string }
+  | { status: "duplicate"; path: string; existing: string };
 
 export const expandPaths = (paths: string[]) => invoke<string[]>("expand_paths", { paths });
 export const loadFiles = (paths: string[]) => invoke<LoadResult[]>("load_files", { paths });
 export const loadDetail = (path: string) => invoke<Detail>("load_detail", { path });
+export const libraryFiles = () => invoke<string[]>("library_files");
+export const removeFiles = (paths: string[]) => invoke<void>("remove_files", { paths });
 export const takePendingPaths = () => invoke<string[]>("take_pending_paths");

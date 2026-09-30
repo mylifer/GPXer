@@ -122,3 +122,21 @@ fn detail_downsamples() {
     assert!(d.dist.windows(2).all(|w| w[0] <= w[1]));
     assert!(d.speed.iter().any(|s| s.is_some()));
 }
+
+#[test]
+fn fingerprint_ignores_formatting_and_names() {
+    let a = r#"<gpx><metadata><name>A</name></metadata><trk><trkseg>
+        <trkpt lat="41.0" lon="29.0"><time>2024-05-01T06:00:00Z</time></trkpt>
+        <trkpt lat="41.001" lon="29.0"><time>2024-05-01T06:00:30Z</time></trkpt>
+        </trkseg></trk></gpx>"#;
+    let b = r#"<?xml version="1.0"?><gpx creator="x"><trk><name>B</name><trkseg>
+        <trkpt lon="29.000000" lat="41.000000"><ele>5</ele><time>2024-05-01T06:00:00Z</time></trkpt>
+        <trkpt lon="29.000000" lat="41.001000"><time>2024-05-01T06:00:30Z</time></trkpt>
+        </trkseg></trk></gpx>"#;
+    let c = a.replace("06:00:30", "06:00:31");
+    let fa = fingerprint(&parse_gpx(a.as_bytes()).unwrap());
+    let fb = fingerprint(&parse_gpx(b.as_bytes()).unwrap());
+    let fc = fingerprint(&parse_gpx(c.as_bytes()).unwrap());
+    assert_eq!(fa, fb);
+    assert_ne!(fa, fc);
+}

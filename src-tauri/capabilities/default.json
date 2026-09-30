@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Ana pencere izinleri",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open", "updater:default", "process:allow-restart"]
+  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-ask", "updater:default", "process:allow-restart"]
 }
