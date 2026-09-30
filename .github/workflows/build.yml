@@ -46,6 +46,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
+    env:
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -57,15 +59,35 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # İmza anahtarı tanımlı değilse güncelleme paketleri üretilmez;
+      # kurulum dosyaları yine derlenir.
+      - name: Güncelleme imzasını kapat (anahtar yok)
+        if: env.HAS_UPDATER_KEY != 'true'
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs");
+            const f = "src-tauri/tauri.conf.json";
+            const c = JSON.parse(fs.readFileSync(f, "utf8"));
+            c.bundle.createUpdaterArtifacts = false;
+            fs.writeFileSync(f, JSON.stringify(c, null, 2));
+          '
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: ${{ matrix.args }}
-          # Yalnızca v* etiketlerinde taslak GitHub sürümü oluşturulur.
+          # Yalnızca v* etiketlerinde GitHub sürümü yayımlanır. Uygulama
+          # güncellemeleri son yayımlanan sürümün latest.json dosyasından
+          # denetler, bu yüzden sürüm taslak bırakılmaz.
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: GPXer ${{ github.ref_name }}
-          releaseDraft: true
+          releaseBody: Kurulu GPXer bu sürümü bulup güncellemeyi önerir.
+          releaseDraft: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
       - uses: actions/upload-artifact@v4
         with:
           name: GPXer-${{ matrix.name }}

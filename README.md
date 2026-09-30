@@ -39,8 +39,19 @@ ile yazılmıştır.
 Her push'ta GitHub Actions Windows (`.msi` ve `.exe`) ile macOS (`.dmg`,
 Apple Silicon + Intel universal) kurulum dosyalarını üretir. Bunları
 **Actions → Derleme → ilgili çalıştırma → Artifacts** bölümünden
-indirebilirsiniz. `v0.1.0` gibi bir etiket push'landığında dosyalar taslak bir
-GitHub sürümüne (Release) de eklenir.
+indirebilirsiniz.
+
+## Yeni sürüm yayımlamak
+
+1. `package.json`, `src-tauri/Cargo.toml` ve `src-tauri/tauri.conf.json`
+   içindeki sürümü artırın (ör. `0.2.1`).
+2. `v0.2.1` etiketini push'layın. Derleme bitince GitHub sürümü yayımlanır.
+3. Kurulu uygulamalar açılışta yeni sürümü bulup güncellemeyi önerir
+   (ya da menüden *Güncellemeleri Denetle…*).
+
+Güncellemeler imzalıdır. Repo ayarlarında `TAURI_SIGNING_PRIVATE_KEY` ve
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` gizli değerleri tanımlı olmalıdır;
+açık anahtar `tauri.conf.json` içindedir.
 
 Uygulama henüz kod imzalı değil:
 
