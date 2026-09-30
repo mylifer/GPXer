@@ -11,8 +11,11 @@ type State =
   | { kind: "downloading"; version: string; percent: number | null }
   | { kind: "error"; message: string };
 
-/** Açılışta ve menüden istenince GitHub'daki son sürümü denetler; yeni sürüm
- * varsa indirip kurmayı önerir. */
+/** Uygulama açıkken yeni sürümün ne sıklıkla denetleneceği. */
+const CHECK_INTERVAL_MS = 15 * 60 * 1000;
+
+/** Açılışta, açıkken düzenli aralıklarla ve menüden istenince GitHub'daki son
+ * sürümü denetler; yeni sürüm varsa indirip kurmayı önerir. */
 export function UpdateNotice() {
   const [state, setState] = useState<State>({ kind: "idle" });
   const busy = useRef(false);
@@ -24,21 +27,26 @@ export function UpdateNotice() {
     try {
       const update = await check();
       if (update) setState({ kind: "available", update });
-      else setState(manual ? { kind: "current" } : { kind: "idle" });
+      else if (manual) setState({ kind: "current" });
     } catch (e) {
-      // Açılıştaki denetim sessizce başarısız olabilir (ör. internet yok).
-      setState(manual ? { kind: "error", message: String(e) } : { kind: "idle" });
+      // Kendiliğinden yapılan denetim sessizce başarısız olabilir (ör. internet yok).
+      if (manual) setState({ kind: "error", message: String(e) });
     } finally {
       busy.current = false;
     }
   }, []);
 
   useEffect(() => {
-    if (import.meta.env.PROD) run(false);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    if (import.meta.env.PROD) {
+      run(false);
+      timer = setInterval(() => run(false), CHECK_INTERVAL_MS);
+    }
     const unlisten = listen<string>("menu", (e) => {
       if (e.payload === "check_updates") run(true);
     });
     return () => {
+      clearInterval(timer);
       unlisten.then((fn) => fn());
     };
   }, [run]);

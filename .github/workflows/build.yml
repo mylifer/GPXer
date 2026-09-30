@@ -64,10 +64,11 @@ jobs:
             args: ""
             bundle: target/release/bundle
           - name: macOS
+            # Yalnızca Apple Silicon: macos-latest ARM olduğundan doğrudan
+            # derlenir, Intel için ikinci bir derleme yapılmaz.
             os: macos-latest
-            # Hem Apple Silicon hem Intel Mac'lerde çalışan tek paket.
-            args: --target universal-apple-darwin
-            bundle: target/universal-apple-darwin/release/bundle
+            args: ""
+            bundle: target/release/bundle
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -76,8 +77,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:

@@ -43,7 +43,7 @@ ile yazılmıştır.
 ## Kurulum dosyalarını almak
 
 Her push'ta GitHub Actions Windows (`.msi` ve `.exe`) ile macOS (`.dmg`,
-Apple Silicon + Intel universal) kurulum dosyalarını üretir. Bunları
+Apple Silicon) kurulum dosyalarını üretir. Bunları
 **Actions → Derleme → ilgili çalıştırma → Artifacts** bölümünden
 indirebilirsiniz.
 
