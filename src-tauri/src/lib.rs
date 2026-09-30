@@ -133,6 +133,8 @@ fn build_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     let fit_all = MenuItemBuilder::with_id("fit_all", "Tümünü Göster")
         .accelerator("CmdOrCtrl+0")
         .build(app)?;
+    let check_updates =
+        MenuItemBuilder::with_id("check_updates", "Güncellemeleri Denetle…").build(app)?;
     let toggle_sidebar = MenuItemBuilder::with_id("toggle_sidebar", "Kenar Çubuğunu Aç/Kapat")
         .accelerator("CmdOrCtrl+B")
         .build(app)?;
@@ -166,6 +168,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     if cfg!(target_os = "macos") {
         let app_menu = SubmenuBuilder::new(app, "GPXer")
             .about_with_text("GPXer Hakkında", None)
+            .item(&check_updates)
             .separator()
             .hide_with_text("GPXer'ı Gizle")
             .hide_others_with_text("Diğerlerini Gizle")
@@ -175,7 +178,14 @@ fn build_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
             .build()?;
         menu = menu.item(&app_menu);
     }
-    menu.item(&file).item(&edit).item(&view).build()
+    menu = menu.item(&file).item(&edit).item(&view);
+    if !cfg!(target_os = "macos") {
+        let help = SubmenuBuilder::new(app, "Yardım")
+            .item(&check_updates)
+            .build()?;
+        menu = menu.item(&help);
+    }
+    menu.build()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -188,6 +198,8 @@ pub fn run() {
             queue_paths(app, paths);
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(PendingPaths::default())
         .setup(|app| {
             let handle = app.handle();

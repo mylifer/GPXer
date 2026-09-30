@@ -6,6 +6,7 @@ import { expandPaths, loadDetail, loadFiles, takePendingPaths, type Detail } fro
 import { BASE_LAYERS, MapView, type BaseLayer, type MapHandle } from "./components/MapView";
 import { Sidebar, type Filters } from "./components/Sidebar";
 import { DetailPanel } from "./components/DetailPanel";
+import { UpdateNotice } from "./components/UpdateNotice";
 import { PALETTE, type FileEntry } from "./types";
 
 /** Tek seferde Rust tarafına gönderilen dosya sayısı; ilerleme çubuğunun
@@ -322,6 +323,7 @@ export default function App() {
               </button>
             )}
           </div>
+          <UpdateNotice />
           {errors.length > 0 && (
             <div className="toast error">
               <div className="toast-head">

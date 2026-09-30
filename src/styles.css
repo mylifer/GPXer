@@ -411,6 +411,30 @@ label.check {
   font-weight: 600;
 }
 
+/* Güncelleme bildirimi haritanın sol altında durur. */
+.toast.update {
+  top: auto;
+  right: auto;
+  left: 10px;
+  bottom: 30px;
+  min-width: 240px;
+  border-left: 4px solid var(--accent);
+}
+
+.toast.update.error {
+  border-left-color: var(--danger);
+}
+
+.toast.update .progress {
+  margin: 0;
+}
+
+.update-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 /* ---------- Detay paneli ---------- */
 
 .detail {

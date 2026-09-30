@@ -1,0 +1,129 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
+
+type State =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "current" }
+  | { kind: "available"; update: Update }
+  | { kind: "downloading"; version: string; percent: number | null }
+  | { kind: "error"; message: string };
+
+/** Açılışta ve menüden istenince GitHub'daki son sürümü denetler; yeni sürüm
+ * varsa indirip kurmayı önerir. */
+export function UpdateNotice() {
+  const [state, setState] = useState<State>({ kind: "idle" });
+  const busy = useRef(false);
+
+  const run = useCallback(async (manual: boolean) => {
+    if (busy.current) return;
+    busy.current = true;
+    if (manual) setState({ kind: "checking" });
+    try {
+      const update = await check();
+      if (update) setState({ kind: "available", update });
+      else setState(manual ? { kind: "current" } : { kind: "idle" });
+    } catch (e) {
+      // Açılıştaki denetim sessizce başarısız olabilir (ör. internet yok).
+      setState(manual ? { kind: "error", message: String(e) } : { kind: "idle" });
+    } finally {
+      busy.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (import.meta.env.PROD) run(false);
+    const unlisten = listen<string>("menu", (e) => {
+      if (e.payload === "check_updates") run(true);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [run]);
+
+  useEffect(() => {
+    if (state.kind !== "current") return;
+    const t = setTimeout(() => setState({ kind: "idle" }), 4000);
+    return () => clearTimeout(t);
+  }, [state]);
+
+  const install = async (update: Update) => {
+    busy.current = true;
+    let total = 0;
+    let done = 0;
+    setState({ kind: "downloading", version: update.version, percent: null });
+    try {
+      await update.downloadAndInstall((ev) => {
+        if (ev.event === "Started") total = ev.data.contentLength ?? 0;
+        else if (ev.event === "Progress") {
+          done += ev.data.chunkLength;
+          if (total > 0) {
+            setState({ kind: "downloading", version: update.version, percent: Math.round((done / total) * 100) });
+          }
+        }
+      });
+      // Windows'ta kurulum programı uygulamayı kendisi kapatır; macOS'ta
+      // yeni sürümü açmak için yeniden başlatıyoruz.
+      await relaunch();
+    } catch (e) {
+      setState({ kind: "error", message: String(e) });
+    } finally {
+      busy.current = false;
+    }
+  };
+
+  const close = () => setState({ kind: "idle" });
+
+  switch (state.kind) {
+    case "idle":
+      return null;
+    case "checking":
+      return <div className="toast update">Güncellemeler denetleniyor…</div>;
+    case "current":
+      return <div className="toast update">GPXer güncel.</div>;
+    case "available":
+      return (
+        <div className="toast update">
+          <div className="toast-head">
+            <strong>GPXer {state.update.version} yayımlandı</strong>
+            <button className="icon-btn" onClick={close} title="Sonra">
+              ×
+            </button>
+          </div>
+          <div className="update-actions">
+            <button className="btn small primary" onClick={() => install(state.update)}>
+              Güncelle ve yeniden başlat
+            </button>
+            <button className="btn small" onClick={close}>
+              Sonra
+            </button>
+          </div>
+        </div>
+      );
+    case "downloading":
+      return (
+        <div className="toast update">
+          <div className="progress" aria-live="polite">
+            <div className="progress-bar" style={{ width: `${state.percent ?? 0}%` }} />
+            <span>
+              GPXer {state.version} indiriliyor{state.percent != null ? ` (%${state.percent})` : "…"}
+            </span>
+          </div>
+        </div>
+      );
+    case "error":
+      return (
+        <div className="toast update error">
+          <div className="toast-head">
+            <strong>Güncelleme yapılamadı</strong>
+            <button className="icon-btn" onClick={close} title="Kapat">
+              ×
+            </button>
+          </div>
+          <div>{state.message}</div>
+        </div>
+      );
+  }
+}
