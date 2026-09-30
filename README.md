@@ -6,8 +6,9 @@ ile yazılmıştır.
 
 ## Özellikler
 
-- **Harita:** iz (track), rota (route) ve işaret noktaları (waypoint); sokak,
-  topoğrafik ve uydu altlıkları. Rotaya tıklayınca seçilir, üzerine gelince adı
+- **Harita:** iz (track), rota (route) ve işaret noktaları (waypoint); izleri
+  öne çıkaran sade ve koyu altlıklar ile sokak, topoğrafik ve uydu altlıkları.
+  Rotaya tıklayınca seçilir, üzerine gelince adı
   ve tarihi görünür.
 - **İstatistikler:** mesafe, toplam/hareket süresi, ortalama ve maksimum hız,
   tempo, toplam tırmanış/iniş, en düşük/en yüksek nokta.
@@ -94,5 +95,5 @@ src/               React arayüzü (harita, liste, grafik)
 assets/icon.svg    Uygulama simgesi kaynağı (`npx tauri icon assets/icon.png`)
 ```
 
-Harita altlıkları © OpenStreetMap katkıcıları, OpenTopoMap ve Esri'dir.
+Harita altlıkları © OpenStreetMap katkıcıları, CARTO, OpenTopoMap ve Esri'dir.
 İnternet bağlantısı olmadan rotalar yine çizilir, yalnızca altlık görünmez.

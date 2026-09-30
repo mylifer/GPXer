@@ -11,9 +11,11 @@ import { fmtDate, fmtDistance, fmtTimestamp } from "../format";
 
 maplibregl.setWorkerUrl(workerUrl);
 
-export type BaseLayer = "osm" | "topo" | "satellite";
+export type BaseLayer = "light" | "dark" | "osm" | "topo" | "satellite";
 
 export const BASE_LAYERS: { id: BaseLayer; label: string }[] = [
+  { id: "light", label: "Sade" },
+  { id: "dark", label: "Koyu" },
   { id: "osm", label: "Sokak" },
   { id: "topo", label: "Topoğrafik" },
   { id: "satellite", label: "Uydu" },
@@ -36,6 +38,21 @@ const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: 
 const STYLE: StyleSpecification = {
   version: 8,
   sources: {
+    // Soluk renkli, az ayrıntılı altlıklar: izler üzerinde belirgin durur.
+    light: {
+      type: "raster",
+      tiles: ["a", "b", "c", "d"].map((s) => `https://${s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png`),
+      tileSize: 256,
+      maxzoom: 20,
+      attribution: '© <a href="https://carto.com/attributions">CARTO</a>, © OpenStreetMap katkıcıları',
+    },
+    dark: {
+      type: "raster",
+      tiles: ["a", "b", "c", "d"].map((s) => `https://${s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png`),
+      tileSize: 256,
+      maxzoom: 20,
+      attribution: '© <a href="https://carto.com/attributions">CARTO</a>, © OpenStreetMap katkıcıları',
+    },
     osm: {
       type: "raster",
       tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
@@ -60,7 +77,9 @@ const STYLE: StyleSpecification = {
   },
   layers: [
     { id: "bg", type: "background", paint: { "background-color": "#e9e6df" } },
-    { id: "base-osm", type: "raster", source: "osm" },
+    { id: "base-light", type: "raster", source: "light" },
+    { id: "base-dark", type: "raster", source: "dark", layout: { visibility: "none" } },
+    { id: "base-osm", type: "raster", source: "osm", layout: { visibility: "none" } },
     { id: "base-topo", type: "raster", source: "topo", layout: { visibility: "none" } },
     { id: "base-satellite", type: "raster", source: "satellite", layout: { visibility: "none" } },
   ],
@@ -183,6 +202,14 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(
       map.addSource("waypoints", { type: "geojson", data: EMPTY });
       map.addSource("cursor", { type: "geojson", data: EMPTY });
 
+      // İzlerin altında ince bir kontur: altlıktaki yollardan ayrışmalarını sağlar.
+      map.addLayer({
+        id: "tracks-casing",
+        type: "line",
+        source: "tracks",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": 0.9 },
+      });
       map.addLayer({
         id: "tracks",
         type: "line",
@@ -314,6 +341,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(
       map.setFilter("tracks-selected", f);
       map.setFilter("tracks-selected-casing", f);
       map.setPaintProperty("tracks", "line-opacity", selected ? 0.45 : 0.85);
+      map.setPaintProperty("tracks-casing", "line-opacity", selected ? 0.4 : 0.9);
     });
   }, [selected]);
 
@@ -332,6 +360,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(
       for (const l of BASE_LAYERS) {
         map.setLayoutProperty(`base-${l.id}`, "visibility", l.id === baseLayer ? "visible" : "none");
       }
+      map.setPaintProperty("tracks-casing", "line-color", baseLayer === "dark" ? "#000000" : "#ffffff");
     });
   }, [baseLayer]);
 

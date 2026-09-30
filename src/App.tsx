@@ -66,7 +66,11 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showSpeed, setShowSpeed] = useState(() => readPref<string>("showSpeed", "0") === "1");
-  const [baseLayer, setBaseLayer] = useState<BaseLayer>(() => readPref<BaseLayer>("baseLayer", "osm"));
+  // Anahtar 0.4.0'da değişti: herkes bir kez sade altlıkla başlasın.
+  const [baseLayer, setBaseLayer] = useState<BaseLayer>(() => {
+    const v = readPref<BaseLayer>("baseLayer.v2", "light");
+    return BASE_LAYERS.some((l) => l.id === v) ? v : "light";
+  });
   const [filters, setFilters] = useState<Filters>({ query: "", from: "", to: "", sort: "date-desc" });
 
   const mapRef = useRef<MapHandle>(null);
@@ -75,7 +79,7 @@ export default function App() {
   const colorCounter = useRef(0);
   const loadQueue = useRef<Promise<void>>(Promise.resolve());
 
-  useEffect(() => writePref("baseLayer", baseLayer), [baseLayer]);
+  useEffect(() => writePref("baseLayer.v2", baseLayer), [baseLayer]);
   useEffect(() => writePref("showSpeed", showSpeed ? "1" : "0"), [showSpeed]);
 
   const shown = useMemo(() => {
