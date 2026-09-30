@@ -5,8 +5,9 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // MapLibre worker'ı kendi yanında arar; bu Vite paketinde ve tauri:// adresinde
 // çalışmadığı için worker'ı Vite'a ayrı parça olarak paketletip adresini veriyoruz.
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
+import type { FileSummary } from "../api";
 import type { FileEntry } from "../types";
-import { fmtDate, fmtDistance } from "../format";
+import { fmtDate, fmtDistance, fmtTimestamp } from "../format";
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -98,6 +99,42 @@ export function boundsOf(files: FileEntry[]): LngLatBoundsLike | null {
     b = b ? [Math.min(b[0], x[0]), Math.min(b[1], x[1]), Math.max(b[2], x[2]), Math.max(b[3], x[3])] : [...x];
   }
   return b ? [[b[0], b[1]], [b[2], b[3]]] : null;
+}
+
+/** İmlecin altındaki noktanın zamanı: çizginin en yakın parçası bulunur ve
+ * iki ucunun zamanı arasında konuma göre doğrusal ara değer alınır. */
+function timeAt(summary: FileSummary, lon: number, lat: number): number | null {
+  const { lines, times } = summary;
+  if (times.length === 0) return null;
+  const kx = Math.cos((lat * Math.PI) / 180);
+  let best = Infinity;
+  let bestLine = -1;
+  let bestIdx = 0;
+  let bestT = 0;
+  lines.forEach((line, li) => {
+    for (let j = 0; j + 1 < line.length; j++) {
+      const ax = line[j][0] * kx;
+      const ay = line[j][1];
+      const dx = line[j + 1][0] * kx - ax;
+      const dy = line[j + 1][1] - ay;
+      const px = lon * kx - ax;
+      const py = lat - ay;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, (px * dx + py * dy) / len2));
+      const d2 = (px - t * dx) ** 2 + (py - t * dy) ** 2;
+      if (d2 < best) {
+        best = d2;
+        bestLine = li;
+        bestIdx = j;
+        bestT = t;
+      }
+    }
+  });
+  if (bestLine < 0) return null;
+  const ta = times[bestLine]?.[bestIdx] ?? null;
+  const tb = times[bestLine]?.[bestIdx + 1] ?? null;
+  if (ta != null && tb != null) return Math.round(ta + (tb - ta) * bestT);
+  return bestT < 0.5 ? ta ?? tb : tb ?? ta;
 }
 
 function escapeHtml(s: string) {
@@ -226,9 +263,12 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(
           return;
         }
         const s = entry.summary;
-        const html = `<strong>${escapeHtml(s.name || s.fileName)}</strong><br>${fmtDate(s.stats.startTime)} · ${fmtDistance(
-          s.stats.distanceM,
-        )}`;
+        const t = timeAt(s, e.lngLat.lng, e.lngLat.lat);
+        const html =
+          `<strong>${escapeHtml(s.name || s.fileName)}</strong><br>` +
+          (t != null
+            ? `<span class="popup-time">${fmtTimestamp(t)}</span><br>${fmtDistance(s.stats.distanceM)}`
+            : `${fmtDate(s.stats.startTime)} · ${fmtDistance(s.stats.distanceM)}`);
         if (!hoverPopup.current) {
           hoverPopup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "hover-popup" });
         }

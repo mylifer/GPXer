@@ -10,6 +10,14 @@ const dateTimeFmt = new Intl.DateTimeFormat("tr-TR", {
   hour: "2-digit",
   minute: "2-digit",
 });
+const timestampFmt = new Intl.DateTimeFormat("tr-TR", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
 const timeFmt = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 export const DASH = "—";
@@ -64,6 +72,10 @@ export function fmtDate(t: number | null | undefined): string {
 
 export function fmtDateTime(t: number | null | undefined): string {
   return t == null ? DASH : dateTimeFmt.format(t);
+}
+
+export function fmtTimestamp(t: number | null | undefined): string {
+  return t == null ? DASH : timestampFmt.format(t);
 }
 
 export function fmtTime(t: number | null | undefined): string {

@@ -44,6 +44,9 @@ pub struct FileSummary {
     pub stats: Stats,
     /// Sadeleştirilmiş çizgiler, her biri [lon, lat] dizisi.
     pub lines: Vec<Vec<[f64; 2]>>,
+    /// `lines` ile aynı düzende nokta zamanları (Unix ms). Dosyada hiç zaman
+    /// bilgisi yoksa boş bırakılır.
+    pub times: Vec<Vec<Option<i64>>>,
     pub waypoints: Vec<WaypointOut>,
 }
 
@@ -125,16 +128,23 @@ pub fn summarize(gpx: &Gpx, path: &str, file_size: u64) -> Result<FileSummary, L
         stats.bbox = Some(b);
     }
 
-    let lines = segments
+    let simplified: Vec<Vec<Point>> = segments
         .iter()
-        .map(|seg| {
-            simplify::douglas_peucker(seg, MAP_TOLERANCE_M)
-                .into_iter()
-                .map(|p| [round6(p.lon), round6(p.lat)])
-                .collect::<Vec<_>>()
-        })
+        .map(|seg| simplify::douglas_peucker(seg, MAP_TOLERANCE_M))
         .filter(|l| l.len() >= 2)
         .collect();
+    let lines = simplified
+        .iter()
+        .map(|l| l.iter().map(|p| [round6(p.lon), round6(p.lat)]).collect())
+        .collect();
+    let times = if simplified.iter().flatten().any(|p| p.time.is_some()) {
+        simplified
+            .iter()
+            .map(|l| l.iter().map(|p| p.time).collect())
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let file_name = Path::new(path)
         .file_name()
@@ -157,6 +167,7 @@ pub fn summarize(gpx: &Gpx, path: &str, file_size: u64) -> Result<FileSummary, L
         route_count: gpx.routes.len(),
         stats,
         lines,
+        times,
         waypoints: gpx
             .waypoints
             .iter()

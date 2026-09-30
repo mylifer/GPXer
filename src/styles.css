@@ -372,6 +372,10 @@ label.check {
   pointer-events: none;
 }
 
+.hover-popup .popup-time {
+  font-variant-numeric: tabular-nums;
+}
+
 .maplibregl-popup-content {
   color: #1d2327;
 }

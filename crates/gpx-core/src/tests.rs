@@ -57,6 +57,12 @@ fn computes_stats() {
     assert_eq!(st.segment_count, 2);
     assert_eq!(s.file_name, "a.gpx");
     assert!(st.max_speed_ms.unwrap() > 3.0);
+    // Harita çizgileriyle aynı düzende zaman bilgisi gelir.
+    assert_eq!(s.times.len(), s.lines.len());
+    for (l, t) in s.lines.iter().zip(&s.times) {
+        assert_eq!(l.len(), t.len());
+    }
+    assert_eq!(s.times[0][0], gpx.tracks[0].segments[0][0].time);
 }
 
 #[test]
@@ -69,6 +75,8 @@ fn routes_used_when_no_tracks() {
     assert_eq!(s.name.as_deref(), Some("R"));
     assert!((s.stats.distance_m - 1112.0).abs() < 1.0);
     assert_eq!(s.lines.len(), 1);
+    // Zaman bilgisi olmayan dosyada boş gönderilir.
+    assert!(s.times.is_empty());
 }
 
 #[test]

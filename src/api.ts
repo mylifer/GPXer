@@ -35,6 +35,8 @@ export interface FileSummary {
   stats: Stats;
   /** Her çizgi [lon, lat] noktalarından oluşur. */
   lines: [number, number][][];
+  /** `lines` ile aynı düzende nokta zamanları (Unix ms); zaman yoksa boş. */
+  times: (number | null)[][];
   waypoints: Waypoint[];
 }
 
