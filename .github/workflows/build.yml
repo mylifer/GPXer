@@ -1,0 +1,76 @@
+name: Derleme
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Testler
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: cargo test -p gpx-core
+      - run: npm ci
+      - run: npm run build
+
+  bundle:
+    name: Kurulum (${{ matrix.name }})
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            args: ""
+            bundle: target/release/bundle
+          - name: macOS
+            os: macos-latest
+            # Hem Apple Silicon hem Intel Mac'lerde çalışan tek paket.
+            args: --target universal-apple-darwin
+            bundle: target/universal-apple-darwin/release/bundle
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: ${{ matrix.args }}
+          # Yalnızca v* etiketlerinde taslak GitHub sürümü oluşturulur.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: GPXer ${{ github.ref_name }}
+          releaseDraft: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GPXer-${{ matrix.name }}
+          path: |
+            ${{ matrix.bundle }}/msi/*.msi
+            ${{ matrix.bundle }}/nsis/*.exe
+            ${{ matrix.bundle }}/dmg/*.dmg
+          if-no-files-found: error

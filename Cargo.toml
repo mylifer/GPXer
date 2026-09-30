@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = ["crates/gpx-core", "src-tauri"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+strip = true
