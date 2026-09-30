@@ -95,5 +95,5 @@ src/               React arayüzü (harita, liste, grafik)
 assets/icon.svg    Uygulama simgesi kaynağı (`npx tauri icon assets/icon.png`)
 ```
 
-Harita altlıkları © OpenStreetMap katkıcıları, CARTO, OpenTopoMap ve Esri'dir.
+Harita altlıkları © OpenStreetMap katkıcıları, OpenTopoMap ve Esri'dir.
 İnternet bağlantısı olmadan rotalar yine çizilir, yalnızca altlık görünmez.

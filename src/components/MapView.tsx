@@ -35,24 +35,27 @@ interface Props {
 
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
+/** Esri Canvas altlığı ve üstündeki yer adı katmanı için kaynaklar. */
+function canvas(id: string, service: string): StyleSpecification["sources"] {
+  const src = (name: string) => ({
+    type: "raster" as const,
+    tiles: [`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${name}/MapServer/tile/{z}/{y}/{x}`],
+    tileSize: 256,
+    maxzoom: 16,
+  });
+  return {
+    [id]: { ...src(`${service}_Base`), attribution: "Altlık © Esri, HERE, Garmin, © OpenStreetMap katkıcıları" },
+    [`${id}-labels`]: src(`${service}_Reference`),
+  };
+}
+
 const STYLE: StyleSpecification = {
   version: 8,
   sources: {
     // Soluk renkli, az ayrıntılı altlıklar: izler üzerinde belirgin durur.
-    light: {
-      type: "raster",
-      tiles: ["a", "b", "c", "d"].map((s) => `https://${s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png`),
-      tileSize: 256,
-      maxzoom: 20,
-      attribution: '© <a href="https://carto.com/attributions">CARTO</a>, © OpenStreetMap katkıcıları',
-    },
-    dark: {
-      type: "raster",
-      tiles: ["a", "b", "c", "d"].map((s) => `https://${s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png`),
-      tileSize: 256,
-      maxzoom: 20,
-      attribution: '© <a href="https://carto.com/attributions">CARTO</a>, © OpenStreetMap katkıcıları',
-    },
+    // Esri Canvas altlıkları anahtar gerektirmez; yer adları ayrı bir katmanda gelir.
+    ...canvas("light", "World_Light_Gray"),
+    ...canvas("dark", "World_Dark_Gray"),
     osm: {
       type: "raster",
       tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
@@ -78,7 +81,9 @@ const STYLE: StyleSpecification = {
   layers: [
     { id: "bg", type: "background", paint: { "background-color": "#e9e6df" } },
     { id: "base-light", type: "raster", source: "light" },
+    { id: "base-light-labels", type: "raster", source: "light-labels" },
     { id: "base-dark", type: "raster", source: "dark", layout: { visibility: "none" } },
+    { id: "base-dark-labels", type: "raster", source: "dark-labels", layout: { visibility: "none" } },
     { id: "base-osm", type: "raster", source: "osm", layout: { visibility: "none" } },
     { id: "base-topo", type: "raster", source: "topo", layout: { visibility: "none" } },
     { id: "base-satellite", type: "raster", source: "satellite", layout: { visibility: "none" } },
@@ -357,8 +362,10 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(
 
   useEffect(() => {
     whenReady((map) => {
-      for (const l of BASE_LAYERS) {
-        map.setLayoutProperty(`base-${l.id}`, "visibility", l.id === baseLayer ? "visible" : "none");
+      for (const { id } of map.getStyle().layers) {
+        if (!id.startsWith("base-")) continue;
+        const on = id === `base-${baseLayer}` || id.startsWith(`base-${baseLayer}-`);
+        map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
       }
       map.setPaintProperty("tracks-casing", "line-color", baseLayer === "dark" ? "#000000" : "#ffffff");
     });
