@@ -9,9 +9,34 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Yarıda kesilen bir sürüm eksik dosyalarla kalmasın diye iptal edilmez.
+  cancel-in-progress: false
 
 jobs:
+  version:
+    name: Sürüm
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      # Sürüm yayımlanacaksa etiketi belirler: v* etiketi push'landıysa o
+      # etiket; bir dala push'ta tauri.conf.json'daki sürümün etiketi henüz
+      # yoksa v<sürüm>. Aksi halde boş kalır ve yalnızca derleme yapılır.
+      - id: v
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          TAG="v$(node -p 'require("./src-tauri/tauri.conf.json").version')"
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/* ]] &&
+             ! git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "Yeni sürüm: $TAG"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
   test:
     name: Testler
     runs-on: ubuntu-latest
@@ -29,7 +54,7 @@ jobs:
 
   bundle:
     name: Kurulum (${{ matrix.name }})
-    needs: test
+    needs: [test, version]
     strategy:
       fail-fast: false
       matrix:
@@ -79,11 +104,11 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: ${{ matrix.args }}
-          # Yalnızca v* etiketlerinde GitHub sürümü yayımlanır. Uygulama
-          # güncellemeleri son yayımlanan sürümün latest.json dosyasından
-          # denetler, bu yüzden sürüm taslak bırakılmaz.
-          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
-          releaseName: GPXer ${{ github.ref_name }}
+          # Sürüm etiketi varsa GitHub sürümü (etiketiyle birlikte) yayımlanır.
+          # Uygulama güncellemeleri son yayımlanan sürümün latest.json
+          # dosyasından denetler, bu yüzden sürüm taslak bırakılmaz.
+          tagName: ${{ needs.version.outputs.tag }}
+          releaseName: GPXer ${{ needs.version.outputs.tag }}
           releaseBody: Kurulu GPXer bu sürümü bulup güncellemeyi önerir.
           releaseDraft: false
           includeUpdaterJson: true

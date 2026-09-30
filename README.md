@@ -45,7 +45,9 @@ indirebilirsiniz.
 
 1. `package.json`, `src-tauri/Cargo.toml` ve `src-tauri/tauri.conf.json`
    içindeki sürümü artırın (ör. `0.2.1`).
-2. `v0.2.1` etiketini push'layın. Derleme bitince GitHub sürümü yayımlanır.
+2. Push'layın. O sürümün etiketi (`v0.2.1`) henüz yoksa derleme etiketi ve
+   GitHub sürümünü kendisi oluşturur. İsterseniz etiketi elle de
+   push'layabilirsiniz.
 3. Kurulu uygulamalar açılışta yeni sürümü bulup güncellemeyi önerir
    (ya da menüden *Güncellemeleri Denetle…*).
 
