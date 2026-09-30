@@ -6,28 +6,62 @@ ile yazılmıştır.
 
 ## Özellikler
 
-- **Harita:** iz (track), rota (route) ve işaret noktaları (waypoint); izleri
-  öne çıkaran sade ve koyu altlıklar ile sokak, topoğrafik ve uydu altlıkları.
-  Rotaya tıklayınca seçilir, üzerine gelince adı
-  ve tarihi görünür.
-- **İstatistikler:** mesafe, toplam/hareket süresi, ortalama ve maksimum hız,
-  tempo, toplam tırmanış/iniş, en düşük/en yüksek nokta.
-- **Yükseklik grafiği:** mesafeye göre profil, isteğe bağlı hız eğrisi. Grafikte
-  gezinince haritada konum işaretlenir; sürükleyerek yakınlaştırılır.
-- **Çoklu dosya:** her dosya ayrı renkte; arama, tarih aralığı filtresi,
-  sıralama, tek tek ya da toplu gizleme; filtrelenen dosyaların toplamları.
-- **Kütüphane:** açılan dosyaların kopyası uygulamanın veri klasörüne
-  kaydedilir ve her açılışta yeniden yüklenir; orijinal dosya silinse ya da
-  taşınsa da kayıt kaybolmaz. Listeden kaldırılan dosya kütüphaneden silinir.
-- **Kopya tespiti:** aynı kayıt (farklı adla ya da farklı biçimde kaydedilmiş
-  olsa bile) ikinci kez eklenmez; hangi dosyanın kopyası olduğu gösterilir.
-- **Açma yolları:** sürükle-bırak (dosya ya da klasör), *Dosya → Dosya Aç…*
-  (Ctrl/⌘+O), *Klasör Aç…* (Ctrl/⌘+Shift+O, alt klasörler dahil taranır) ve
-  `.gpx` dosyalarına çift tıklama. Uygulama açıkken çift tıklanan dosya mevcut
-  pencereye eklenir.
-- **Klavye:** ↑/↓ listede gezinir, Esc seçimi kaldırır, Ctrl/⌘+0 tümünü
-  gösterir, Ctrl/⌘+B kenar çubuğunu açıp kapatır. Listede çift tıklama o rotaya
-  yakınlaştırır.
+**Harita**
+- İz (track), rota (route) ve işaret noktaları (waypoint); sade, koyu, sokak,
+  topoğrafik ve uydu altlıkları.
+- İz üzerinde gezinince o noktanın tarihi ve saati görünür. Seçili izde
+  mesafe, yükseklik, hız ve varsa nabız/kadans/güç/sıcaklık da gösterilir;
+  grafikteki imleç de aynı noktaya gider.
+- Üst üste binen izlere tıklayınca hangisinin seçileceği sorulur.
+- Seçili iz hıza, yüksekliğe, nabza, kadansa ya da güce göre renklendirilebilir.
+- Tüm izler dosya rengiyle ya da tarihe göre (eskiden yeniye) renklenir;
+  dosya rengi değiştirilebilir ve kalıcıdır.
+- Isı haritası: yüzlerce kayıtta en çok geçilen yerler.
+- Harita görüntüsü PNG olarak kaydedilebilir.
+
+**Grafik ve istatistik**
+- Mesafe, toplam/hareket süresi, ortalama/maksimum hız, tempo, tırmanış/iniş,
+  en düşük/en yüksek nokta; varsa ortalama/maksimum nabız, kadans, güç, sıcaklık.
+- Yükseklik, hız, nabız, kadans, güç ve sıcaklık ortak eksenli ayrı
+  şeritlerde; yatay eksen mesafe ya da zaman.
+- Grafikte sürükleyerek aralık seçilir: aralığın mesafe, süre, hız, tırmanış
+  ve nabız bilgisi; haritada vurgulama; aralığı kırpma ya da kaydı o noktadan
+  bölme.
+- Oynatma: iz, kaydın gerçek zamanına göre 10×–600× hızla canlandırılır,
+  harita imleci takip eder.
+- Özet paneli: aylık/yıllık mesafe, süre, tırmanış ve kayıt sayısı grafikleri
+  (tabloya çevrilebilir), rekorlar. Çubuğa tıklayınca liste o döneme süzülür.
+
+**Kütüphane ve liste**
+- Açılan dosyaların kopyası uygulamanın veri klasöründe saklanır ve her
+  açılışta yüklenir; aynı kayıt (farklı adla kaydedilmiş olsa bile) ikinci kez
+  eklenmez.
+- Özetler önbelleğe alınır: değişmemiş dosyalar yeniden okunmaz.
+- İzlenen klasörler: bu klasörlere eklenen yeni GPX dosyaları kendiliğinden
+  kütüphaneye girer.
+- Liste aya ya da yıla göre gruplanır; grupların toplamları görünür.
+- `gg.aa.yyyy` biçiminde tarih filtresi (yazarak ya da takvimden), hazır
+  aralıklar (bugün, bu hafta, bu ay, son 30 gün, bu yıl…) ve yıl/ay seçimi.
+- Ctrl/⌘ ve Shift ile çoklu seçim: birleştirme, CSV'ye aktarma,
+  gösterme/gizleme, kaldırma.
+- Kaldırılan kayıtlar çöp kutusuna gider; hemen "Geri al" ile geri gelir,
+  30 gün sonra silinir.
+- Filtreler, gizlenen izler, seçim, harita konumu ve panel boyutu açılışlar
+  arasında hatırlanır.
+
+**Dışa aktarma ve ayarlar**
+- Özet tablosu CSV olarak (Türkçe Excel'in doğrudan açacağı biçimde), seçili
+  kayıt GPX olarak kaydedilebilir.
+- Ayarlar: etkinlik türüne göre hazır eşikler, duruyor sayılma hızı,
+  yükseklik gürültü eşiği; saatlerin bilgisayarın ya da kaydın yapıldığı yerin
+  saat dilimine göre gösterilmesi; izlenen klasörler.
+
+**Açma yolları ve klavye**
+- Sürükle-bırak, *Dosya Aç…* (Ctrl/⌘+O), *Klasör Aç…* (Ctrl/⌘+Shift+O),
+  `.gpx` dosyalarına çift tıklama.
+- ↑/↓ listede gezinir, Boşluk oynatır/durdurur, Esc seçimi kaldırır,
+  Ctrl/⌘+0 tümünü gösterir, Ctrl/⌘+B kenar çubuğu, Ctrl/⌘+H ısı haritası,
+  Ctrl/⌘+I özet, Ctrl/⌘+E CSV, Ctrl/⌘+S GPX olarak kaydet, Ctrl/⌘+, ayarlar.
 
 ## Çok sayıda dosyada performans
 
@@ -61,7 +95,22 @@ Güncellemeler imzalıdır. Repo ayarlarında `TAURI_SIGNING_PRIVATE_KEY` ve
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` gizli değerleri tanımlı olmalıdır;
 açık anahtar `tauri.conf.json` içindedir.
 
-Uygulama henüz kod imzalı değil:
+### Kod imzalama
+
+İş akışı, aşağıdaki gizli değerler repo ayarlarında (*Settings → Secrets and
+variables → Actions*) tanımlandığında paketleri kendiliğinden imzalar.
+Tanımlı değilse paketler imzasız derlenir.
+
+| Platform | Gizli değerler |
+|---|---|
+| macOS (Developer ID + noter onayı) | `APPLE_CERTIFICATE` (base64 .p12), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` (ör. `Developer ID Application: Ad (TEAMID)`), `APPLE_ID`, `APPLE_PASSWORD` (uygulamaya özel parola), `APPLE_TEAM_ID` |
+| Windows (Authenticode) | `WINDOWS_CERTIFICATE` (base64 .pfx), `WINDOWS_CERTIFICATE_PASSWORD` |
+
+Sertifika dosyasını base64'e çevirmek için: `base64 -i sertifika.p12 | pbcopy`
+(macOS) ya da `[Convert]::ToBase64String([IO.File]::ReadAllBytes("sertifika.pfx"))`
+(PowerShell).
+
+İmza yokken:
 
 - **Windows:** SmartScreen uyarısında *Ek bilgi → Yine de çalıştır*.
 - **macOS:** ilk açılışta uygulamaya sağ tıklayıp *Aç* deyin. "Hasarlı"
@@ -77,7 +126,7 @@ Gereksinimler: [Rust](https://rustup.rs), Node.js 20+ ve
 npm install
 npm run tauri dev      # geliştirme modunda çalıştır
 npm run tauri build    # bu işletim sistemi için kurulum dosyası üret
-cargo test -p gpx-core # çekirdek testleri
+cargo test -p gpx-core -p gpxer # çekirdek ve uygulama testleri
 ```
 
 Ölçüm/deneme aracı:
@@ -89,9 +138,9 @@ cargo run --release -p gpx-core --example dump -- ozet.json klasor/*.gpx
 ## Proje yapısı
 
 ```
-crates/gpx-core/   GPX ayrıştırma, istatistik, sadeleştirme (Tauri'den bağımsız, testli)
-src-tauri/         Masaüstü uygulaması: komutlar, menü, dosya ilişkilendirme
-src/               React arayüzü (harita, liste, grafik)
+crates/gpx-core/   GPX ayrıştırma ve yazma, istatistik, sadeleştirme, kırpma/bölme/birleştirme
+src-tauri/         Masaüstü uygulaması: komutlar, kütüphane ve önbellek, klasör izleme, menü
+src/               React arayüzü (harita, liste, grafik, özet, ayarlar)
 assets/icon.svg    Uygulama simgesi kaynağı (`npx tauri icon assets/icon.png`)
 ```
 

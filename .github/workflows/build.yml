@@ -48,9 +48,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: cargo test -p gpx-core
+      - name: Linux derleme bağımlılıkları
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev
       - run: npm ci
+      # Uygulama crate'i derlenirken arayüz paketinin (dist) var olması gerekir.
       - run: npm run build
+      - run: cargo test -p gpx-core -p gpxer
 
   bundle:
     name: Kurulum (${{ matrix.name }})
@@ -74,6 +79,8 @@ jobs:
       contents: write
     env:
       HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      HAS_WINDOWS_CERT: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -96,6 +103,47 @@ jobs:
             c.bundle.createUpdaterArtifacts = false;
             fs.writeFileSync(f, JSON.stringify(c, null, 2));
           '
+      # Kod imzalama: ilgili gizli değerler repo ayarlarında tanımlıysa
+      # etkinleşir; yoksa paketler imzasız (macOS'ta ad-hoc imzalı) derlenir.
+      # Boş değişkenler Tauri'yi yanıltmasın diye yalnızca doluysa aktarılır.
+      - name: macOS imzası ve noter onayı
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERT == 'true'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!v}" ]; then
+              {
+                echo "$v<<__EOF__"
+                echo "${!v}"
+                echo "__EOF__"
+              } >> "$GITHUB_ENV"
+            fi
+          done
+      - name: Windows imzası
+        if: runner.os == 'Windows' && env.HAS_WINDOWS_CERT == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $pw = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+          Remove-Item $pfx
+          $f = "src-tauri/tauri.conf.json"
+          $c = Get-Content $f -Raw | ConvertFrom-Json
+          $c.bundle.windows | Add-Member -Force certificateThumbprint $cert.Thumbprint
+          $c.bundle.windows | Add-Member -Force digestAlgorithm "sha256"
+          $c.bundle.windows | Add-Member -Force timestampUrl "http://timestamp.digicert.com"
+          $c | ConvertTo-Json -Depth 20 | Set-Content $f -Encoding utf8
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -2,13 +2,21 @@ import { useEffect, useRef } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import type { Detail } from "../api";
-import { fmtTime } from "../format";
+import type { Metric, XAxis } from "../prefs";
+import { METRICS } from "../types";
 
 interface Props {
   detail: Detail;
   color: string;
-  showSpeed: boolean;
+  /** Gösterilecek ölçüler; her biri kendi şeridinde çizilir. */
+  metrics: Metric[];
+  xAxis: XAxis;
+  tz?: string;
+  /** Dışarıdan (haritadan, oynatmadan) gelen imleç konumu. */
+  hoverIdx: number | null;
+  range: [number, number] | null;
   onHover(index: number | null): void;
+  onRange(range: [number, number] | null): void;
 }
 
 const nf1 = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 1 });
@@ -18,122 +26,182 @@ function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-export function ProfileChart({ detail, color, showSpeed, onHover }: Props) {
+export function metricValues(d: Detail, m: Metric): (number | null)[] {
+  return d[m] as (number | null)[];
+}
+
+export function hasMetric(d: Detail, m: Metric): boolean {
+  const v = metricValues(d, m);
+  return v.length > 0 && v.some((x) => x != null);
+}
+
+/** Zaman ekseni yalnızca her noktada zaman varsa ve zaman ilerliyorsa kullanılabilir. */
+export function canUseTime(d: Detail): boolean {
+  let prev = -Infinity;
+  for (const t of d.time) {
+    if (t == null || t < prev) return false;
+    prev = t;
+  }
+  return d.time.length > 1;
+}
+
+export function ProfileChart({ detail, color, metrics, xAxis, tz, hoverIdx, range, onHover, onRange }: Props) {
   const host = useRef<HTMLDivElement>(null);
-  const onHoverRef = useRef(onHover);
-  onHoverRef.current = onHover;
+  const plots = useRef<uPlot[]>([]);
+  const xs = useRef<number[]>([]);
+  const syncing = useRef(false);
+  const lastFromChart = useRef<number | null>(null);
+  const cb = useRef({ onHover, onRange });
+  cb.current = { onHover, onRange };
+  const syncKey = useRef(`gpxer-${Math.random().toString(36).slice(2)}`);
 
   useEffect(() => {
     const el = host.current!;
-    const xs = detail.dist.map((d) => d / 1000);
-    const hasEle = detail.ele.some((e) => e != null);
-    const hasSpeed = showSpeed && detail.speed.some((s) => s != null);
-    const axisColor = cssVar("--text-muted");
-    const gridColor = cssVar("--grid");
-
-    const series: uPlot.Series[] = [
-      { label: "Mesafe", value: (_u, v) => (v == null ? "—" : `${nf1.format(v)} km`) },
-    ];
-    const data: uPlot.AlignedData = [xs];
-    if (hasEle) {
-      series.push({
-        label: "Yükseklik",
-        scale: "m",
-        stroke: color,
-        width: 2,
-        fill: color + "33",
-        spanGaps: false,
-        points: { show: false },
-        value: (_u, v) => (v == null ? "—" : `${nf0.format(v)} m`),
-      });
-      data.push(detail.ele as (number | null)[]);
-    }
-    if (hasSpeed) {
-      series.push({
-        label: "Hız",
-        scale: "kmh",
-        stroke: "#6b7280",
-        width: 1,
-        points: { show: false },
-        value: (_u, v) => (v == null ? "—" : `${nf1.format(v)} km/sa`),
-      });
-      data.push(detail.speed as (number | null)[]);
-    }
-
-    const axes: uPlot.Axis[] = [
-      {
-        stroke: axisColor,
-        grid: { stroke: gridColor },
-        ticks: { stroke: gridColor },
-        values: (_u, splits) => splits.map((v) => `${nf1.format(v)} km`),
-      },
-    ];
-    if (hasEle) {
-      axes.push({
-        scale: "m",
-        stroke: axisColor,
-        grid: { stroke: gridColor },
-        ticks: { stroke: gridColor },
-        size: 56,
-        values: (_u, splits) => splits.map((v) => `${nf0.format(v)} m`),
-      });
-    }
-    if (hasSpeed) {
-      axes.push({
-        scale: "kmh",
-        side: 1,
-        stroke: axisColor,
-        grid: { show: false },
-        size: 64,
-        values: (_u, splits) => splits.map((v) => `${nf0.format(v)} km/sa`),
-      });
-    }
-
-    const opts: uPlot.Options = {
-      width: el.clientWidth,
-      height: el.clientHeight,
-      series,
-      axes,
-      scales: { x: { time: false } },
-      legend: { show: true, live: true },
-      cursor: { drag: { x: true, y: false }, points: { size: 8 } },
-      hooks: {
-        setCursor: [
-          (u) => {
-            const i = u.cursor.idx;
-            onHoverRef.current(i == null ? null : i);
-            // Lejanda zaman bilgisini de gösteriyoruz.
-            const t = i == null ? null : detail.time[i];
-            const tEl = el.querySelector(".chart-time");
-            if (tEl) tEl.textContent = t == null ? "" : fmtTime(t);
-          },
-        ],
-      },
-    };
-
-    if (!hasEle && !hasSpeed) {
-      el.innerHTML = '<div class="chart-empty">Bu dosyada yükseklik ya da zaman bilgisi yok.</div>';
+    const useTime = xAxis === "time" && canUseTime(detail);
+    const x = useTime ? detail.time.map((t) => (t as number) / 1000) : detail.dist.map((d) => d / 1000);
+    xs.current = x;
+    const shown = metrics.filter((m) => hasMetric(detail, m));
+    if (shown.length === 0) {
+      el.innerHTML = '<div class="chart-empty">Bu dosyada grafik çizilecek yükseklik ya da zaman bilgisi yok.</div>';
       return () => {
         el.innerHTML = "";
       };
     }
 
-    const u = new uPlot(opts, data, el);
-    const timeEl = document.createElement("span");
-    timeEl.className = "chart-time";
-    u.root.querySelector(".u-legend")?.appendChild(timeEl);
+    const axisColor = cssVar("--text-muted");
+    const gridColor = cssVar("--grid");
+    const rows: HTMLDivElement[] = [];
+    const created: uPlot[] = [];
+    const rowHeight = () => Math.max(60, Math.floor(el.clientHeight / shown.length));
+
+    shown.forEach((m, i) => {
+      const meta = METRICS[m];
+      const last = i === shown.length - 1;
+      const row = document.createElement("div");
+      row.className = "chart-row";
+      el.appendChild(row);
+      rows.push(row);
+      const values = metricValues(detail, m);
+      // Yükseklik dosyanın rengiyle, diğer ölçüler nötr mürekkeple çizilir.
+      const stroke = m === "ele" ? color : cssVar("--text");
+      const opts: uPlot.Options = {
+        width: el.clientWidth,
+        height: rowHeight(),
+        legend: { show: false },
+        tzDate: tz ? (ts) => uPlot.tzDate(new Date(ts * 1e3), tz) : undefined,
+        scales: { x: { time: useTime } },
+        series: [
+          {},
+          {
+            label: meta.label,
+            stroke,
+            width: m === "ele" ? 2 : 1.5,
+            fill: m === "ele" ? color + "2e" : undefined,
+            spanGaps: false,
+            points: { show: false },
+          },
+        ],
+        axes: [
+          {
+            stroke: axisColor,
+            grid: { stroke: gridColor, width: 1 },
+            ticks: { show: false },
+            size: last ? 28 : 6,
+            values: last
+              ? useTime
+                ? undefined
+                : (_u, splits) => splits.map((v) => `${nf1.format(v)} km`)
+              : () => [],
+          },
+          {
+            stroke: axisColor,
+            grid: { stroke: gridColor, width: 1 },
+            ticks: { show: false },
+            size: 56,
+            values: (_u, splits) => splits.map((v) => (meta.digits ? nf1 : nf0).format(v)),
+          },
+        ],
+        cursor: {
+          sync: { key: syncKey.current },
+          drag: { x: true, y: false, setScale: false },
+          points: { size: 7, fill: stroke },
+        },
+        hooks: {
+          setCursor: [
+            (u) => {
+              if (syncing.current) return;
+              const idx = u.cursor.idx ?? null;
+              lastFromChart.current = idx;
+              cb.current.onHover(idx);
+            },
+          ],
+          setSelect: [
+            (u) => {
+              const s = u.select;
+              if (s.width < 3) return;
+              const a = u.posToIdx(s.left);
+              const b = u.posToIdx(s.left + s.width);
+              if (b > a) cb.current.onRange([a, b]);
+            },
+          ],
+        },
+      };
+      const u = new uPlot(opts, [x, values], row);
+      // Şerit adı eksen başlığı yerine sol üstte durur; kısa şeritlerde çakışmaz.
+      const tag = document.createElement("div");
+      tag.className = "chart-row-label";
+      tag.textContent = `${meta.label} (${meta.unit})`;
+      row.appendChild(tag);
+      u.over.addEventListener("mouseleave", () => {
+        lastFromChart.current = null;
+        cb.current.onHover(null);
+      });
+      u.over.addEventListener("dblclick", () => cb.current.onRange(null));
+      created.push(u);
+    });
+    plots.current = created;
 
     const ro = new ResizeObserver(() => {
-      u.setSize({ width: el.clientWidth, height: Math.max(80, el.clientHeight - (u.root.querySelector(".u-legend")?.clientHeight ?? 0)) });
+      for (const u of created) u.setSize({ width: el.clientWidth, height: rowHeight() });
     });
     ro.observe(el);
-    const leave = () => onHoverRef.current(null);
-    u.over.addEventListener("mouseleave", leave);
     return () => {
       ro.disconnect();
-      u.destroy();
+      created.forEach((u) => u.destroy());
+      rows.forEach((r) => r.remove());
+      plots.current = [];
     };
-  }, [detail, color, showSpeed]);
+  }, [detail, color, metrics, xAxis, tz]);
+
+  // Dışarıdan gelen imleç konumunu grafiğe yansıt.
+  useEffect(() => {
+    const u = plots.current[0];
+    if (!u || hoverIdx === lastFromChart.current) return;
+    syncing.current = true;
+    try {
+      if (hoverIdx == null || hoverIdx >= xs.current.length) {
+        for (const p of plots.current) p.setCursor({ left: -10, top: -10 });
+      } else {
+        const left = u.valToPos(xs.current[hoverIdx], "x");
+        for (const p of plots.current) p.setCursor({ left, top: p.over.clientHeight / 2 });
+      }
+    } finally {
+      syncing.current = false;
+    }
+  }, [hoverIdx]);
+
+  // Seçili aralığı tüm şeritlerde göster.
+  useEffect(() => {
+    for (const u of plots.current) {
+      if (!range) {
+        u.setSelect({ left: 0, width: 0, top: 0, height: 0 }, false);
+        continue;
+      }
+      const left = u.valToPos(xs.current[range[0]], "x");
+      const right = u.valToPos(xs.current[range[1]], "x");
+      u.setSelect({ left, width: right - left, top: 0, height: u.over.clientHeight }, false);
+    }
+  }, [range, detail, metrics, xAxis]);
 
   return <div ref={host} className="chart" />;
 }

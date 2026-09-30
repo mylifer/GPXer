@@ -1,57 +1,78 @@
-import { memo, useMemo } from "react";
+import { memo } from "react";
 import type { FileEntry } from "../types";
-import { fmtDate, fmtDistance, fmtDuration, fmtElevation, fmtNumber } from "../format";
+import type { Filters, GroupBy, SortKey } from "../prefs";
+import { fmtDate, fmtDistance, fmtDuration, fmtElevation, fmtNumber, tzOf } from "../format";
+import { DateRange } from "./DateRange";
 
-export type SortKey = "date-desc" | "date-asc" | "name" | "distance";
+export interface Group {
+  key: string;
+  label: string;
+  items: FileEntry[];
+  distanceM: number;
+  movingMs: number;
+}
 
-export interface Filters {
-  query: string;
-  from: string; // yyyy-mm-dd ya da ""
-  to: string;
-  sort: SortKey;
+export interface RowModifiers {
+  toggle: boolean;
+  range: boolean;
 }
 
 interface Props {
   files: FileEntry[];
   /** Filtreden geçen dosyalar, sıralı. */
   shown: FileEntry[];
+  groups: Group[];
+  groupBy: GroupBy;
+  collapsed: Set<string>;
   filters: Filters;
+  years: number[];
   selected: string | null;
+  multi: Set<string>;
   loading: { done: number; total: number } | null;
   onFilters(f: Filters): void;
-  onSelect(path: string): void;
+  onGroupBy(g: GroupBy): void;
+  onToggleGroup(key: string): void;
+  onRowClick(path: string, mods: RowModifiers): void;
   onZoom(path: string): void;
   onToggle(path: string): void;
   onToggleAll(visible: boolean): void;
-  onRemove(path: string): void;
+  onRemove(paths: string[]): void;
   onOpenFiles(): void;
   onOpenFolder(): void;
   onCloseAll(): void;
+  onSettings(): void;
+  onSummary(): void;
+  onMerge(): void;
+  onExportCsv(): void;
+  onSetVisible(paths: string[], visible: boolean): void;
+  onClearMulti(): void;
 }
 
 const Row = memo(function Row({
   entry,
   selected,
-  onSelect,
+  inMulti,
+  onRowClick,
   onZoom,
   onToggle,
   onRemove,
 }: {
   entry: FileEntry;
   selected: boolean;
-  onSelect(path: string): void;
+  inMulti: boolean;
+  onRowClick(path: string, mods: RowModifiers): void;
   onZoom(path: string): void;
   onToggle(path: string): void;
-  onRemove(path: string): void;
+  onRemove(paths: string[]): void;
 }) {
   const s = entry.summary;
   return (
     <li
-      className={`file-row${selected ? " selected" : ""}${entry.visible ? "" : " hidden-track"}`}
+      className={`file-row${selected ? " selected" : ""}${inMulti ? " multi" : ""}${entry.visible ? "" : " hidden-track"}`}
       data-path={s.path}
-      onClick={() => onSelect(s.path)}
+      onClick={(e) => onRowClick(s.path, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })}
       onDoubleClick={() => onZoom(s.path)}
-      title={s.path}
+      title={`${s.fileName}\nCtrl/⌘ ile tıklayarak birden fazla seçebilirsiniz.`}
     >
       <input
         type="checkbox"
@@ -65,7 +86,7 @@ const Row = memo(function Row({
       <div className="file-info">
         <div className="file-name">{s.name || s.fileName}</div>
         <div className="file-meta">
-          <span>{fmtDate(s.stats.startTime)}</span>
+          <span>{s.stats.startTime != null ? fmtDate(s.stats.startTime, tzOf(s)) : "Tarihsiz"}</span>
           <span>{fmtDistance(s.stats.distanceM)}</span>
           {s.stats.movingMs != null && <span>{fmtDuration(s.stats.movingMs)}</span>}
         </div>
@@ -75,7 +96,7 @@ const Row = memo(function Row({
         title="Kütüphaneden kaldır"
         onClick={(e) => {
           e.stopPropagation();
-          onRemove(s.path);
+          onRemove([s.path]);
         }}
       >
         ×
@@ -85,7 +106,7 @@ const Row = memo(function Row({
 });
 
 export function Sidebar(p: Props) {
-  const totals = useMemo(() => {
+  const totals = (() => {
     let dist = 0,
       moving = 0,
       gain = 0,
@@ -98,11 +119,26 @@ export function Sidebar(p: Props) {
       gain += f.summary.stats.elevationGainM ?? 0;
     }
     return { dist, moving, gain, visible };
-  }, [p.shown]);
+  })();
 
   const allVisible = p.shown.length > 0 && p.shown.every((f) => f.visible);
   const set = (patch: Partial<Filters>) => p.onFilters({ ...p.filters, ...patch });
   const filtered = p.shown.length !== p.files.length;
+  const multi = [...p.multi];
+
+  const renderRows = (items: FileEntry[]) =>
+    items.map((f) => (
+      <Row
+        key={f.summary.path}
+        entry={f}
+        selected={f.summary.path === p.selected}
+        inMulti={p.multi.has(f.summary.path)}
+        onRowClick={p.onRowClick}
+        onZoom={p.onZoom}
+        onToggle={p.onToggle}
+        onRemove={p.onRemove}
+      />
+    ));
 
   return (
     <aside className="sidebar">
@@ -113,11 +149,13 @@ export function Sidebar(p: Props) {
         <button className="btn" onClick={p.onOpenFolder}>
           Klasör Aç
         </button>
-        {p.files.length > 0 && (
-          <button className="btn ghost" onClick={p.onCloseAll} title="Kütüphaneyi temizle">
-            Temizle
-          </button>
-        )}
+        <span className="spacer" />
+        <button className="icon-btn" onClick={p.onSummary} title="Özet (Ctrl/⌘+I)" disabled={p.files.length === 0}>
+          ▥
+        </button>
+        <button className="icon-btn" onClick={p.onSettings} title="Ayarlar (Ctrl/⌘+,)">
+          ⚙
+        </button>
       </div>
 
       {p.loading && (
@@ -137,56 +175,105 @@ export function Sidebar(p: Props) {
             value={p.filters.query}
             onChange={(e) => set({ query: e.target.value })}
           />
-          <div className="filter-row">
-            <label>
-              Başlangıç
-              <input type="date" value={p.filters.from} onChange={(e) => set({ from: e.target.value })} />
+          <DateRange
+            from={p.filters.from}
+            to={p.filters.to}
+            years={p.years}
+            onChange={(from, to) => set({ from, to })}
+          />
+          {(p.filters.from || p.filters.to) && (
+            <label className="check small">
+              <input
+                type="checkbox"
+                checked={p.filters.includeUndated}
+                onChange={(e) => set({ includeUndated: e.target.checked })}
+              />
+              Tarihsiz kayıtları da göster
             </label>
-            <label>
-              Bitiş
-              <input type="date" value={p.filters.to} onChange={(e) => set({ to: e.target.value })} />
-            </label>
-          </div>
+          )}
           <div className="filter-row">
             <label className="check">
               <input type="checkbox" checked={allVisible} onChange={() => p.onToggleAll(!allVisible)} />
               Tümü
             </label>
-            <select value={p.filters.sort} onChange={(e) => set({ sort: e.target.value as SortKey })}>
-              <option value="date-desc">Tarih (yeni → eski)</option>
-              <option value="date-asc">Tarih (eski → yeni)</option>
+            <select value={p.filters.sort} onChange={(e) => set({ sort: e.target.value as SortKey })} title="Sıralama">
+              <option value="date-desc">Yeni → eski</option>
+              <option value="date-asc">Eski → yeni</option>
               <option value="name">Ad</option>
               <option value="distance">Mesafe</option>
+            </select>
+            <select value={p.groupBy} onChange={(e) => p.onGroupBy(e.target.value as GroupBy)} title="Gruplama">
+              <option value="month">Aya göre</option>
+              <option value="year">Yıla göre</option>
+              <option value="none">Gruplama yok</option>
             </select>
           </div>
         </div>
       )}
 
+      {multi.length > 1 && (
+        <div className="multi-bar">
+          <strong>{multi.length} kayıt seçili</strong>
+          <div className="multi-actions">
+            <button className="btn small" onClick={p.onMerge}>
+              Birleştir
+            </button>
+            <button className="btn small" onClick={p.onExportCsv}>
+              CSV
+            </button>
+            <button className="btn small" onClick={() => p.onSetVisible(multi, true)}>
+              Göster
+            </button>
+            <button className="btn small" onClick={() => p.onSetVisible(multi, false)}>
+              Gizle
+            </button>
+            <button className="btn small danger" onClick={() => p.onRemove(multi)}>
+              Kaldır
+            </button>
+            <button className="icon-btn" onClick={p.onClearMulti} title="Seçimi temizle">
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       <ul className="file-list">
-        {p.shown.map((f) => (
-          <Row
-            key={f.summary.path}
-            entry={f}
-            selected={f.summary.path === p.selected}
-            onSelect={p.onSelect}
-            onZoom={p.onZoom}
-            onToggle={p.onToggle}
-            onRemove={p.onRemove}
-          />
-        ))}
+        {p.groupBy === "none"
+          ? renderRows(p.shown)
+          : p.groups.map((g) => {
+              const closed = p.collapsed.has(g.key);
+              return (
+                <li key={g.key} className="group">
+                  <button className="group-head" onClick={() => p.onToggleGroup(g.key)} aria-expanded={!closed}>
+                    <span className="chev">{closed ? "▸" : "▾"}</span>
+                    <span className="group-label">{g.label}</span>
+                    <span className="group-meta">
+                      {fmtNumber(g.items.length)} · {fmtDistance(g.distanceM)}
+                      {g.movingMs > 0 && ` · ${fmtDuration(g.movingMs)}`}
+                    </span>
+                  </button>
+                  {!closed && <ul>{renderRows(g.items)}</ul>}
+                </li>
+              );
+            })}
         {p.files.length === 0 && !p.loading && (
           <li className="empty-hint">
             GPX dosyalarını ya da klasörleri pencereye sürükleyip bırakın veya yukarıdaki düğmeleri kullanın.
           </li>
         )}
-        {p.files.length > 0 && p.shown.length === 0 && <li className="empty-hint">Filtreye uyan dosya yok.</li>}
+        {p.files.length > 0 && p.shown.length === 0 && <li className="empty-hint">Filtreye uyan kayıt yok.</li>}
       </ul>
 
       {p.files.length > 0 && (
         <div className="totals">
-          <div>
-            <strong>{fmtNumber(totals.visible)}</strong> dosya
-            {filtered && <span className="muted"> ({fmtNumber(p.files.length)} içinden)</span>}
+          <div className="totals-head">
+            <span>
+              <strong>{fmtNumber(totals.visible)}</strong> kayıt
+              {filtered && <span className="muted"> ({fmtNumber(p.files.length)} içinden)</span>}
+            </span>
+            <button className="btn small ghost-inline" onClick={p.onCloseAll} title="Kütüphaneyi temizle">
+              Temizle
+            </button>
           </div>
           <div className="totals-grid">
             <span>Toplam mesafe</span>

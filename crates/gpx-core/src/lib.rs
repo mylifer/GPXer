@@ -6,23 +6,25 @@
 //! tutar. Grafik gibi tam çözünürlük gereken veriler ([`Detail`]) seçildiğinde
 //! dosya yeniden okunarak üretilir.
 
+pub mod ops;
 pub mod parse;
 pub mod simplify;
 pub mod stats;
+pub mod write;
 
 use parse::{Gpx, Point};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub use parse::{parse_gpx, ParseError};
-pub use stats::{compute_stats, haversine_m, Stats};
+pub use stats::{compute_stats, haversine_m, Stats, StatsConfig};
 
 /// Harita çizgisi sadeleştirme toleransı (metre).
 pub const MAP_TOLERANCE_M: f64 = 4.0;
 /// Grafik için gönderilecek en fazla nokta sayısı.
 pub const PROFILE_MAX_POINTS: usize = 4000;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WaypointOut {
     pub lat: f64,
@@ -31,7 +33,7 @@ pub struct WaypointOut {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileSummary {
     pub path: String,
@@ -48,6 +50,13 @@ pub struct FileSummary {
     /// bilgisi yoksa boş bırakılır.
     pub times: Vec<Vec<Option<i64>>>,
     pub waypoints: Vec<WaypointOut>,
+    /// Kaydın başladığı yerin IANA saat dilimi (ör. "Europe/Istanbul").
+    /// Çekirdek doldurmaz; uygulama katmanı konumdan bulur.
+    #[serde(default)]
+    pub time_zone: Option<String>,
+    /// Başlangıç noktası [lon, lat].
+    #[serde(default)]
+    pub start: Option<[f64; 2]>,
 }
 
 /// Seçili dosyanın grafik verisi, sütun sütun (uPlot formatına uygun).
@@ -62,6 +71,14 @@ pub struct Detail {
     pub time: Vec<Option<i64>>,
     pub lat: Vec<f64>,
     pub lon: Vec<f64>,
+    /// Her örneğin dosyadaki asıl nokta sırası (iz/rota segmentleri uç uca
+    /// eklenmiş kabul edilir). Kırpma, bölme ve aralık istatistiğinde kullanılır.
+    pub idx: Vec<u32>,
+    /// Sensör verileri; dosyada hiç yoksa boş bırakılır.
+    pub hr: Vec<Option<f32>>,
+    pub cad: Vec<Option<f32>>,
+    pub power: Vec<Option<f32>>,
+    pub temp: Vec<Option<f32>>,
 }
 
 #[derive(Debug)]
@@ -85,7 +102,7 @@ impl std::error::Error for LoadError {}
 
 /// Dosyanın asıl verisi olarak kullanılacak segmentler: iz (track) varsa
 /// onlar, yoksa rotalar (route).
-fn primary_segments(gpx: &Gpx) -> Vec<&[Point]> {
+pub fn primary_segments(gpx: &Gpx) -> Vec<&[Point]> {
     let source = if gpx.tracks.is_empty() {
         &gpx.routes
     } else {
@@ -101,12 +118,17 @@ fn round6(v: f64) -> f64 {
     (v * 1e6).round() / 1e6
 }
 
-pub fn summarize(gpx: &Gpx, path: &str, file_size: u64) -> Result<FileSummary, LoadError> {
+pub fn summarize(
+    gpx: &Gpx,
+    path: &str,
+    file_size: u64,
+    cfg: &StatsConfig,
+) -> Result<FileSummary, LoadError> {
     let segments = primary_segments(gpx);
     if segments.is_empty() && gpx.waypoints.is_empty() {
         return Err(LoadError::Empty);
     }
-    let mut stats = compute_stats(segments.iter().copied());
+    let mut stats = compute_stats(segments.iter().copied(), cfg);
     if stats.start_time.is_none() {
         stats.start_time = gpx.time;
     }
@@ -178,7 +200,20 @@ pub fn summarize(gpx: &Gpx, path: &str, file_size: u64) -> Result<FileSummary, L
                 name: w.name.clone(),
             })
             .collect(),
+        time_zone: None,
+        start: segments
+            .first()
+            .and_then(|s| s.first())
+            .or_else(|| gpx.waypoints.first().map(|w| &w.point))
+            .map(|p| [p.lon, p.lat]),
     })
+}
+
+/// Asıl noktaların `[start, end]` (dahil) aralığının istatistiği. Sıra
+/// numaraları [`Detail::idx`] ile aynıdır.
+pub fn range_stats(gpx: &Gpx, start: usize, end: usize, cfg: &StatsConfig) -> Stats {
+    let parts = ops::slice_segments(&primary_segments(gpx), start, end);
+    compute_stats(parts.iter().map(|s| s.as_slice()), cfg)
 }
 
 /// Dosyanın içeriğine göre parmak izi: iz/rota noktalarının konum ve
@@ -257,6 +292,13 @@ pub fn build_detail(gpx: &Gpx) -> Detail {
         .map(|p| p.ele.map_or(0.0, |e| e as f64))
         .collect();
     let idx = simplify::lttb_indices(&dist, &y, PROFILE_MAX_POINTS);
+    let has = |f: fn(&Point) -> Option<f32>| all.iter().any(|p| f(p).is_some());
+    let (has_hr, has_cad, has_power, has_temp) = (
+        has(|p| p.hr),
+        has(|p| p.cad),
+        has(|p| p.power),
+        has(|p| p.temp),
+    );
     for i in idx {
         let p = all[i];
         d.dist.push(dist[i]);
@@ -265,6 +307,19 @@ pub fn build_detail(gpx: &Gpx) -> Detail {
         d.time.push(p.time);
         d.lat.push(p.lat);
         d.lon.push(p.lon);
+        d.idx.push(i as u32);
+        if has_hr {
+            d.hr.push(p.hr);
+        }
+        if has_cad {
+            d.cad.push(p.cad);
+        }
+        if has_power {
+            d.power.push(p.power);
+        }
+        if has_temp {
+            d.temp.push(p.temp);
+        }
     }
     d
 }
@@ -276,9 +331,9 @@ pub fn read_gpx_file(path: &Path) -> Result<(Gpx, u64), LoadError> {
     Ok((gpx, size))
 }
 
-pub fn load_summary(path: &Path) -> Result<FileSummary, LoadError> {
+pub fn load_summary(path: &Path, cfg: &StatsConfig) -> Result<FileSummary, LoadError> {
     let (gpx, size) = read_gpx_file(path)?;
-    summarize(&gpx, &path.to_string_lossy(), size)
+    summarize(&gpx, &path.to_string_lossy(), size, cfg)
 }
 
 pub fn load_detail(path: &Path) -> Result<Detail, LoadError> {

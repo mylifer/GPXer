@@ -1,0 +1,93 @@
+/**
+ * Arayüz tercihleri ve görünüm durumu (localStorage). Okunamazsa ya da
+ * bozuksa varsayılanlar kullanılır; uygulama bunlar olmadan da çalışır.
+ */
+
+import type { TzMode } from "./format";
+
+export type SortKey = "date-desc" | "date-asc" | "name" | "distance";
+export type GroupBy = "none" | "month" | "year";
+export type ColorMode = "file" | "date";
+export type Metric = "ele" | "speed" | "hr" | "cad" | "power" | "temp";
+export type TrackColorBy = "none" | Metric;
+export type XAxis = "dist" | "time";
+
+export interface Filters {
+  query: string;
+  /** yyyy-aa-gg ya da "" */
+  from: string;
+  to: string;
+  /** Tarih filtresi açıkken zaman bilgisi olmayan kayıtlar da gösterilsin mi. */
+  includeUndated: boolean;
+  sort: SortKey;
+}
+
+export interface Prefs {
+  filters: Filters;
+  groupBy: GroupBy;
+  collapsed: string[];
+  /** Haritada gizlenen dosyalar. */
+  hidden: string[];
+  selected: string | null;
+  mapView: { center: [number, number]; zoom: number } | null;
+  sidebarOpen: boolean;
+  colorMode: ColorMode;
+  /** Kullanıcının seçtiği dosya renkleri. */
+  colors: Record<string, string>;
+  panelHeight: number;
+  xAxis: XAxis;
+  /** Grafikte gösterilen ölçüler (yükseklik her zaman ilk sırada). */
+  series: Metric[];
+  trackColorBy: TrackColorBy;
+  tzMode: TzMode;
+  heatmap: boolean;
+  follow: boolean;
+  playSpeed: number;
+}
+
+export const DEFAULT_FILTERS: Filters = { query: "", from: "", to: "", includeUndated: false, sort: "date-desc" };
+
+const DEFAULTS: Prefs = {
+  filters: DEFAULT_FILTERS,
+  groupBy: "month",
+  collapsed: [],
+  hidden: [],
+  selected: null,
+  mapView: null,
+  sidebarOpen: true,
+  colorMode: "file",
+  colors: {},
+  panelHeight: 340,
+  xAxis: "dist",
+  series: ["ele", "speed"],
+  trackColorBy: "none",
+  tzMode: "local",
+  heatmap: false,
+  follow: true,
+  playSpeed: 60,
+};
+
+const KEY = "gpxer.prefs.v1";
+
+export function loadPrefs(): Prefs {
+  let saved: Partial<Prefs> = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(KEY) ?? "{}") ?? {};
+  } catch {
+    saved = {};
+  }
+  return { ...DEFAULTS, ...saved, filters: { ...DEFAULT_FILTERS, ...(saved.filters ?? {}) } };
+}
+
+let timer: ReturnType<typeof setTimeout> | undefined;
+/** Sık değişen durum (harita konumu gibi) için yazma kısa süre ertelenir. */
+export function savePrefs(p: Prefs) {
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(p));
+    } catch {
+      /* önemli değil */
+    }
+  }, 300);
+}

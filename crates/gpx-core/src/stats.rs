@@ -1,18 +1,34 @@
 //! Mesafe, süre, hız ve yükseklik istatistikleri.
 
 use crate::parse::Point;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 const EARTH_RADIUS_M: f64 = 6_371_008.8;
-/// Bu hızın altındaki aralıklar "duruyor" sayılır (m/s ≈ 1,8 km/sa).
-const MOVING_SPEED_MS: f64 = 0.5;
 /// İki nokta arası bu süreden uzunsa (ör. cihaz kapatılmış) hareket süresine eklenmez.
 const MAX_MOVING_GAP_MS: i64 = 10 * 60 * 1000;
 /// Maksimum hız GPS gürültüsünden etkilenmesin diye en az bu kadar sürelik
 /// pencereler üzerinden hesaplanır.
 const MAX_SPEED_WINDOW_MS: i64 = 10_000;
-/// Yükseklik gürültüsünü bastırmak için eşik (metre).
-const ELEVATION_THRESHOLD_M: f64 = 3.0;
+
+/// Kullanıcının ayarlayabildiği hesaplama eşikleri.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StatsConfig {
+    /// Bu hızın altındaki aralıklar "duruyor" sayılır (m/s).
+    pub moving_speed_ms: f64,
+    /// Yükseklik gürültüsünü bastırmak için eşik (metre).
+    pub elevation_threshold_m: f64,
+}
+
+impl Default for StatsConfig {
+    fn default() -> Self {
+        // 0,5 m/s ≈ 1,8 km/sa
+        Self {
+            moving_speed_ms: 0.5,
+            elevation_threshold_m: 3.0,
+        }
+    }
+}
 
 pub fn haversine_m(a: &Point, b: &Point) -> f64 {
     let (lat1, lat2) = (a.lat.to_radians(), b.lat.to_radians());
@@ -22,8 +38,8 @@ pub fn haversine_m(a: &Point, b: &Point) -> f64 {
     2.0 * EARTH_RADIUS_M * h.sqrt().min(1.0).asin()
 }
 
-#[derive(Debug, Clone, Default, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Stats {
     pub point_count: usize,
     pub segment_count: usize,
@@ -43,12 +59,49 @@ pub struct Stats {
     pub max_ele_m: Option<f64>,
     /// [minLon, minLat, maxLon, maxLat]
     pub bbox: Option<[f64; 4]>,
+    pub avg_hr: Option<f64>,
+    pub max_hr: Option<f64>,
+    pub avg_cad: Option<f64>,
+    pub avg_power: Option<f64>,
+    pub max_power: Option<f64>,
+    pub avg_temp: Option<f64>,
+}
+
+/// Örnek ortalaması ve en büyük değer için basit toplayıcı.
+#[derive(Default)]
+struct Acc {
+    sum: f64,
+    n: u32,
+    max: Option<f64>,
+}
+
+impl Acc {
+    fn add(&mut self, v: Option<f32>) {
+        if let Some(v) = v {
+            let v = v as f64;
+            self.sum += v;
+            self.n += 1;
+            self.max = Some(self.max.map_or(v, |m| m.max(v)));
+        }
+    }
+    fn avg(&self) -> Option<f64> {
+        (self.n > 0).then(|| self.sum / self.n as f64)
+    }
 }
 
 /// Birden çok segment üzerinden istatistik hesaplar. Segmentler arası
 /// boşluklar (cihaz kapalıyken) mesafeye ve hareket süresine eklenmez.
-pub fn compute_stats<'a>(segments: impl IntoIterator<Item = &'a [Point]>) -> Stats {
+pub fn compute_stats<'a>(
+    segments: impl IntoIterator<Item = &'a [Point]>,
+    cfg: &StatsConfig,
+) -> Stats {
     let mut s = Stats::default();
+    let (mut hr, mut cad, mut power, mut temp) = (
+        Acc::default(),
+        Acc::default(),
+        Acc::default(),
+        Acc::default(),
+    );
     let mut moving_ms: i64 = 0;
     let mut has_time_pairs = false;
     let mut max_speed: Option<f64> = None;
@@ -78,6 +131,10 @@ pub fn compute_stats<'a>(segments: impl IntoIterator<Item = &'a [Point]>) -> Sta
             bbox[1] = bbox[1].min(p.lat);
             bbox[2] = bbox[2].max(p.lon);
             bbox[3] = bbox[3].max(p.lat);
+            hr.add(p.hr);
+            cad.add(p.cad);
+            power.add(p.power);
+            temp.add(p.temp);
 
             if let Some(t) = p.time {
                 s.start_time = Some(s.start_time.map_or(t, |v: i64| v.min(t)));
@@ -93,10 +150,10 @@ pub fn compute_stats<'a>(segments: impl IntoIterator<Item = &'a [Point]>) -> Sta
                     None => ele_ref = Some(e),
                     Some(r) => {
                         let diff = e - r;
-                        if diff >= ELEVATION_THRESHOLD_M {
+                        if diff >= cfg.elevation_threshold_m {
                             gain += diff;
                             ele_ref = Some(e);
-                        } else if diff <= -ELEVATION_THRESHOLD_M {
+                        } else if diff <= -cfg.elevation_threshold_m {
                             loss -= diff;
                             ele_ref = Some(e);
                         }
@@ -113,7 +170,7 @@ pub fn compute_stats<'a>(segments: impl IntoIterator<Item = &'a [Point]>) -> Sta
                     if dt > 0 {
                         has_time_pairs = true;
                         let speed = step / (dt as f64 / 1000.0);
-                        if speed >= MOVING_SPEED_MS && dt <= MAX_MOVING_GAP_MS {
+                        if speed >= cfg.moving_speed_ms && dt <= MAX_MOVING_GAP_MS {
                             moving_ms += dt;
                         }
                     }
@@ -164,5 +221,11 @@ pub fn compute_stats<'a>(segments: impl IntoIterator<Item = &'a [Point]>) -> Sta
     if s.point_count > 0 {
         s.bbox = Some(bbox);
     }
+    s.avg_hr = hr.avg();
+    s.max_hr = hr.max;
+    s.avg_cad = cad.avg();
+    s.avg_power = power.avg();
+    s.max_power = power.max;
+    s.avg_temp = temp.avg();
     s
 }

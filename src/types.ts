@@ -2,6 +2,7 @@ import type { FileSummary } from "./api";
 
 export interface FileEntry {
   summary: FileSummary;
+  /** Haritada ve listede kullanılan renk. */
   color: string;
   visible: boolean;
 }
@@ -21,3 +22,44 @@ export const PALETTE = [
   "#6a9a00",
   "#ff6f00",
 ];
+
+/** Rengi dosyanın kendisine bağlar: aynı dosya her açılışta aynı renkte olur. */
+export function defaultColor(path: string): string {
+  const name = path.split(/[\\/]/).pop() ?? path;
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return PALETTE[(h >>> 0) % PALETTE.length];
+}
+
+/** Tek tonlu sıralı (sequential) mavi skala; açık → koyu. */
+export const SEQ_LIGHT = ["#b7d3f6", "#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281", "#0d366b"];
+/** Koyu altlıkta ters: koyu → açık, yüksek değer öne çıkar. */
+export const SEQ_DARK = ["#184f95", "#1c5cab", "#256abf", "#3987e5", "#6da7ec", "#9ec5f4", "#cde2fb"];
+
+function hexToRgb(h: string): [number, number, number] {
+  const n = parseInt(h.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** 0..1 arasındaki değeri skala üzerinde renge çevirir. */
+export function rampColor(ramp: string[], t: number): string {
+  const x = Math.max(0, Math.min(1, t)) * (ramp.length - 1);
+  const i = Math.min(ramp.length - 2, Math.floor(x));
+  const f = x - i;
+  const a = hexToRgb(ramp[i]);
+  const b = hexToRgb(ramp[i + 1]);
+  const c = a.map((v, k) => Math.round(v + (b[k] - v) * f));
+  return `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+export const METRICS: Record<string, { label: string; unit: string; digits: number }> = {
+  ele: { label: "Yükseklik", unit: "m", digits: 0 },
+  speed: { label: "Hız", unit: "km/sa", digits: 1 },
+  hr: { label: "Nabız", unit: "atım/dk", digits: 0 },
+  cad: { label: "Kadans", unit: "dev/dk", digits: 0 },
+  power: { label: "Güç", unit: "W", digits: 0 },
+  temp: { label: "Sıcaklık", unit: "°C", digits: 1 },
+};

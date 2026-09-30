@@ -7,13 +7,41 @@
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Point {
     pub lat: f64,
     pub lon: f64,
     pub ele: Option<f32>,
     /// Unix epoch milisaniye (UTC).
     pub time: Option<i64>,
+    /// Sensör verileri (Garmin TrackPointExtension vb. uzantılardan).
+    /// Nabız (atım/dk).
+    pub hr: Option<f32>,
+    /// Kadans (devir/dk ya da adım/dk).
+    pub cad: Option<f32>,
+    /// Güç (W).
+    pub power: Option<f32>,
+    /// Sıcaklık (°C).
+    pub temp: Option<f32>,
+}
+
+/// Nokta uzantılarında okunan sensör alanları.
+#[derive(Clone, Copy, PartialEq)]
+enum Sensor {
+    Hr,
+    Cad,
+    Power,
+    Temp,
+}
+
+fn sensor_of(name: &[u8]) -> Option<Sensor> {
+    match name {
+        b"hr" | b"heartrate" => Some(Sensor::Hr),
+        b"cad" | b"cadence" => Some(Sensor::Cad),
+        b"power" | b"watts" => Some(Sensor::Power),
+        b"atemp" | b"temp" | b"temperature" | b"wtemp" => Some(Sensor::Temp),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -62,6 +90,7 @@ enum TextField {
     Name,
     Ele,
     Time,
+    Sensor(Sensor),
 }
 
 fn local_name(e: &BytesStart) -> Vec<u8> {
@@ -163,14 +192,16 @@ pub fn parse_gpx(bytes: &[u8]) -> Result<Gpx, ParseError> {
                                 Point {
                                     lat,
                                     lon,
-                                    ele: None,
-                                    time: None,
+                                    ..Point::default()
                                 },
                             )
                         });
                         point_name = None;
                     }
                     b"ele" if point.is_some() => text_field = Some(TextField::Ele),
+                    other if point.is_some() && sensor_of(other).is_some() => {
+                        text_field = sensor_of(other).map(TextField::Sensor)
+                    }
                     b"time"
                         if point.is_some()
                             || parent == Some(b"metadata")
@@ -295,6 +326,24 @@ fn close_element(
         b"ele" if *text_field == Some(TextField::Ele) => {
             if let Some((_, p)) = point.as_mut() {
                 p.ele = text.trim().parse::<f32>().ok().filter(|v| v.is_finite());
+            }
+            *text_field = None;
+        }
+        other
+            if matches!(*text_field, Some(TextField::Sensor(_))) && sensor_of(other).is_some() =>
+        {
+            if let (Some(TextField::Sensor(kind)), Some((_, p))) = (*text_field, point.as_mut()) {
+                let v = text
+                    .split_whitespace()
+                    .next()
+                    .and_then(|t| t.parse::<f32>().ok())
+                    .filter(|v| v.is_finite());
+                match kind {
+                    Sensor::Hr => p.hr = v.filter(|v| *v > 0.0),
+                    Sensor::Cad => p.cad = v,
+                    Sensor::Power => p.power = v,
+                    Sensor::Temp => p.temp = v,
+                }
             }
             *text_field = None;
         }

@@ -13,7 +13,7 @@ fn main() {
     let mut summaries = Vec::new();
     let mut errors = Vec::new();
     for p in &paths {
-        match gpx_core::load_summary(p.as_ref()) {
+        match gpx_core::load_summary(p.as_ref(), &Default::default()) {
             Ok(s) => summaries.push(s),
             Err(e) => errors.push(serde_json::json!({ "path": p, "message": e.to_string() })),
         }
