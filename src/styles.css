@@ -1626,3 +1626,11 @@ button.link:hover {
   flex: none;
   width: auto;
 }
+
+.map-toolbar .map-check {
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+}

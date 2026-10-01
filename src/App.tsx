@@ -459,14 +459,15 @@ export default function App() {
   const applySettings = useCallback(
     async (next: Settings) => {
       const prev = settingsRef.current;
+      setSettingsState(next);
       try {
         const problems = await saveSettings(next);
         problems.forEach((m) => fail(m));
       } catch (e) {
         fail(String(e));
+        setSettingsState(prev);
         return;
       }
-      setSettingsState(next);
       const statsChanged =
         !prev ||
         prev.stats.movingSpeedMs !== next.stats.movingSpeedMs ||
@@ -997,6 +998,27 @@ export default function App() {
                 >
                   Duraklar
                 </button>
+                {settings && (
+                  <label
+                    className="check map-check"
+                    title={
+                      settings.stats.cleanSpikes
+                        ? `Bir anlığına uzağa fırlayıp geri dönen GPS noktaları haritadan ve hesaplardan çıkarılıyor (${fmtNumber(
+                            files.reduce((n, f) => n + f.summary.removedPoints, 0),
+                          )} nokta). Orijinal dosyalar değişmez.`
+                        : "GPS sıçramaları temizlenmiyor; kayıtlar olduğu gibi gösteriliyor."
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={settings.stats.cleanSpikes}
+                      onChange={(e) =>
+                        applySettings({ ...settings, stats: { ...settings.stats, cleanSpikes: e.target.checked } })
+                      }
+                    />
+                    Sıçramaları temizle
+                  </label>
+                )}
                 <button className="btn small" onClick={fitAll} title="Tümünü göster (Ctrl/⌘+0)">
                   Tümünü göster
                 </button>
