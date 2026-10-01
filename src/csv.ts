@@ -1,14 +1,21 @@
 import type { FileEntry } from "./types";
+import { activityOf } from "./types";
+import type { FileMeta } from "./api";
 import { fmtClock, fmtDate, fmtDecimal, fmtTime, tzOf } from "./format";
 
 /**
  * Kayıt özetlerini Türkçe Excel'in doğrudan açabileceği CSV'ye çevirir:
  * alan ayırıcı noktalı virgül, ondalık ayırıcı virgül, UTF-8 BOM.
  */
-export function csvFor(list: FileEntry[]): string {
+export function csvFor(list: FileEntry[], meta: Record<string, FileMeta> = {}): string {
   const head = [
     "Ad",
     "Dosya",
+    "Tür",
+    "Başlangıç yeri",
+    "Bitiş yeri",
+    "Etiketler",
+    "Not",
     "Tarih",
     "Başlangıç",
     "Bitiş",
@@ -38,6 +45,11 @@ export function csvFor(list: FileEntry[]): string {
     return [
       s.name ?? "",
       s.fileName,
+      activityOf(s.activity).label,
+      s.startPlace ?? "",
+      s.endPlace ?? "",
+      (meta[s.path]?.tags ?? []).join(", "),
+      meta[s.path]?.note ?? "",
       st.startTime == null ? "" : fmtDate(st.startTime, tz),
       st.startTime == null ? "" : fmtTime(st.startTime, tz),
       st.endTime == null ? "" : fmtTime(st.endTime, tz),

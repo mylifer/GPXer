@@ -3,8 +3,10 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import {
-  exportGpx,
+  exportAs,
   expandPaths,
+  getMeta,
+  setMeta as saveMeta,
   flushCache,
   getSettings,
   libraryFiles,
@@ -21,6 +23,8 @@ import {
   writeBase64File,
   writeTextFile,
   type Detail,
+  type ExportFormat,
+  type FileMeta,
   type LoadResult,
   type Settings,
   type Stats,
@@ -33,7 +37,11 @@ import { UpdateNotice } from "./components/UpdateNotice";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SummaryPanel } from "./components/SummaryPanel";
 import { PromptModal } from "./components/Modal";
-import { METRICS, SEQ_DARK, SEQ_LIGHT, defaultColor, rampColor, type FileEntry } from "./types";
+import { RouteModal } from "./components/RouteModal";
+import { CompareView, type Cursor } from "./components/CompareView";
+import { findRoutes, type Route } from "./routes";
+import { linesHitBox } from "./geo";
+import { METRICS, SEQ_DARK, SEQ_LIGHT, defaultColor, placeLabel, rampColor, type FileEntry } from "./types";
 import { loadPrefs, savePrefs, type Filters, type Prefs } from "./prefs";
 import { dayKey, fmtDate, fmtNumber, fmtUnit, monthLabel, setTzMode, tzOf, type TzMode } from "./format";
 import { csvFor } from "./csv";
@@ -66,6 +74,8 @@ interface OpenOptions {
 }
 
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
+const EMPTY_META: FileMeta = { tags: [], note: "", activity: null };
+const OPEN_EXTS = ["gpx", "GPX", "fit", "FIT", "tcx", "TCX", "kml", "KML"];
 
 export default function App() {
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
@@ -97,7 +107,13 @@ export default function App() {
   const [undo, setUndo] = useState<{ items: TrashItem[]; count: number } | null>(null);
   const [watchOffer, setWatchOffer] = useState<string[] | null>(null);
   const [settings, setSettingsState] = useState<Settings | null>(null);
-  const [dialog, setDialog] = useState<"settings" | "summary" | "merge" | null>(null);
+  const [dialog, setDialog] = useState<"settings" | "summary" | "merge" | "tag" | null>(null);
+  const [meta, setMetaState] = useState<Record<string, FileMeta>>({});
+  const [areaMode, setAreaMode] = useState(false);
+  const [compare, setCompare] = useState<[string, string] | null>(null);
+  const [compareDetails, setCompareDetails] = useState<[Detail | null, Detail | null]>([null, null]);
+  const [cursors, setCursors] = useState<Cursor[]>([]);
+  const [routeModal, setRouteModal] = useState<Route | null>(null);
   const [dragging, setDragging] = useState(false);
   const [baseLayer, setBaseLayer] = useState<BaseLayer>(() => {
     try {
@@ -151,13 +167,29 @@ export default function App() {
     });
   }, [files, prefs.colorMode, dark]);
 
+  /** Tekrarlanan güzergâhlar (tüm kütüphane üzerinden). */
+  const routeInfo = useMemo(() => findRoutes(files), [files]);
+
+  const allTags = useMemo(
+    () => [...new Set(Object.values(meta).flatMap((m) => m.tags))].sort((a, b) => a.localeCompare(b, "tr-TR")),
+    [meta],
+  );
+
   const shown = useMemo(() => {
     const fl = prefs.filters;
     const q = fl.query.trim().toLocaleLowerCase("tr-TR");
     const dateOn = !!(fl.from || fl.to);
     const list = colored.filter((f) => {
       const s = f.summary;
-      if (q && !`${s.name ?? ""} ${s.fileName}`.toLocaleLowerCase("tr-TR").includes(q)) return false;
+      const m = meta[s.path];
+      if (q) {
+        const hay = `${s.name ?? ""} ${s.fileName} ${s.startPlace ?? ""} ${s.endPlace ?? ""} ${m?.tags.join(" ") ?? ""} ${m?.note ?? ""}`;
+        if (!hay.toLocaleLowerCase("tr-TR").includes(q)) return false;
+      }
+      if (fl.activity && s.activity !== fl.activity) return false;
+      if (fl.tag && !m?.tags.includes(fl.tag)) return false;
+      if (fl.route && routeInfo.byPath.get(s.path)?.id !== fl.route) return false;
+      if (fl.area && !linesHitBox(s.lines, fl.area, s.stats.bbox)) return false;
       if (!dateOn) return true;
       const t = s.stats.startTime;
       if (t == null) return fl.includeUndated;
@@ -187,7 +219,7 @@ export default function App() {
       case "distance":
         return list.sort((a, b) => b.summary.stats.distanceM - a.summary.stats.distanceM);
     }
-  }, [colored, prefs.filters]);
+  }, [colored, prefs.filters, meta, routeInfo]);
 
   const groups = useMemo<Group[]>(() => {
     if (prefs.groupBy === "none") return [];
@@ -250,6 +282,20 @@ export default function App() {
       cancelled = true;
     };
   }, [selected]);
+
+  // Karşılaştırılan iki kaydın grafik verisi.
+  useEffect(() => {
+    setCompareDetails([null, null]);
+    setCursors([]);
+    if (!compare) return;
+    let cancelled = false;
+    Promise.all(compare.map((p) => loadDetail(p)))
+      .then(([a, b]) => !cancelled && setCompareDetails([a, b]))
+      .catch((e) => !cancelled && setErrors((prev) => [...prev, { path: "", message: String(e) }]));
+    return () => {
+      cancelled = true;
+    };
+  }, [compare]);
 
   // Seçili aralığın tam çözünürlüklü istatistiği.
   useEffect(() => {
@@ -393,7 +439,10 @@ export default function App() {
   );
 
   const pickFiles = useCallback(async () => {
-    const res = await open({ multiple: true, filters: [{ name: "GPX", extensions: ["gpx", "GPX"] }] });
+    const res = await open({
+      multiple: true,
+      filters: [{ name: "İz dosyaları (GPX, FIT, TCX, KML)", extensions: OPEN_EXTS }],
+    });
     if (res) openPaths(Array.isArray(res) ? res : [res]);
   }, [openPaths]);
 
@@ -421,7 +470,9 @@ export default function App() {
       const statsChanged =
         !prev ||
         prev.stats.movingSpeedMs !== next.stats.movingSpeedMs ||
-        prev.stats.elevationThresholdM !== next.stats.elevationThresholdM;
+        prev.stats.elevationThresholdM !== next.stats.elevationThresholdM ||
+        prev.stats.cleanSpikes !== next.stats.cleanSpikes ||
+        prev.stats.perType !== next.stats.perType;
       if (statsChanged) {
         // İstatistikleri yeni eşiklerle yeniden hesapla.
         setFiles([]);
@@ -493,12 +544,12 @@ export default function App() {
     const path = await save({ defaultPath: "gpxer-ozet.csv", filters: [{ name: "CSV", extensions: ["csv"] }] });
     if (!path) return;
     try {
-      await writeTextFile(path, csvFor(list));
+      await writeTextFile(path, csvFor(list, meta));
       say(`${fmtNumber(list.length)} kaydın özeti kaydedildi.`);
     } catch (e) {
       fail(String(e));
     }
-  }, [multi, shown, say, fail]);
+  }, [multi, shown, say, fail, meta]);
 
   const exportPng = useCallback(async () => {
     try {
@@ -515,11 +566,20 @@ export default function App() {
   const exportSelectedGpx = useCallback(async () => {
     const f = filesRef.current.find((x) => x.summary.path === selected);
     if (!f) return;
-    const path = await save({ defaultPath: f.summary.fileName, filters: [{ name: "GPX", extensions: ["gpx"] }] });
+    const path = await save({
+      defaultPath: f.summary.fileName,
+      filters: [
+        { name: "GPX", extensions: ["gpx"] },
+        { name: "KML (Google Earth)", extensions: ["kml"] },
+        { name: "TCX (Garmin)", extensions: ["tcx"] },
+      ],
+    });
     if (!path) return;
+    const ext = path.split(".").pop()?.toLowerCase();
+    const format: ExportFormat = ext === "kml" || ext === "tcx" ? ext : "gpx";
     try {
-      await exportGpx(f.summary.path, path);
-      say("GPX dosyası kaydedildi.");
+      await exportAs(f.summary.path, path, format);
+      say(`${format.toUpperCase()} dosyası kaydedildi.`);
     } catch (e) {
       fail(String(e));
     }
@@ -601,6 +661,9 @@ export default function App() {
       const s = await getSettings().catch(() => null);
       if (done) return;
       if (s) setSettingsState(s);
+      getMeta()
+        .then(setMetaState)
+        .catch(() => {});
       await openPaths(await libraryFiles(), { quiet: true, noFit: hadView.current, noSelect: true });
       if (s?.watchedFolders.length) await openPaths(s.watchedFolders, { quiet: true, noFit: true, noSelect: true });
       initialLoad.current = false;
@@ -673,7 +736,9 @@ export default function App() {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
       if (e.key === "Escape") {
-        if (range) setRange(null);
+        if (areaMode) setAreaMode(false);
+        else if (compare) setCompare(null);
+        else if (range) setRange(null);
         else if (multi.size) setMulti(new Set());
         else setSelected(null);
       }
@@ -697,7 +762,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rows, selected, range, multi, detail, dialog]);
+  }, [rows, selected, range, multi, detail, dialog, areaMode, compare]);
 
   const zoomTo = useCallback((path: string) => {
     const f = filesRef.current.find((x) => x.summary.path === path);
@@ -743,6 +808,46 @@ export default function App() {
   );
 
   const setFilters = useCallback((filters: Filters) => up({ filters }), [up]);
+
+  /** Kaydın tür/etiket/notunu kaydeder; tür değişince özeti günceller. */
+  const updateMeta = useCallback(
+    async (path: string, m: FileMeta) => {
+      setMetaState((prev) => ({ ...prev, [path]: m }));
+      try {
+        const res = await saveMeta(path, m);
+        if (res?.status === "ok") {
+          setFiles((prev) => prev.map((f) => (f.summary.path === path ? { ...f, summary: res.file } : f)));
+        } else if (res?.status === "error") fail(res.message, path);
+      } catch (e) {
+        fail(String(e), path);
+      }
+    },
+    [fail],
+  );
+
+  const tagMany = useCallback(
+    async (tag: string) => {
+      setDialog(null);
+      const paths = [...multi];
+      for (const p of paths) {
+        const m = meta[p] ?? EMPTY_META;
+        if (!m.tags.includes(tag)) await updateMeta(p, { ...m, tags: [...m.tags, tag] });
+      }
+      say(`${fmtNumber(paths.length)} kayda “${tag}” etiketi eklendi.`);
+    },
+    [multi, meta, updateMeta, say],
+  );
+
+  const startCompare = useCallback(() => {
+    const pair = [...multi];
+    if (pair.length !== 2) return;
+    // Eski kayıt A, yeni kayıt B.
+    const t = (p: string) => filesRef.current.find((f) => f.summary.path === p)?.summary.stats.startTime ?? 0;
+    pair.sort((a, b) => t(a) - t(b));
+    setCompare([pair[0], pair[1]]);
+    setSelected(null);
+    mapRef.current?.fitFiles(filesRef.current.filter((f) => pair.includes(f.summary.path)));
+  }, [multi]);
 
   const zoomRange = useCallback(() => {
     if (!detail || !range) return;
@@ -802,6 +907,17 @@ export default function App() {
           onExportCsv={exportCsv}
           onSetVisible={setVisible}
           onClearMulti={() => setMulti(new Set())}
+          meta={meta}
+          allTags={allTags}
+          routeLabel={(() => {
+            const r = routeInfo.routes.find((x) => x.id === prefs.filters.route);
+            const f = r && files.find((x) => x.summary.path === r.paths[0]);
+            return f ? (placeLabel(f.summary) ?? f.summary.name ?? f.summary.fileName) : null;
+          })()}
+          areaMode={areaMode}
+          onAreaMode={setAreaMode}
+          onCompare={startCompare}
+          onTagMany={() => setDialog("tag")}
         />
       )}
       <main className="main">
@@ -822,8 +938,18 @@ export default function App() {
             onViewChange={(mapView) => up({ mapView })}
             onSelect={(p) => {
               setMulti(new Set());
+              setCompare(null);
               setSelected(p);
             }}
+            areaMode={areaMode}
+            area={prefs.filters.area}
+            onArea={(area) => {
+              setAreaMode(false);
+              up({ filters: { ...prefsRef.current.filters, area } });
+            }}
+            stopsLayer={prefs.stopsLayer}
+            highlight={compare}
+            cursors={cursors}
           />
           <div className="map-toolbar">
             <button
@@ -864,6 +990,13 @@ export default function App() {
                     <option value="date">Renk: tarihe göre</option>
                   </select>
                 </label>
+                <button
+                  className={`btn small${prefs.stopsLayer ? " primary" : ""}`}
+                  onClick={() => up({ stopsLayer: !prefs.stopsLayer })}
+                  title="Tüm kayıtlarda en çok durulan yerler"
+                >
+                  Duraklar
+                </button>
                 <button className="btn small" onClick={fitAll} title="Tümünü göster (Ctrl/⌘+0)">
                   Tümünü göster
                 </button>
@@ -997,7 +1130,24 @@ export default function App() {
             </div>
           )}
         </div>
-        {selectedEntry && (
+        {compare && (() => {
+          const a = colored.find((f) => f.summary.path === compare[0]);
+          const b = colored.find((f) => f.summary.path === compare[1]);
+          return a && b ? (
+            <CompareView
+              a={a}
+              b={b}
+              detailA={compareDetails[0]}
+              detailB={compareDetails[1]}
+              height={prefs.panelHeight}
+              playSpeed={prefs.playSpeed}
+              onPlaySpeed={(playSpeed) => up({ playSpeed })}
+              onCursors={setCursors}
+              onClose={() => setCompare(null)}
+            />
+          ) : null;
+        })()}
+        {selectedEntry && !compare && (
           <DetailPanel
             entry={selectedEntry}
             detail={detail}
@@ -1028,6 +1178,11 @@ export default function App() {
             onClose={() => setSelected(null)}
             onZoom={() => zoomTo(selectedEntry.summary.path)}
             onExportGpx={exportSelectedGpx}
+            meta={meta[selectedEntry.summary.path] ?? EMPTY_META}
+            allTags={allTags}
+            onMeta={(m) => updateMeta(selectedEntry.summary.path, m)}
+            routeCount={routeInfo.byPath.get(selectedEntry.summary.path)?.paths.length ?? 0}
+            onOpenRoute={() => setRouteModal(routeInfo.byPath.get(selectedEntry.summary.path) ?? null)}
           />
         )}
       </main>
@@ -1051,6 +1206,15 @@ export default function App() {
       {dialog === "summary" && (
         <SummaryPanel
           files={shown}
+          routes={routeInfo.routes}
+          onRoute={(r) => {
+            setDialog(null);
+            setRouteModal(r);
+          }}
+          onActivity={(activity) => {
+            setDialog(null);
+            up({ filters: { ...prefs.filters, activity } });
+          }}
           onClose={() => setDialog(null)}
           onPeriod={(from, to) => {
             setDialog(null);
@@ -1060,6 +1224,32 @@ export default function App() {
             setDialog(null);
             selectAndZoom(p);
           }}
+        />
+      )}
+      {dialog === "tag" && (
+        <PromptModal
+          title={`${multi.size} kayda etiket ekle`}
+          label="Etiket"
+          initial=""
+          okLabel="Ekle"
+          onOk={tagMany}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {routeModal && (
+        <RouteModal
+          route={routeModal}
+          files={new Map(colored.map((f) => [f.summary.path, f]))}
+          current={selected}
+          onOpen={(p) => {
+            setRouteModal(null);
+            selectAndZoom(p);
+          }}
+          onFilter={() => {
+            up({ filters: { ...prefs.filters, route: routeModal.id } });
+            setRouteModal(null);
+          }}
+          onClose={() => setRouteModal(null)}
         />
       )}
       {dialog === "merge" && (
@@ -1074,7 +1264,7 @@ export default function App() {
       )}
       {dragging && (
         <div className="drop-overlay">
-          <div>GPX dosyalarını ya da klasörleri bırakın</div>
+          <div>GPX, FIT, TCX, KML dosyalarını ya da klasörleri bırakın</div>
         </div>
       )}
     </div>

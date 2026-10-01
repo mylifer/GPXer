@@ -6,6 +6,8 @@
 //! tutar. Grafik gibi tam çözünürlük gereken veriler ([`Detail`]) seçildiğinde
 //! dosya yeniden okunarak üretilir.
 
+pub mod analysis;
+pub mod formats;
 pub mod ops;
 pub mod parse;
 pub mod simplify;
@@ -16,6 +18,7 @@ use parse::{Gpx, Point};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+pub use analysis::{Activity, Stop};
 pub use parse::{parse_gpx, ParseError};
 pub use stats::{compute_stats, haversine_m, Stats, StatsConfig};
 
@@ -57,6 +60,25 @@ pub struct FileSummary {
     /// Başlangıç noktası [lon, lat].
     #[serde(default)]
     pub start: Option<[f64; 2]>,
+    /// Bitiş noktası [lon, lat].
+    #[serde(default)]
+    pub end: Option<[f64; 2]>,
+    /// Başlangıç ve bitiş yerinin adı (uygulama katmanı doldurur).
+    #[serde(default)]
+    pub start_place: Option<String>,
+    #[serde(default)]
+    pub end_place: Option<String>,
+    /// Etkinlik türü (seçilmişse o, değilse tahmin).
+    #[serde(default)]
+    pub activity: Activity,
+    /// Türü kullanıcı mı seçti.
+    #[serde(default)]
+    pub activity_set: bool,
+    #[serde(default)]
+    pub stops: Vec<Stop>,
+    /// Ayıklanan GPS sıçraması sayısı.
+    #[serde(default)]
+    pub removed_points: usize,
 }
 
 /// Seçili dosyanın grafik verisi, sütun sütun (uPlot formatına uygun).
@@ -118,17 +140,58 @@ fn round6(v: f64) -> f64 {
     (v * 1e6).round() / 1e6
 }
 
+/// Kaydın türünü (seçilmemişse tahmin ederek) ve o türe göre kullanılacak
+/// eşikleri belirler.
+pub fn effective_config(
+    gpx: &Gpx,
+    cfg: &StatsConfig,
+    chosen: Option<Activity>,
+) -> (StatsConfig, Activity) {
+    let activity = chosen.unwrap_or_else(|| {
+        analysis::classify(&compute_stats(primary_segments(gpx).iter().copied(), cfg))
+    });
+    let eff = if cfg.per_type {
+        activity.thresholds(cfg)
+    } else {
+        *cfg
+    };
+    (eff, activity)
+}
+
+/// Okunan kayda ayarların gerektirdiği ön işlemleri uygular (sıçrama
+/// temizliği); ayıklanan nokta sayısını döndürür.
+pub fn prepare(gpx: &mut Gpx, cfg: &StatsConfig) -> usize {
+    if cfg.clean_spikes {
+        analysis::clean_spikes(gpx)
+    } else {
+        0
+    }
+}
+
 pub fn summarize(
     gpx: &Gpx,
     path: &str,
     file_size: u64,
     cfg: &StatsConfig,
 ) -> Result<FileSummary, LoadError> {
+    summarize_with(gpx, path, file_size, cfg, None)
+}
+
+/// `gpx` [`prepare`] edilmiş olmalıdır.
+pub fn summarize_with(
+    gpx: &Gpx,
+    path: &str,
+    file_size: u64,
+    cfg: &StatsConfig,
+    chosen: Option<Activity>,
+) -> Result<FileSummary, LoadError> {
     let segments = primary_segments(gpx);
     if segments.is_empty() && gpx.waypoints.is_empty() {
         return Err(LoadError::Empty);
     }
-    let mut stats = compute_stats(segments.iter().copied(), cfg);
+    let (eff, activity) = effective_config(gpx, cfg, chosen);
+    let mut stats = compute_stats(segments.iter().copied(), &eff);
+
     if stats.start_time.is_none() {
         stats.start_time = gpx.time;
     }
@@ -206,6 +269,17 @@ pub fn summarize(
             .and_then(|s| s.first())
             .or_else(|| gpx.waypoints.first().map(|w| &w.point))
             .map(|p| [p.lon, p.lat]),
+        end: segments
+            .last()
+            .and_then(|s| s.last())
+            .or_else(|| gpx.waypoints.last().map(|w| &w.point))
+            .map(|p| [p.lon, p.lat]),
+        start_place: None,
+        end_place: None,
+        activity,
+        activity_set: chosen.is_some(),
+        stops: analysis::detect_stops(segments.iter().copied()),
+        removed_points: 0,
     })
 }
 
@@ -324,20 +398,34 @@ pub fn build_detail(gpx: &Gpx) -> Detail {
     d
 }
 
+/// Dosyayı uzantısına göre (GPX, FIT, TCX, KML) okur; ham haliyle döndürür.
 pub fn read_gpx_file(path: &Path) -> Result<(Gpx, u64), LoadError> {
     let bytes = std::fs::read(path).map_err(LoadError::Io)?;
     let size = bytes.len() as u64;
-    let gpx = parse_gpx(&bytes).map_err(LoadError::Parse)?;
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let gpx = formats::parse_any(&ext, &bytes).map_err(LoadError::Parse)?;
     Ok((gpx, size))
 }
 
-pub fn load_summary(path: &Path, cfg: &StatsConfig) -> Result<FileSummary, LoadError> {
-    let (gpx, size) = read_gpx_file(path)?;
-    summarize(&gpx, &path.to_string_lossy(), size, cfg)
+/// Okur ve ayarlara göre hazırlar (sıçrama temizliği).
+pub fn read_prepared(path: &Path, cfg: &StatsConfig) -> Result<(Gpx, u64, usize), LoadError> {
+    let (mut gpx, size) = read_gpx_file(path)?;
+    let removed = prepare(&mut gpx, cfg);
+    Ok((gpx, size, removed))
 }
 
-pub fn load_detail(path: &Path) -> Result<Detail, LoadError> {
-    let (gpx, _) = read_gpx_file(path)?;
+pub fn load_summary(path: &Path, cfg: &StatsConfig) -> Result<FileSummary, LoadError> {
+    let (gpx, size, removed) = read_prepared(path, cfg)?;
+    let mut s = summarize(&gpx, &path.to_string_lossy(), size, cfg)?;
+    s.removed_points = removed;
+    Ok(s)
+}
+
+pub fn load_detail(path: &Path, cfg: &StatsConfig) -> Result<Detail, LoadError> {
+    let (gpx, _, _) = read_prepared(path, cfg)?;
     Ok(build_detail(&gpx))
 }
 

@@ -182,6 +182,7 @@ fn thresholds_are_configurable() {
     let strict = StatsConfig {
         moving_speed_ms: 5.0,
         elevation_threshold_m: 50.0,
+        ..StatsConfig::default()
     };
     let s = summarize(&gpx, "a", 0, &strict).unwrap().stats;
     // 111 m / 30 sn ≈ 3,7 m/s < 5 m/s: hiç hareket yok sayılır.
@@ -244,4 +245,143 @@ fn writer_round_trips() {
         };
         assert_eq!(pts(&back), pts(&gpx));
     }
+}
+
+fn pt(lat: f64, lon: f64, t: i64) -> Point {
+    Point {
+        lat,
+        lon,
+        time: Some(t * 1000),
+        ..Point::default()
+    }
+}
+
+#[test]
+fn removes_gps_spikes() {
+    // 5 m/s ile kuzeye giden iz; ortadaki nokta 500 m doğuya sıçramış.
+    let mut seg: Vec<Point> = (0..10)
+        .map(|i| pt(41.0 + i as f64 * 4.5e-5, 29.0, i))
+        .collect();
+    seg[5].lon += 0.006;
+    // Bir de akla yatkın olmayan tek sıçrama (yaklaşık 50 km, 1 sn).
+    seg.push(pt(41.5, 29.0, 10));
+    seg.push(pt(41.0 + 11.0 * 4.5e-5, 29.0, 11));
+    let removed = analysis::clean_segment(&mut seg);
+    assert_eq!(removed, 2);
+    assert!(seg
+        .iter()
+        .all(|p| (p.lon - 29.0).abs() < 1e-9 && p.lat < 41.1));
+    // Düzgün bir viraj silinmez.
+    let mut turn: Vec<Point> = (0..10)
+        .map(|i| pt(41.0, 29.0 + i as f64 * 6e-5, i))
+        .collect();
+    turn.extend((1..10).map(|i| pt(41.0 + i as f64 * 4.5e-5, 29.0 + 9.0 * 6e-5, 9 + i)));
+    assert_eq!(analysis::clean_segment(&mut turn), 0);
+}
+
+#[test]
+fn detects_stops_and_activity() {
+    // 3,5 m/s (12,6 km/sa).
+    let mut seg: Vec<Point> = (0..60)
+        .map(|i| pt(41.0 + i as f64 * 3.15e-5, 29.0, i))
+        .collect();
+    // 5 dakika aynı yerde (küçük titremelerle).
+    let last = seg.last().unwrap().lat;
+    for k in 1..=30 {
+        seg.push(pt(
+            last + if k % 2 == 0 { 2e-5 } else { 0.0 },
+            29.0,
+            59 + k * 10,
+        ));
+    }
+    let t = 59 + 300;
+    seg.extend((1..60).map(|i| pt(last + i as f64 * 3.15e-5, 29.0, t + i)));
+    let stops = analysis::detect_stops([seg.as_slice()]);
+    assert_eq!(stops.len(), 1);
+    assert!(stops[0].duration_ms >= 290_000);
+
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    // ~12,6 km/sa: koşu.
+    let s = summarize(&gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
+    assert_eq!(s.activity, Activity::Run);
+    assert_eq!(s.stops.len(), 1);
+    let s = summarize_with(
+        &gpx,
+        "a.gpx",
+        0,
+        &StatsConfig::default(),
+        Some(Activity::Bike),
+    )
+    .unwrap();
+    assert_eq!(s.activity, Activity::Bike);
+    assert!(s.activity_set);
+    // Türe göre eşik: araçta 6 km/sa altı durma sayılır.
+    let cfg = StatsConfig {
+        per_type: true,
+        ..StatsConfig::default()
+    };
+    let (eff, _) = effective_config(&gpx, &cfg, Some(Activity::Car));
+    assert!((eff.moving_speed_ms - 6.0 / 3.6).abs() < 1e-9);
+}
+
+#[test]
+fn reads_fit() {
+    let bytes = include_bytes!("../testdata/garmin-fenix-5-bike.fit");
+    let gpx = formats::parse_any("FIT", bytes).unwrap();
+    let pts: Vec<_> = primary_segments(&gpx)
+        .iter()
+        .flat_map(|s| s.to_vec())
+        .collect();
+    assert!(pts.len() > 10, "{}", pts.len());
+    assert!(pts
+        .iter()
+        .all(|p| p.lat.abs() <= 90.0 && p.lon.abs() <= 180.0));
+    assert!(pts.iter().any(|p| p.time.is_some()));
+    let s = summarize(&gpx, "x.fit", 0, &StatsConfig::default()).unwrap();
+    assert!(
+        s.stats.distance_m > 10.0,
+        "{} m, {} nokta",
+        s.stats.distance_m,
+        pts.len()
+    );
+}
+
+#[test]
+fn tcx_and_kml_round_trip() {
+    let gpx = parse_gpx(SENSORS.as_bytes()).unwrap();
+    let pts = |g: &parse::Gpx| {
+        primary_segments(g)
+            .iter()
+            .flat_map(|s| s.to_vec())
+            .collect::<Vec<_>>()
+    };
+    let tcx = formats::parse_tcx(formats::write_tcx(&gpx).as_bytes()).unwrap();
+    let (a, b) = (pts(&gpx), pts(&tcx));
+    assert_eq!(a.len(), b.len());
+    for (x, y) in a.iter().zip(&b) {
+        assert_eq!(
+            (x.lat, x.lon, x.ele, x.time, x.hr, x.cad, x.power),
+            (y.lat, y.lon, y.ele, y.time, y.hr, y.cad, y.power)
+        );
+    }
+    let kml = formats::parse_kml(formats::write_kml(&gpx).as_bytes()).unwrap();
+    let k = pts(&kml);
+    assert_eq!(k.len(), a.len());
+    for (x, y) in a.iter().zip(&k) {
+        assert_eq!((x.lat, x.lon, x.time), (y.lat, y.lon, y.time));
+    }
+    // Zamansız KML LineString ve işaret noktası.
+    let simple = r#"<kml><Document><name>D</name><Placemark><name>P</name><Point><coordinates>29,41,5</coordinates></Point></Placemark>
+        <Placemark><name>Yol</name><LineString><coordinates>29,41 29.01,41.01</coordinates></LineString></Placemark></Document></kml>"#;
+    let g = formats::parse_kml(simple.as_bytes()).unwrap();
+    assert_eq!(g.waypoints.len(), 1);
+    assert_eq!(g.waypoints[0].name.as_deref(), Some("P"));
+    assert_eq!(pts(&g).len(), 2);
+    assert!(formats::parse_kml(b"<gpx/>").is_err());
 }

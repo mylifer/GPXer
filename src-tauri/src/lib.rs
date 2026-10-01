@@ -1,9 +1,11 @@
 mod library;
+mod meta;
 mod settings;
 
 use base64::Engine;
 use gpx_core::{Detail, Stats};
-use library::{is_gpx, Library, LoadResult, TrashItem};
+use library::{is_track_file, Library, LoadResult, TrashItem};
+use meta::{FileMeta, MetaStore};
 use rayon::prelude::*;
 use settings::{Settings, SettingsStore};
 use std::path::{Path, PathBuf};
@@ -37,7 +39,7 @@ async fn expand_paths(paths: Vec<String>) -> Result<Vec<String>, String> {
                     .follow_links(true)
                     .into_iter()
                     .filter_map(Result::ok)
-                    .filter(|e| e.file_type().is_file() && is_gpx(e.path()))
+                    .filter(|e| e.file_type().is_file() && is_track_file(e.path()))
                     .map(|e| e.path().to_string_lossy().into_owned())
                     .collect();
                 found.sort();
@@ -61,20 +63,22 @@ async fn expand_paths(paths: Vec<String>) -> Result<Vec<String>, String> {
 async fn load_files(app: AppHandle, paths: Vec<String>) -> Result<Vec<LoadResult>, String> {
     run_blocking(move || {
         let library = app.state::<Library>();
+        let meta = app.state::<MetaStore>();
         let cfg = app.state::<SettingsStore>().stats();
         let parsed: Vec<_> = paths
             .into_par_iter()
             .map(|p| {
-                let res = library.summarize(&p, &cfg);
-                (p, res)
+                let chosen = meta.activity(&p);
+                let res = library.summarize(&p, &cfg, chosen);
+                (p, chosen, res)
             })
             .collect();
         // Kopya denetimi sırayla yapılır ki aynı partide gelen iki kopya da
         // yakalansın.
         parsed
             .into_iter()
-            .map(|(p, res)| match res {
-                Ok((file, fp)) => library.add(p, file, fp, &cfg),
+            .map(|(p, chosen, res)| match res {
+                Ok((file, fp)) => library.add(p, file, fp, &cfg, chosen),
                 Err(message) => LoadResult::Error { path: p, message },
             })
             .collect()
@@ -111,13 +115,61 @@ fn remove_files(
 
 /// Çöp kutusuna taşınan dosyaları geri getirir; yeni yollarını döndürür.
 #[tauri::command]
-fn restore_files(library: tauri::State<'_, Library>, items: Vec<TrashItem>) -> Vec<String> {
-    library.restore(&items)
+fn restore_files(
+    library: tauri::State<'_, Library>,
+    meta: tauri::State<'_, MetaStore>,
+    items: Vec<TrashItem>,
+) -> Vec<String> {
+    library
+        .restore(&items)
+        .into_iter()
+        .map(|(old, new)| {
+            if old != new {
+                meta.rename(&old, &new);
+            }
+            new
+        })
+        .collect()
 }
 
 #[tauri::command]
-async fn load_detail(path: String) -> Result<Detail, String> {
-    run_blocking(move || gpx_core::load_detail(Path::new(&path)).map_err(|e| e.to_string())).await?
+async fn load_detail(app: AppHandle, path: String) -> Result<Detail, String> {
+    run_blocking(move || {
+        let cfg = app.state::<SettingsStore>().stats();
+        gpx_core::load_detail(Path::new(&path), &cfg).map_err(|e| e.to_string())
+    })
+    .await?
+}
+
+/// Etiket, not ve tür bilgilerinin tamamı (kütüphane yoluna göre).
+#[tauri::command]
+fn get_meta(meta: tauri::State<'_, MetaStore>) -> std::collections::HashMap<String, FileMeta> {
+    meta.all()
+}
+
+/// Kaydın bilgilerini kaydeder. Tür değiştiyse istatistikler o türe göre
+/// yeniden hesaplanır ve yeni özet döndürülür.
+#[tauri::command]
+async fn set_meta(
+    app: AppHandle,
+    path: String,
+    value: FileMeta,
+) -> Result<Option<LoadResult>, String> {
+    run_blocking(move || {
+        let chosen = value.activity;
+        let old = app
+            .state::<MetaStore>()
+            .set(&path, value)
+            .map_err(|e| e.to_string())?;
+        if old.activity == chosen {
+            return Ok(None);
+        }
+        let cfg = app.state::<SettingsStore>().stats();
+        let res = app.state::<Library>().load(path, &cfg, chosen);
+        let _ = app.state::<Library>().flush_cache();
+        Ok(Some(res))
+    })
+    .await?
 }
 
 /// Asıl noktaların `[start, end]` aralığının tam çözünürlüklü istatistiği.
@@ -130,15 +182,20 @@ async fn range_stats(
 ) -> Result<Stats, String> {
     run_blocking(move || {
         let cfg = app.state::<SettingsStore>().stats();
-        let (gpx, _) = gpx_core::read_gpx_file(Path::new(&path)).map_err(|e| e.to_string())?;
-        Ok(gpx_core::range_stats(&gpx, start, end, &cfg))
+        let chosen = app.state::<MetaStore>().activity(&path);
+        let gpx = read(&app, &path)?;
+        let (eff, _) = gpx_core::effective_config(&gpx, &cfg, chosen);
+        Ok(gpx_core::range_stats(&gpx, start, end, &eff))
     })
     .await?
 }
 
-fn read(path: &str) -> Result<gpx_core::parse::Gpx, String> {
-    gpx_core::read_gpx_file(Path::new(path))
-        .map(|(g, _)| g)
+/// Kaydı ayarlara göre hazırlanmış (sıçramaları ayıklanmış) haliyle okur;
+/// grafikteki nokta sıraları bu hale göredir.
+fn read(app: &AppHandle, path: &str) -> Result<gpx_core::parse::Gpx, String> {
+    let cfg = app.state::<SettingsStore>().stats();
+    gpx_core::read_prepared(Path::new(path), &cfg)
+        .map(|(g, _, _)| g)
         .map_err(|e| e.to_string())
 }
 
@@ -148,7 +205,7 @@ fn store_new(app: &AppHandle, gpx: &gpx_core::parse::Gpx, fallback: &str) -> Loa
     let cfg = app.state::<SettingsStore>().stats();
     let name = gpx.name.clone().unwrap_or_else(|| fallback.to_owned());
     match library.write_new(&name, &gpx_core::write::write_gpx(gpx)) {
-        Ok(p) => library.load(p.to_string_lossy().into_owned(), &cfg),
+        Ok(p) => library.load(p.to_string_lossy().into_owned(), &cfg, None),
         Err(e) => LoadResult::Error {
             path: name,
             message: format!("Kaydedilemedi: {e}"),
@@ -165,7 +222,7 @@ async fn trim_file(
     end: usize,
 ) -> Result<LoadResult, String> {
     run_blocking(move || {
-        let gpx = read(&path)?;
+        let gpx = read(&app, &path)?;
         let out = gpx_core::ops::trim(&gpx, start, end).ok_or("Geçersiz aralık")?;
         Ok(store_new(&app, &out, "Kırpılmış iz"))
     })
@@ -176,7 +233,7 @@ async fn trim_file(
 #[tauri::command]
 async fn split_file(app: AppHandle, path: String, at: usize) -> Result<Vec<LoadResult>, String> {
     run_blocking(move || {
-        let gpx = read(&path)?;
+        let gpx = read(&app, &path)?;
         let (a, b) = gpx_core::ops::split(&gpx, at).ok_or("Bu noktadan bölünemez")?;
         Ok(vec![
             store_new(&app, &a, "1. kısım"),
@@ -196,7 +253,7 @@ async fn merge_files(
     run_blocking(move || {
         let parts = paths
             .iter()
-            .map(|p| read(p))
+            .map(|p| read(&app, p))
             .collect::<Result<Vec<_>, _>>()?;
         let merged = gpx_core::ops::merge(parts, Some(name.clone()));
         Ok(store_new(&app, &merged, &name))
@@ -204,13 +261,22 @@ async fn merge_files(
     .await?
 }
 
-/// Kütüphanedeki dosyayı kullanıcının seçtiği yere kopyalar.
+/// Kütüphanedeki dosyayı seçilen yere seçilen biçimde (gpx, kml, tcx) kaydeder.
 #[tauri::command]
-async fn export_gpx(src: String, dest: String) -> Result<(), String> {
+async fn export_as(src: String, dest: String, format: String) -> Result<(), String> {
     run_blocking(move || {
-        std::fs::copy(&src, &dest)
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        if format == "gpx" {
+            return std::fs::copy(&src, &dest)
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+        }
+        let (gpx, _) = gpx_core::read_gpx_file(Path::new(&src)).map_err(|e| e.to_string())?;
+        let text = match format.as_str() {
+            "kml" => gpx_core::formats::write_kml(&gpx),
+            "tcx" => gpx_core::formats::write_tcx(&gpx),
+            other => return Err(format!("Bilinmeyen biçim: {other}")),
+        };
+        std::fs::write(&dest, text).map_err(|e| e.to_string())
     })
     .await?
 }
@@ -407,6 +473,7 @@ pub fn run() {
             let root = app.path().app_data_dir()?;
             app.manage(Library::open(&root)?);
             app.manage(SettingsStore::open(&root));
+            app.manage(MetaStore::open(&root));
             app.set_menu(build_menu(handle)?)?;
             for e in start_watcher(handle) {
                 eprintln!("{e}");
@@ -435,7 +502,9 @@ pub fn run() {
             trim_file,
             split_file,
             merge_files,
-            export_gpx,
+            export_as,
+            get_meta,
+            set_meta,
             write_text_file,
             write_base64_file,
             get_settings,

@@ -63,3 +63,22 @@ export const METRICS: Record<string, { label: string; unit: string; digits: numb
   power: { label: "Güç", unit: "W", digits: 0 },
   temp: { label: "Sıcaklık", unit: "°C", digits: 1 },
 };
+
+export const ACTIVITIES: { id: import("./api").Activity; label: string; icon: string }[] = [
+  { id: "walk", label: "Yürüyüş", icon: "🚶" },
+  { id: "run", label: "Koşu", icon: "🏃" },
+  { id: "bike", label: "Bisiklet", icon: "🚴" },
+  { id: "car", label: "Araç", icon: "🚗" },
+  { id: "unknown", label: "Bilinmiyor", icon: "•" },
+];
+
+export function activityOf(id: string) {
+  return ACTIVITIES.find((a) => a.id === id) ?? ACTIVITIES[ACTIVITIES.length - 1];
+}
+
+/** "Kadıköy → Beşiktaş" ya da tek yerse "Kadıköy". */
+export function placeLabel(s: { startPlace: string | null; endPlace: string | null }): string | null {
+  const { startPlace: a, endPlace: b } = s;
+  if (a && b && a !== b) return `${a} → ${b}`;
+  return a ?? b ?? null;
+}

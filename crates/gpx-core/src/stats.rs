@@ -18,6 +18,10 @@ pub struct StatsConfig {
     pub moving_speed_ms: f64,
     /// Yükseklik gürültüsünü bastırmak için eşik (metre).
     pub elevation_threshold_m: f64,
+    /// GPS sıçramaları hesaplamadan önce ayıklansın.
+    pub clean_spikes: bool,
+    /// Eşikler her kaydın (tahmin edilen ya da seçilen) türüne göre seçilsin.
+    pub per_type: bool,
 }
 
 impl Default for StatsConfig {
@@ -26,6 +30,8 @@ impl Default for StatsConfig {
         Self {
             moving_speed_ms: 0.5,
             elevation_threshold_m: 3.0,
+            clean_spikes: true,
+            per_type: false,
         }
     }
 }

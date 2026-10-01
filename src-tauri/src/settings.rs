@@ -1,6 +1,6 @@
 //! Kalıcı ayarlar ve izlenen klasörler.
 
-use crate::library::is_gpx;
+use crate::library::is_track_file;
 use gpx_core::StatsConfig;
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
@@ -65,7 +65,7 @@ impl SettingsStore {
             let mut paths: Vec<String> = events
                 .into_iter()
                 .map(|e| e.path)
-                .filter(|p| p.is_file() && is_gpx(p))
+                .filter(|p| p.is_file() && is_track_file(p))
                 .map(|p| p.to_string_lossy().into_owned())
                 .collect();
             paths.sort();

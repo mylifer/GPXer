@@ -20,6 +20,13 @@ export interface Filters {
   /** Tarih filtresi açıkken zaman bilgisi olmayan kayıtlar da gösterilsin mi. */
   includeUndated: boolean;
   sort: SortKey;
+  /** Haritada seçilen alan [minLon, minLat, maxLon, maxLat]: yalnızca oradan geçenler. */
+  area: [number, number, number, number] | null;
+  /** "" = tümü */
+  activity: string;
+  tag: string;
+  /** Tekrarlanan güzergâh kimliği; yalnızca o güzergâhın kayıtları. */
+  route: string | null;
 }
 
 export interface Prefs {
@@ -43,9 +50,21 @@ export interface Prefs {
   heatmap: boolean;
   follow: boolean;
   playSpeed: number;
+  /** Haritada duraklama yoğunluğu katmanı. */
+  stopsLayer: boolean;
 }
 
-export const DEFAULT_FILTERS: Filters = { query: "", from: "", to: "", includeUndated: false, sort: "date-desc" };
+export const DEFAULT_FILTERS: Filters = {
+  query: "",
+  from: "",
+  to: "",
+  includeUndated: false,
+  sort: "date-desc",
+  area: null,
+  activity: "",
+  tag: "",
+  route: null,
+};
 
 const DEFAULTS: Prefs = {
   filters: DEFAULT_FILTERS,
@@ -65,6 +84,7 @@ const DEFAULTS: Prefs = {
   heatmap: false,
   follow: true,
   playSpeed: 60,
+  stopsLayer: false,
 };
 
 const KEY = "gpxer.prefs.v1";

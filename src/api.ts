@@ -47,6 +47,30 @@ export interface FileSummary {
   /** Kaydın başladığı yerin IANA saat dilimi. */
   timeZone: string | null;
   start: [number, number] | null;
+  end: [number, number] | null;
+  startPlace: string | null;
+  endPlace: string | null;
+  activity: Activity;
+  /** Tür kullanıcı tarafından seçildi mi (değilse tahmin). */
+  activitySet: boolean;
+  stops: Stop[];
+  /** Ayıklanan GPS sıçraması sayısı. */
+  removedPoints: number;
+}
+
+export type Activity = "walk" | "run" | "bike" | "car" | "unknown";
+
+export interface Stop {
+  lat: number;
+  lon: number;
+  start: number;
+  durationMs: number;
+}
+
+export interface FileMeta {
+  tags: string[];
+  note: string;
+  activity: Activity | null;
 }
 
 export interface Detail {
@@ -77,6 +101,8 @@ export interface TrashItem {
 export interface StatsConfig {
   movingSpeedMs: number;
   elevationThresholdM: number;
+  cleanSpikes: boolean;
+  perType: boolean;
 }
 
 export interface Settings {
@@ -98,7 +124,12 @@ export const trimFile = (path: string, start: number, end: number) =>
   invoke<LoadResult>("trim_file", { path, start, end });
 export const splitFile = (path: string, at: number) => invoke<LoadResult[]>("split_file", { path, at });
 export const mergeFiles = (paths: string[], name: string) => invoke<LoadResult>("merge_files", { paths, name });
-export const exportGpx = (src: string, dest: string) => invoke<void>("export_gpx", { src, dest });
+export type ExportFormat = "gpx" | "kml" | "tcx";
+export const exportAs = (src: string, dest: string, format: ExportFormat) =>
+  invoke<void>("export_as", { src, dest, format });
+export const getMeta = () => invoke<Record<string, FileMeta>>("get_meta");
+/** Tür değiştiyse yeniden hesaplanan özet döner. */
+export const setMeta = (path: string, value: FileMeta) => invoke<LoadResult | null>("set_meta", { path, value });
 export const writeTextFile = (path: string, contents: string) => invoke<void>("write_text_file", { path, contents });
 export const writeBase64File = (path: string, data: string) => invoke<void>("write_base64_file", { path, data });
 export const getSettings = () => invoke<Settings>("get_settings");

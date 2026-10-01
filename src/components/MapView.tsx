@@ -13,7 +13,8 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import type { Detail, FileSummary } from "../api";
 import { METRICS, SEQ_DARK, SEQ_LIGHT, type FileEntry } from "../types";
 import type { TrackColorBy } from "../prefs";
-import { fmtDate, fmtDistance, fmtKmh, fmtTimestamp, fmtUnit, tzOf } from "../format";
+import { fmtDate, fmtDistance, fmtDuration, fmtKmh, fmtNumber, fmtTime, fmtTimestamp, fmtUnit, tzOf } from "../format";
+import type { BBox } from "../geo";
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -55,6 +56,16 @@ interface Props {
   initialView: MapViewState | null;
   onViewChange(v: MapViewState): void;
   onSelect(path: string | null): void;
+  /** Alan seçme kipi: sürükleyerek dikdörtgen çizilir. */
+  areaMode: boolean;
+  area: BBox | null;
+  onArea(b: BBox | null): void;
+  /** Tüm kayıtlarda sık durulan yerler. */
+  stopsLayer: boolean;
+  /** Karşılaştırmada vurgulanan izler (seçimin yerine). */
+  highlight: string[] | null;
+  /** Ek imleçler (karşılaştırma). */
+  cursors: { lon: number; lat: number; color: string }[];
 }
 
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -301,6 +312,59 @@ function nearestDetail(d: Detail, lon: number, lat: number): number {
   return idx;
 }
 
+/** Seçili kaydın duraklamaları. */
+function stopsGeoJSON(entry: FileEntry | undefined): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: (entry?.summary.stops ?? []).map((st) => ({
+      type: "Feature",
+      properties: { kind: "stop", start: st.start, dur: st.durationMs, tz: entry?.summary.timeZone ?? "" },
+      geometry: { type: "Point", coordinates: [st.lon, st.lat] },
+    })),
+  };
+}
+
+/** Tüm kayıtların duraklamaları ~150 m'lik hücrelerde toplanır. */
+function hotspotsGeoJSON(files: FileEntry[]): GeoJSON.FeatureCollection {
+  const cells = new Map<string, { lon: number; lat: number; n: number; dur: number; files: Set<string> }>();
+  const size = 0.0015;
+  for (const f of files) {
+    for (const st of f.summary.stops) {
+      const key = `${Math.round(st.lon / size)}:${Math.round(st.lat / size)}`;
+      const c = cells.get(key) ?? { lon: 0, lat: 0, n: 0, dur: 0, files: new Set<string>() };
+      c.lon += st.lon;
+      c.lat += st.lat;
+      c.n++;
+      c.dur += st.durationMs;
+      c.files.add(f.summary.path);
+      cells.set(key, c);
+    }
+  }
+  return {
+    type: "FeatureCollection",
+    features: [...cells.values()].map((c) => ({
+      type: "Feature",
+      properties: { kind: "hot", n: c.n, dur: c.dur, files: c.files.size },
+      geometry: { type: "Point", coordinates: [c.lon / c.n, c.lat / c.n] },
+    })),
+  };
+}
+
+function areaGeoJSON(b: BBox | null): GeoJSON.FeatureCollection {
+  if (!b) return EMPTY;
+  const ring = [
+    [b[0], b[1]],
+    [b[2], b[1]],
+    [b[2], b[3]],
+    [b[0], b[3]],
+    [b[0], b[1]],
+  ];
+  return {
+    type: "FeatureCollection",
+    features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } }],
+  };
+}
+
 function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
@@ -342,7 +406,23 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
   /** Vektör stilleri: yükleniyor / yüklendi / yüklenemedi (raster yedek). */
   const vectorState = useRef<Partial<Record<BaseLayer, "loading" | "ok" | "failed">>>({});
 
-  const { files, selected, detail, hoverIdx, range, trackColorBy, heatmap, followCursor, baseLayer } = props;
+  const {
+    files,
+    selected,
+    detail,
+    hoverIdx,
+    range,
+    trackColorBy,
+    heatmap,
+    followCursor,
+    baseLayer,
+    areaMode,
+    area,
+    stopsLayer,
+    highlight,
+    cursors,
+  } = props;
+  const box = useRef<HTMLDivElement>(null);
 
   useImperativeHandle(ref, () => ({
     fitFiles(list) {
@@ -410,7 +490,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     // "load" altlık parçaları gelene kadar beklediği için (yavaş ya da kopuk
     // bağlantıda hiç gelmeyebilir) izler stil hazır olur olmaz eklenir.
     map.once("style.load", () => {
-      for (const id of ["tracks", "waypoints", "cursor", "heat", "colored", "range"]) {
+      for (const id of ["tracks", "waypoints", "cursor", "heat", "colored", "range", "stops", "hotspots", "area"]) {
         map.addSource(id, { type: "geojson", data: EMPTY, tolerance: id === "tracks" ? 0.2 : 0.375 });
       }
 
@@ -491,12 +571,49 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
         },
       });
       map.addLayer({
+        id: "area-fill",
+        type: "fill",
+        source: "area",
+        paint: { "fill-color": "#ffd23f", "fill-opacity": 0.08 },
+      });
+      map.addLayer({
+        id: "area-line",
+        type: "line",
+        source: "area",
+        paint: { "line-color": "#d29b00", "line-width": 2, "line-dasharray": [3, 2] },
+      });
+      // Sık durulan yerler: daire büyüklüğü durma sayısı (karekök ölçekli).
+      map.addLayer({
+        id: "hotspots",
+        type: "circle",
+        source: "hotspots",
+        layout: { visibility: "none" },
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["sqrt", ["get", "n"]], 1, 5, 10, 24],
+          "circle-color": "#e8553d",
+          "circle-opacity": 0.35,
+          "circle-stroke-color": "#e8553d",
+          "circle-stroke-width": 1.5,
+        },
+      });
+      map.addLayer({
+        id: "stops",
+        type: "circle",
+        source: "stops",
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["get", "dur"], 120000, 6, 1800000, 13],
+          "circle-color": "#ffffff",
+          "circle-stroke-color": "#1d2327",
+          "circle-stroke-width": 2.5,
+        },
+      });
+      map.addLayer({
         id: "cursor",
         type: "circle",
         source: "cursor",
         paint: {
           "circle-radius": 7,
-          "circle-color": "#e8553d",
+          "circle-color": ["coalesce", ["get", "color"], "#e8553d"],
           "circle-stroke-color": "#fff",
           "circle-stroke-width": 3,
         },
@@ -523,6 +640,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       };
 
       map.on("click", (e) => {
+        if (live.current.areaMode) return;
         chooser.current?.remove();
         const wp = map.queryRenderedFeatures(hitBox(e.point, 4), { layers: ["waypoints"] })[0];
         if (wp) {
@@ -575,6 +693,21 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
 
       map.on("mousemove", (e) => {
         const { files: fs, selected: sel, detail: d, heatmap: heatOn } = live.current;
+        if (live.current.areaMode) return;
+        const spot = map.queryRenderedFeatures(hitBox(e.point, 6), { layers: ["stops", "hotspots"] })[0];
+        if (spot && !chooser.current?.isOpen()) {
+          const pr = spot.properties ?? {};
+          const html =
+            spot.layer.id === "stops"
+              ? `<strong>Duraklama</strong><br>${fmtTime(Number(pr.start), tzOf({ timeZone: pr.tz || null }))} · ${fmtDuration(Number(pr.dur))}`
+              : `<strong>Sık durulan yer</strong><br>${fmtNumber(Number(pr.n))} duraklama · ${fmtNumber(Number(pr.files))} kayıt<br>toplam ${fmtDuration(Number(pr.dur))}`;
+          if (!hoverPopup.current) {
+            hoverPopup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: "hover-popup" });
+          }
+          hoverPopup.current.setLngLat(e.lngLat).setHTML(html).addTo(map);
+          map.getCanvas().style.cursor = "default";
+          return;
+        }
         const hits = trackHits(e.point);
         const wp = hits.length ? null : map.queryRenderedFeatures(hitBox(e.point, 4), { layers: ["waypoints"] })[0];
         map.getCanvas().style.cursor = hits.length || wp ? "pointer" : "";
@@ -688,15 +821,86 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     });
   }, [heatmap, dark]);
 
+  const highlightKey = (highlight ?? (selected ? [selected] : [])).join("\n");
   useEffect(() => {
     whenReady((map) => {
-      const f: maplibregl.FilterSpecification = ["==", ["get", "path"], selected ?? ""];
+      const paths = highlightKey ? highlightKey.split("\n") : [];
+      const f: maplibregl.FilterSpecification = ["in", ["get", "path"], ["literal", paths]];
       map.setFilter("tracks-selected", f);
       map.setFilter("tracks-selected-casing", f);
-      map.setPaintProperty("tracks", "line-opacity", selected ? 0.45 : 0.85);
-      map.setPaintProperty("tracks-casing", "line-opacity", selected ? 0.4 : 0.9);
+      map.setPaintProperty("tracks", "line-opacity", paths.length ? 0.45 : 0.85);
+      map.setPaintProperty("tracks-casing", "line-opacity", paths.length ? 0.4 : 0.9);
     });
-  }, [selected]);
+  }, [highlightKey]);
+
+  // Seçili kaydın duraklamaları ve sık durulan yerler.
+  useEffect(() => {
+    whenReady((map) => setData(map, "stops", stopsGeoJSON(files.find((f) => f.summary.path === selected))));
+  }, [files, selected]);
+  useEffect(() => {
+    whenReady((map) => {
+      map.setLayoutProperty("hotspots", "visibility", stopsLayer ? "visible" : "none");
+      setData(map, "hotspots", stopsLayer ? hotspotsGeoJSON(files) : EMPTY);
+    });
+  }, [files, stopsLayer]);
+  useEffect(() => {
+    whenReady((map) => setData(map, "area", areaGeoJSON(area)));
+  }, [area]);
+
+  // Alan seçme: sürüklerken dikdörtgen gösterilir, bırakınca alan bildirilir.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !areaMode) return;
+    const canvas = map.getCanvasContainer();
+    map.dragPan.disable();
+    map.boxZoom.disable();
+    canvas.style.cursor = "crosshair";
+    let start: { x: number; y: number } | null = null;
+    const rect = () => canvas.getBoundingClientRect();
+    const down = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const r = rect();
+      start = { x: e.clientX - r.left, y: e.clientY - r.top };
+      e.preventDefault();
+    };
+    const move = (e: MouseEvent) => {
+      if (!start || !box.current) return;
+      const r = rect();
+      const x = e.clientX - r.left;
+      const y = e.clientY - r.top;
+      Object.assign(box.current.style, {
+        display: "block",
+        left: `${Math.min(x, start.x)}px`,
+        top: `${Math.min(y, start.y)}px`,
+        width: `${Math.abs(x - start.x)}px`,
+        height: `${Math.abs(y - start.y)}px`,
+      });
+    };
+    const upH = (e: MouseEvent) => {
+      if (!start) return;
+      const r = rect();
+      const end = { x: e.clientX - r.left, y: e.clientY - r.top };
+      if (box.current) box.current.style.display = "none";
+      const s0 = start;
+      start = null;
+      if (Math.abs(end.x - s0.x) < 5 || Math.abs(end.y - s0.y) < 5) return;
+      const a = map.unproject([s0.x, s0.y]);
+      const b = map.unproject([end.x, end.y]);
+      live.current.onArea([Math.min(a.lng, b.lng), Math.min(a.lat, b.lat), Math.max(a.lng, b.lng), Math.max(a.lat, b.lat)]);
+    };
+    canvas.addEventListener("mousedown", down);
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", upH);
+    return () => {
+      canvas.removeEventListener("mousedown", down);
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", upH);
+      canvas.style.cursor = "";
+      map.dragPan.enable();
+      map.boxZoom.enable();
+      if (box.current) box.current.style.display = "none";
+    };
+  }, [areaMode]);
 
   // Seçili izi ölçüye göre renklendir.
   useEffect(() => {
@@ -745,11 +949,13 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     whenReady((map) => {
       const has = detail && hoverIdx != null && hoverIdx < detail.lat.length;
       const pt: [number, number] | null = has ? [detail!.lon[hoverIdx!], detail!.lat[hoverIdx!]] : null;
-      setData(
-        map,
-        "cursor",
-        pt ? { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: pt } } : EMPTY,
-      );
+      const features: GeoJSON.Feature[] = cursors.map((c) => ({
+        type: "Feature",
+        properties: { color: c.color },
+        geometry: { type: "Point", coordinates: [c.lon, c.lat] },
+      }));
+      if (pt) features.push({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: pt } });
+      setData(map, "cursor", { type: "FeatureCollection", features });
       // Oynatılırken imleç ekranın ortasındaki bölgeden çıkarsa harita kayar.
       if (pt && followCursor) {
         const p = map.project(pt);
@@ -761,7 +967,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
         }
       }
     });
-  }, [detail, hoverIdx, followCursor]);
+  }, [detail, hoverIdx, followCursor, cursors]);
 
   useEffect(() => {
     const apply = (map: maplibregl.Map, base: BaseLayer) => {
@@ -795,5 +1001,10 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     });
   }, [baseLayer]);
 
-  return <div ref={container} className="map" />;
+  return (
+    <>
+      <div ref={container} className="map" />
+      <div ref={box} className="area-box" />
+    </>
+  );
 });

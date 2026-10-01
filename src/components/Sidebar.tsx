@@ -1,5 +1,7 @@
 import { memo } from "react";
 import type { FileEntry } from "../types";
+import { ACTIVITIES, activityOf, placeLabel } from "../types";
+import type { FileMeta } from "../api";
 import type { Filters, GroupBy, SortKey } from "../prefs";
 import { fmtDate, fmtDistance, fmtDuration, fmtElevation, fmtNumber, tzOf } from "../format";
 import { DateRange } from "./DateRange";
@@ -46,12 +48,21 @@ interface Props {
   onExportCsv(): void;
   onSetVisible(paths: string[], visible: boolean): void;
   onClearMulti(): void;
+  meta: Record<string, FileMeta>;
+  allTags: string[];
+  /** Etkin güzergâh filtresinin açıklaması. */
+  routeLabel: string | null;
+  areaMode: boolean;
+  onAreaMode(on: boolean): void;
+  onCompare(): void;
+  onTagMany(): void;
 }
 
 const Row = memo(function Row({
   entry,
   selected,
   inMulti,
+  tags,
   onRowClick,
   onZoom,
   onToggle,
@@ -60,6 +71,7 @@ const Row = memo(function Row({
   entry: FileEntry;
   selected: boolean;
   inMulti: boolean;
+  tags: string[] | undefined;
   onRowClick(path: string, mods: RowModifiers): void;
   onZoom(path: string): void;
   onToggle(path: string): void;
@@ -84,12 +96,27 @@ const Row = memo(function Row({
       />
       <span className="swatch" style={{ background: entry.color }} />
       <div className="file-info">
-        <div className="file-name">{s.name || s.fileName}</div>
+        <div className="file-name">
+          <span className="act" title={activityOf(s.activity).label}>
+            {activityOf(s.activity).icon}
+          </span>
+          {s.name || s.fileName}
+        </div>
         <div className="file-meta">
           <span>{s.stats.startTime != null ? fmtDate(s.stats.startTime, tzOf(s)) : "Tarihsiz"}</span>
           <span>{fmtDistance(s.stats.distanceM)}</span>
           {s.stats.movingMs != null && <span>{fmtDuration(s.stats.movingMs)}</span>}
         </div>
+        {(placeLabel(s) || tags?.length) && (
+          <div className="file-meta sub">
+            {placeLabel(s) && <span className="place">{placeLabel(s)}</span>}
+            {tags?.map((t) => (
+              <span key={t} className="tag mini">
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       <button
         className="icon-btn remove"
@@ -133,6 +160,7 @@ export function Sidebar(p: Props) {
         entry={f}
         selected={f.summary.path === p.selected}
         inMulti={p.multi.has(f.summary.path)}
+        tags={p.meta[f.summary.path]?.tags}
         onRowClick={p.onRowClick}
         onZoom={p.onZoom}
         onToggle={p.onToggle}
@@ -171,7 +199,7 @@ export function Sidebar(p: Props) {
         <div className="filters">
           <input
             type="search"
-            placeholder="Ad ya da dosya adında ara…"
+            placeholder="Ad, yer, etiket ya da notta ara…"
             value={p.filters.query}
             onChange={(e) => set({ query: e.target.value })}
           />
@@ -191,6 +219,52 @@ export function Sidebar(p: Props) {
               Tarihsiz kayıtları da göster
             </label>
           )}
+          <div className="filter-row">
+            <select value={p.filters.activity} onChange={(e) => set({ activity: e.target.value })} title="Etkinlik türü">
+              <option value="">Tüm türler</option>
+              {ACTIVITIES.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.icon} {a.label}
+                </option>
+              ))}
+            </select>
+            <select value={p.filters.tag} onChange={(e) => set({ tag: e.target.value })} title="Etiket" disabled={!p.allTags.length}>
+              <option value="">{p.allTags.length ? "Tüm etiketler" : "Etiket yok"}</option>
+              {p.allTags.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <button
+              className={`btn small${p.areaMode ? " primary" : ""}`}
+              onClick={() => p.onAreaMode(!p.areaMode)}
+              title="Haritada sürükleyerek bir alan çizin; yalnızca oradan geçen kayıtlar listelenir"
+            >
+              ⬚ Alan
+            </button>
+          </div>
+          {(p.filters.area || p.filters.route) && (
+            <div className="chips">
+              {p.filters.area && (
+                <span className="chip on">
+                  Seçilen alandan geçenler
+                  <button className="tag-x" onClick={() => set({ area: null })} aria-label="Alan filtresini kaldır">
+                    ×
+                  </button>
+                </span>
+              )}
+              {p.filters.route && (
+                <span className="chip on">
+                  Güzergâh: {p.routeLabel ?? "seçili"}
+                  <button className="tag-x" onClick={() => set({ route: null })} aria-label="Güzergâh filtresini kaldır">
+                    ×
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
+          {p.areaMode && <div className="hint">Haritada sürükleyerek bir alan çizin.</div>}
           <div className="filter-row">
             <label className="check">
               <input type="checkbox" checked={allVisible} onChange={() => p.onToggleAll(!allVisible)} />
@@ -215,8 +289,16 @@ export function Sidebar(p: Props) {
         <div className="multi-bar">
           <strong>{multi.length} kayıt seçili</strong>
           <div className="multi-actions">
+            {multi.length === 2 && (
+              <button className="btn small primary" onClick={p.onCompare}>
+                Karşılaştır
+              </button>
+            )}
             <button className="btn small" onClick={p.onMerge}>
               Birleştir
+            </button>
+            <button className="btn small" onClick={p.onTagMany}>
+              Etiketle
             </button>
             <button className="btn small" onClick={p.onExportCsv}>
               CSV

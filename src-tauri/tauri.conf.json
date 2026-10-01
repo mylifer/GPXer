@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "GPXer",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "identifier": "com.mylifer.gpxer",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -47,6 +47,33 @@
         "description": "GPS Exchange Format",
         "role": "Viewer",
         "mimeType": "application/gpx+xml"
+      },
+      {
+        "ext": [
+          "fit"
+        ],
+        "name": "FIT Dosyası",
+        "description": "Garmin FIT etkinlik dosyası",
+        "role": "Viewer",
+        "mimeType": "application/vnd.ant.fit"
+      },
+      {
+        "ext": [
+          "tcx"
+        ],
+        "name": "TCX Dosyası",
+        "description": "Garmin Training Center",
+        "role": "Viewer",
+        "mimeType": "application/vnd.garmin.tcx+xml"
+      },
+      {
+        "ext": [
+          "kml"
+        ],
+        "name": "KML Dosyası",
+        "description": "Google Earth KML",
+        "role": "Viewer",
+        "mimeType": "application/vnd.google-earth.kml+xml"
       }
     ],
     "macOS": {

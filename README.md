@@ -1,7 +1,7 @@
 # GPXer
 
 Windows ve macOS'ta çalışan, yüzlerce GPX günlüğünü aynı anda rahatça açabilen
-bir GPX görüntüleyici. [Tauri 2](https://tauri.app) (Rust) + React + MapLibre GL
+bir GPX görüntüleyici. FIT (Garmin vb.), TCX ve KML dosyalarını da açar. [Tauri 2](https://tauri.app) (Rust) + React + MapLibre GL
 ile yazılmıştır.
 
 ## Özellikler
@@ -18,6 +18,10 @@ ile yazılmıştır.
   dosya rengi değiştirilebilir ve kalıcıdır.
 - Isı haritası: yüzlerce kayıtta en çok geçilen yerler.
 - Harita görüntüsü PNG olarak kaydedilebilir.
+- Duraklamalar: seçili kayıtta 2 dakikadan uzun duraklar haritada işaretlenir;
+  *Duraklar* düğmesi tüm kayıtlarda en çok durulan yerleri gösterir.
+- Alan filtresi: *⬚ Alan* ile haritada bir dikdörtgen çizilir, liste o alandan
+  geçen kayıtlara süzülür ("buradan hangi günler geçtim").
 
 **Grafik ve istatistik**
 - Mesafe, toplam/hareket süresi, ortalama/maksimum hız, tempo, tırmanış/iniş,
@@ -31,15 +35,30 @@ ile yazılmıştır.
   harita imleci takip eder.
 - Özet paneli: aylık/yıllık mesafe, süre, tırmanış ve kayıt sayısı grafikleri
   (tabloya çevrilebilir), rekorlar. Çubuğa tıklayınca liste o döneme süzülür.
+- Takvim: yılın her günü o günkü mesafeye göre renklenir; güne tıklayınca liste
+  o güne süzülür.
+- Tekrarlanan güzergâhlar: aynı yoldan yapılan kayıtlar kendiliğinden
+  gruplanır; süreler zaman içinde, en iyi kayıt ve liste filtresiyle görülür.
+- İki kaydı karşılaştırma: iki kayıt seçip *Karşılaştır*; hız/nabız vb. üst
+  üste, her noktadaki zaman farkı ve aynı anda başlamış gibi "yarıştırma".
+- Etkinlik türü (yürüyüş, koşu, bisiklet, araç) hız ve kadanstan tahmin edilir,
+  elle değiştirilebilir; istenirse eşikler türe göre seçilir.
+- GPS sıçramaları (bir anlığına uzağa fırlayıp dönen noktalar) hesaplardan
+  ayıklanır; orijinal dosya değişmez.
 
 **Kütüphane ve liste**
 - Açılan dosyaların kopyası uygulamanın veri klasöründe saklanır ve her
   açılışta yüklenir; aynı kayıt (farklı adla kaydedilmiş olsa bile) ikinci kez
   eklenmez.
 - Özetler önbelleğe alınır: değişmemiş dosyalar yeniden okunmaz.
-- İzlenen klasörler: bu klasörlere eklenen yeni GPX dosyaları kendiliğinden
+- İzlenen klasörler: bu klasörlere eklenen yeni GPX/FIT/TCX/KML dosyaları kendiliğinden
   kütüphaneye girer.
 - Liste aya ya da yıla göre gruplanır; grupların toplamları görünür.
+- Her kaydın başlangıç ve bitiş yeri ("Kadıköy → Beşiktaş") çevrimdışı
+  bulunur. Yer adları GeoNames verisinden gelir ve Latin harfleriyle yazılıdır;
+  ü/ö düzeltilir, ş/ç/ğ/ı harfleri bazı adlarda eksik görünebilir.
+- Etiketler ve notlar; tür ve etikete göre süzme; arama ad, yer, etiket ve
+  notta yapılır. Çoklu seçimde toplu etiketleme.
 - `gg.aa.yyyy` biçiminde tarih filtresi (yazarak ya da takvimden), hazır
   aralıklar (bugün, bu hafta, bu ay, son 30 gün, bu yıl…) ve yıl/ay seçimi.
 - Ctrl/⌘ ve Shift ile çoklu seçim: birleştirme, CSV'ye aktarma,
@@ -51,14 +70,15 @@ ile yazılmıştır.
 
 **Dışa aktarma ve ayarlar**
 - Özet tablosu CSV olarak (Türkçe Excel'in doğrudan açacağı biçimde), seçili
-  kayıt GPX olarak kaydedilebilir.
+  kayıt GPX, KML (Google Earth) ya da TCX olarak kaydedilebilir. FIT, TCX ve
+  KML dosyaları kütüphaneye GPX'e çevrilerek alınır.
 - Ayarlar: etkinlik türüne göre hazır eşikler, duruyor sayılma hızı,
   yükseklik gürültü eşiği; saatlerin bilgisayarın ya da kaydın yapıldığı yerin
   saat dilimine göre gösterilmesi; izlenen klasörler.
 
 **Açma yolları ve klavye**
 - Sürükle-bırak, *Dosya Aç…* (Ctrl/⌘+O), *Klasör Aç…* (Ctrl/⌘+Shift+O),
-  `.gpx` dosyalarına çift tıklama.
+  `.gpx`, `.fit`, `.tcx`, `.kml` dosyalarına çift tıklama.
 - ↑/↓ listede gezinir, Boşluk oynatır/durdurur, Esc seçimi kaldırır,
   Ctrl/⌘+0 tümünü gösterir, Ctrl/⌘+B kenar çubuğu, Ctrl/⌘+H ısı haritası,
   Ctrl/⌘+I özet, Ctrl/⌘+E CSV, Ctrl/⌘+S GPX olarak kaydet, Ctrl/⌘+, ayarlar.
@@ -138,7 +158,8 @@ cargo run --release -p gpx-core --example dump -- ozet.json klasor/*.gpx
 ## Proje yapısı
 
 ```
-crates/gpx-core/   GPX ayrıştırma ve yazma, istatistik, sadeleştirme, kırpma/bölme/birleştirme
+crates/gpx-core/   GPX/FIT/TCX/KML okuma, GPX/KML/TCX yazma, istatistik, sıçrama temizleme,
+                   duraklar, tür tahmini, sadeleştirme, kırpma/bölme/birleştirme
 src-tauri/         Masaüstü uygulaması: komutlar, kütüphane ve önbellek, klasör izleme, menü
 src/               React arayüzü (harita, liste, grafik, özet, ayarlar)
 assets/icon.svg    Uygulama simgesi kaynağı (`npx tauri icon assets/icon.png`)

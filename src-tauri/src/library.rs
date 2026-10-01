@@ -1,7 +1,7 @@
 //! Kütüphane: açılan dosyaların uygulama klasöründeki kopyaları, özet
 //! önbelleği ve silinen dosyalar için çöp kutusu.
 
-use gpx_core::{FileSummary, StatsConfig};
+use gpx_core::{Activity, FileSummary, StatsConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Önbellek biçimi ya da özet hesaplaması değiştiğinde artırılır; eski
 /// önbellek yok sayılır.
-const CACHE_VERSION: u32 = 1;
+const CACHE_VERSION: u32 = 2;
 /// Çöp kutusundaki dosyalar bu süreden sonra kalıcı olarak silinir.
 const TRASH_KEEP_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 
@@ -45,6 +45,9 @@ struct CacheEntry {
     size: u64,
     mtime: i64,
     cfg: StatsConfig,
+    /// Kullanıcının seçtiği etkinlik türü (özet buna göre hesaplandı).
+    #[serde(default)]
+    chosen: Option<Activity>,
     fingerprint: u64,
     summary: FileSummary,
 }
@@ -75,6 +78,12 @@ pub fn is_gpx(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("gpx"))
 }
 
+/// Açılabilen iz dosyası mı (GPX, FIT, TCX, KML).
+pub fn is_track_file(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| gpx_core::formats::is_supported_ext(&e.to_string_lossy()))
+}
+
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -95,6 +104,47 @@ pub fn time_zone_at(lon: f64, lat: f64) -> Option<String> {
         .get_or_init(tzf_rs::DefaultFinder::new)
         .get_tz_name(lon, lat);
     (!name.is_empty()).then(|| name.to_owned())
+}
+
+/// Konuma en yakın yerleşim yerinin adı (GeoNames, çevrimdışı). 25 km'den
+/// uzaktaki yerler (deniz, ıssız alan) ad vermez.
+pub fn place_at(lon: f64, lat: f64) -> Option<String> {
+    static GEO: OnceLock<reverse_geocoder::ReverseGeocoder> = OnceLock::new();
+    let r = GEO
+        .get_or_init(reverse_geocoder::ReverseGeocoder::new)
+        .search((lat, lon))
+        .record;
+    let near = gpx_core::haversine_m(
+        &gpx_core::parse::Point {
+            lat,
+            lon,
+            ..Default::default()
+        },
+        &gpx_core::parse::Point {
+            lat: r.lat,
+            lon: r.lon,
+            ..Default::default()
+        },
+    );
+    if near > 25_000.0 {
+        return None;
+    }
+    Some(if r.cc == "TR" {
+        turkish(&r.name)
+    } else {
+        r.name.clone()
+    })
+}
+
+/// Veri kümesindeki adlar ASCII'ye çevrilmiş (Üsküdar → "UEskuedar").
+/// Türkçe adlarda ü/ö geri getirilir; ş, ç, ğ, ı kaynağında olmadığından kalır.
+fn turkish(name: &str) -> String {
+    name.replace("UE", "Ü")
+        .replace("Ue", "Ü")
+        .replace("ue", "ü")
+        .replace("OE", "Ö")
+        .replace("Oe", "Ö")
+        .replace("oe", "ö")
 }
 
 /// Dosya adında kullanılamayan karakterleri temizler.
@@ -169,14 +219,19 @@ impl Library {
     }
 
     /// Kütüphanede aynı adla dosya varsa "ad (2).gpx" gibi boş bir ad bulup
-    /// dosyayı oraya kopyalar.
+    /// dosyayı oraya kopyalar. GPX dışındaki biçimler GPX'e çevrilerek saklanır.
     fn copy_in(&self, src: &Path) -> std::io::Result<PathBuf> {
         let stem = src
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "iz".into());
         let target = self.unique_path(&stem);
-        std::fs::copy(src, &target)?;
+        if is_gpx(src) {
+            std::fs::copy(src, &target)?;
+        } else {
+            let (gpx, _) = gpx_core::read_gpx_file(src).map_err(std::io::Error::other)?;
+            std::fs::write(&target, gpx_core::write::write_gpx(&gpx))?;
+        }
         Ok(target)
     }
 
@@ -189,18 +244,30 @@ impl Library {
 
     /// Dosyanın özetini ve parmak izini döndürür. Boyutu, değiştirilme zamanı
     /// ve ayarları aynı olan dosyalar yeniden okunmaz.
-    pub fn summarize(&self, path: &str, cfg: &StatsConfig) -> Result<(FileSummary, u64), String> {
+    pub fn summarize(
+        &self,
+        path: &str,
+        cfg: &StatsConfig,
+        chosen: Option<Activity>,
+    ) -> Result<(FileSummary, u64), String> {
         let meta = std::fs::metadata(path).map_err(|e| format!("Dosya okunamadı: {e}"))?;
         let (size, mtime) = (meta.len(), mtime_ms(&meta));
         if let Some(e) = self.cache.lock().unwrap().entries.get(path) {
-            if e.size == size && e.mtime == mtime && e.cfg == *cfg {
+            if e.size == size && e.mtime == mtime && e.cfg == *cfg && e.chosen == chosen {
                 return Ok((e.summary.clone(), e.fingerprint));
             }
         }
-        let (gpx, size) = gpx_core::read_gpx_file(Path::new(path)).map_err(|e| e.to_string())?;
+        let (mut gpx, size) =
+            gpx_core::read_gpx_file(Path::new(path)).map_err(|e| e.to_string())?;
+        // Parmak izi ham veriden: kopya tespiti ayarlardan etkilenmesin.
         let fingerprint = gpx_core::fingerprint(&gpx);
-        let mut summary = gpx_core::summarize(&gpx, path, size, cfg).map_err(|e| e.to_string())?;
+        let removed = gpx_core::prepare(&mut gpx, cfg);
+        let mut summary =
+            gpx_core::summarize_with(&gpx, path, size, cfg, chosen).map_err(|e| e.to_string())?;
+        summary.removed_points = removed;
         summary.time_zone = summary.start.and_then(|[lon, lat]| time_zone_at(lon, lat));
+        summary.start_place = summary.start.and_then(|[lon, lat]| place_at(lon, lat));
+        summary.end_place = summary.end.and_then(|[lon, lat]| place_at(lon, lat));
         let mut cache = self.cache.lock().unwrap();
         cache.entries.insert(
             path.to_owned(),
@@ -208,6 +275,7 @@ impl Library {
                 size,
                 mtime,
                 cfg: *cfg,
+                chosen,
                 fingerprint,
                 summary: summary.clone(),
             },
@@ -251,6 +319,7 @@ impl Library {
         mut file: FileSummary,
         fingerprint: u64,
         cfg: &StatsConfig,
+        chosen: Option<Activity>,
     ) -> LoadResult {
         let mut known = self.known.lock().unwrap();
         if let Some(existing) = known.get(&fingerprint) {
@@ -287,6 +356,7 @@ impl Library {
         if copied {
             // Kopya aynı içerikte: bir sonraki açılışta yeniden okunmasın.
             if let Ok(meta) = std::fs::metadata(&stored) {
+                file.file_size = meta.len();
                 let mut cache = self.cache.lock().unwrap();
                 cache.entries.insert(
                     stored.clone(),
@@ -294,6 +364,7 @@ impl Library {
                         size: meta.len(),
                         mtime: mtime_ms(&meta),
                         cfg: *cfg,
+                        chosen,
                         fingerprint,
                         summary: file.clone(),
                     },
@@ -307,9 +378,9 @@ impl Library {
     }
 
     /// Dosyayı okuyup kütüphaneye ekler.
-    pub fn load(&self, path: String, cfg: &StatsConfig) -> LoadResult {
-        match self.summarize(&path, cfg) {
-            Ok((file, fp)) => self.add(path, file, fp, cfg),
+    pub fn load(&self, path: String, cfg: &StatsConfig, chosen: Option<Activity>) -> LoadResult {
+        match self.summarize(&path, cfg, chosen) {
+            Ok((file, fp)) => self.add(path, file, fp, cfg, chosen),
             Err(message) => LoadResult::Error { path, message },
         }
     }
@@ -337,7 +408,8 @@ impl Library {
 
     /// Çöp kutusundaki dosyaları eski yerlerine (doluysa yeni bir ada)
     /// taşır ve yeni yollarını döndürür.
-    pub fn restore(&self, items: &[TrashItem]) -> Vec<String> {
+    /// (eski yol, yeni yol) çiftleri.
+    pub fn restore(&self, items: &[TrashItem]) -> Vec<(String, String)> {
         let mut out = Vec::new();
         for it in items {
             let src = Path::new(&it.trashed);
@@ -353,7 +425,7 @@ impl Library {
                 target = self.unique_path(&stem);
             }
             if std::fs::rename(src, &target).is_ok() {
-                out.push(target.to_string_lossy().into_owned());
+                out.push((it.original.clone(), target.to_string_lossy().into_owned()));
             }
         }
         out
@@ -403,22 +475,25 @@ mod tests {
         let s = |p: &Path| p.to_string_lossy().into_owned();
 
         let lib = Library::open(&root).unwrap();
-        let LoadResult::Ok { file } = lib.load(s(&src.join("a.gpx")), &cfg) else {
+        let LoadResult::Ok { file } = lib.load(s(&src.join("a.gpx")), &cfg, None) else {
             panic!()
         };
         assert_eq!(Path::new(&file.path), lib.dir.join("a.gpx"));
         assert_eq!(file.file_name, "a.gpx");
-        // Konumdan saat dilimi bulunur.
+        // Konumdan saat dilimi ve yer adı bulunur.
         assert_eq!(file.time_zone.as_deref(), Some("Europe/Istanbul"));
+        assert!(file.start_place.is_some(), "{:?}", file.start_place);
 
-        let LoadResult::Duplicate { existing, .. } = lib.load(s(&src.join("a-kopya.gpx")), &cfg)
+        let LoadResult::Duplicate { existing, .. } =
+            lib.load(s(&src.join("a-kopya.gpx")), &cfg, None)
         else {
             panic!()
         };
         assert_eq!(Path::new(&existing), lib.dir.join("a.gpx"));
 
         // Aynı adlı ama farklı içerikli dosya yeni adla kopyalanır.
-        let LoadResult::Ok { file } = lib.load(s(&src.join("alt").join("a.gpx")), &cfg) else {
+        let LoadResult::Ok { file } = lib.load(s(&src.join("alt").join("a.gpx")), &cfg, None)
+        else {
             panic!()
         };
         assert_eq!(Path::new(&file.path), lib.dir.join("a (2).gpx"));
@@ -429,13 +504,48 @@ mod tests {
         // Kaynak dosyalar ve kütüphane kopyaları önbellekte.
         assert_eq!(lib2.cache.lock().unwrap().entries.len(), 3 + 2);
         for f in lib2.files() {
-            assert!(matches!(lib2.load(f, &cfg), LoadResult::Ok { .. }));
+            assert!(matches!(lib2.load(f, &cfg, None), LoadResult::Ok { .. }));
         }
         assert!(matches!(
-            lib2.load(s(&src.join("a.gpx")), &cfg),
+            lib2.load(s(&src.join("a.gpx")), &cfg, None),
             LoadResult::Duplicate { .. }
         ));
         assert_eq!(lib2.files().len(), 2);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn imports_fit_as_gpx() {
+        let root = temp_root("fit");
+        let lib = Library::open(&root).unwrap();
+        let src = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../crates/gpx-core/testdata/garmin-fenix-5-bike.fit"
+        );
+        let cfg = StatsConfig::default();
+        let LoadResult::Ok { file } = lib.load(src.to_owned(), &cfg, None) else {
+            panic!()
+        };
+        assert_eq!(
+            Path::new(&file.path),
+            lib.dir.join("garmin-fenix-5-bike.gpx")
+        );
+        assert_eq!(file.activity, Activity::Bike);
+        // Kütüphanedeki GPX kopyası aynı kayıt sayılır.
+        assert!(matches!(
+            lib.load(src.to_owned(), &cfg, None),
+            LoadResult::Duplicate { .. }
+        ));
+        let lib2 = Library::open(&root).unwrap();
+        assert!(matches!(
+            lib2.load(file.path.clone(), &cfg, None),
+            LoadResult::Ok { .. }
+        ));
+        assert!(matches!(
+            lib2.load(src.to_owned(), &cfg, None),
+            LoadResult::Duplicate { .. }
+        ));
+        assert_eq!(turkish("UEskuedar"), "Üsküdar");
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -447,17 +557,17 @@ mod tests {
         assert_eq!(p.file_name().unwrap(), "x-y-z.gpx");
         let ps = p.to_string_lossy().into_owned();
         let cfg = StatsConfig::default();
-        let (a, _) = lib.summarize(&ps, &cfg).unwrap();
+        let (a, _) = lib.summarize(&ps, &cfg, None).unwrap();
         // Farklı ayarla yeniden hesaplanır.
         let strict = StatsConfig {
             moving_speed_ms: 9.0,
             ..cfg
         };
-        lib.summarize(&ps, &strict).unwrap();
+        lib.summarize(&ps, &strict, None).unwrap();
         assert_eq!(lib.cache.lock().unwrap().entries[&ps].cfg, strict);
         // İçerik değişince yeniden okunur.
         std::fs::write(&p, track("40.0")).unwrap();
-        let (b, _) = lib.summarize(&ps, &cfg).unwrap();
+        let (b, _) = lib.summarize(&ps, &cfg, None).unwrap();
         assert_ne!(a.stats.distance_m, b.stats.distance_m);
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -469,14 +579,17 @@ mod tests {
         let cfg = StatsConfig::default();
         let p = lib.write_new("a", &track("41.0")).unwrap();
         let ps = p.to_string_lossy().into_owned();
-        assert!(matches!(lib.load(ps.clone(), &cfg), LoadResult::Ok { .. }));
+        assert!(matches!(
+            lib.load(ps.clone(), &cfg, None),
+            LoadResult::Ok { .. }
+        ));
         let items = lib.trash(std::slice::from_ref(&ps)).unwrap();
         assert_eq!(items.len(), 1);
         assert!(!p.exists());
         assert!(lib.files().is_empty());
         let back = lib.restore(&items);
-        assert_eq!(back, vec![ps.clone()]);
-        assert!(matches!(lib.load(ps, &cfg), LoadResult::Ok { .. }));
+        assert_eq!(back, vec![(ps.clone(), ps.clone())]);
+        assert!(matches!(lib.load(ps, &cfg, None), LoadResult::Ok { .. }));
         // Eski çöp dosyaları temizlenir.
         let items = lib.trash(&lib.files()).unwrap();
         lib.purge_trash(now_ms() + 1);

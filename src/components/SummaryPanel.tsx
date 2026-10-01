@@ -14,6 +14,9 @@ import {
 } from "../format";
 import { periodRange } from "./DateRange";
 import { Modal } from "./Modal";
+import { CalendarHeatmap } from "./CalendarHeatmap";
+import { ACTIVITIES, placeLabel } from "../types";
+import type { Route } from "../routes";
 
 type Period = "month" | "year";
 type Measure = "distance" | "moving" | "gain" | "count";
@@ -44,12 +47,15 @@ function niceMax(v: number): number {
 
 interface Props {
   files: FileEntry[];
+  routes: Route[];
   onPeriod(from: string, to: string): void;
   onOpen(path: string): void;
+  onRoute(route: Route): void;
+  onActivity(id: string): void;
   onClose(): void;
 }
 
-export function SummaryPanel({ files, onPeriod, onOpen, onClose }: Props) {
+export function SummaryPanel({ files, routes, onPeriod, onOpen, onRoute, onActivity, onClose }: Props) {
   const [period, setPeriod] = useState<Period>("month");
   const [measure, setMeasure] = useState<Measure>("distance");
   const [hover, setHover] = useState<number | null>(null);
@@ -200,6 +206,26 @@ export function SummaryPanel({ files, onPeriod, onOpen, onClose }: Props) {
         </div>
         <p className="muted small-note">Kenar çubuğundaki filtreye uyan {fmtNumber(files.length)} kayıt.</p>
 
+        <div className="type-tiles">
+          {ACTIVITIES.map((a) => {
+            const list = files.filter((f) => f.summary.activity === a.id);
+            if (!list.length) return null;
+            const dist = list.reduce((x, f) => x + f.summary.stats.distanceM, 0);
+            return (
+              <button key={a.id} className="type-tile" onClick={() => onActivity(a.id)} title="Listeyi bu türe süz">
+                <span>
+                  {a.icon} {a.label}
+                </span>
+                <strong>{fmtNumber(list.length)}</strong>
+                <small>{fmtDistance(dist)}</small>
+              </button>
+            );
+          })}
+        </div>
+
+        <h3 className="chart-title">Takvim</h3>
+        <CalendarHeatmap files={files} onDay={(iso) => onPeriod(iso, iso)} />
+
         <div className="filter-row summary-controls">
           <div className="segmented small">
             <button className={period === "month" ? "active" : ""} onClick={() => setPeriod("month")}>
@@ -307,6 +333,32 @@ export function SummaryPanel({ files, onPeriod, onOpen, onClose }: Props) {
               </div>
             )}
           </div>
+        )}
+
+        {routes.length > 0 && (
+          <>
+            <h3 className="chart-title">Sık güzergâhlar</h3>
+            <ul className="records">
+              {routes.slice(0, 6).map((r) => {
+                const f = files.find((x) => x.summary.path === r.paths[0]) ?? files.find((x) => r.paths.includes(x.summary.path));
+                if (!f) return null;
+                const timed = r.paths
+                  .map((p) => files.find((x) => x.summary.path === p)?.summary.stats.movingMs)
+                  .filter((v): v is number => v != null);
+                return (
+                  <li key={r.id}>
+                    <span className="muted">{fmtNumber(r.paths.length)} kez</span>
+                    <button className="link" onClick={() => onRoute(r)}>
+                      <span className="swatch" style={{ background: f.color }} />
+                      {placeLabel(f.summary) ?? f.summary.name ?? f.summary.fileName}
+                      <span className="muted"> · {fmtDistance(f.summary.stats.distanceM)}</span>
+                    </button>
+                    <strong>{timed.length ? `en iyi ${fmtDuration(Math.min(...timed))}` : ""}</strong>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
 
         <h3 className="chart-title">Rekorlar</h3>

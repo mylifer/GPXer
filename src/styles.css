@@ -1376,3 +1376,253 @@ button.link {
 button.link:hover {
   text-decoration: underline;
 }
+
+/* ---------- Alan seçimi, türler, etiketler ---------- */
+
+.area-box {
+  position: absolute;
+  display: none;
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.hint {
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--selected);
+  font-size: 12px;
+}
+
+.chips .chip.on button {
+  margin-left: 4px;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.act {
+  flex: none;
+  display: inline-block;
+  width: 18px;
+  margin-right: 4px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.file-meta.sub {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.place {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.place-line {
+  font-size: 12px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.tag.mini {
+  padding: 0 6px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.tag-x {
+  border: 0;
+  background: none;
+  padding: 0 0 0 2px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.tag-x:hover {
+  color: var(--text);
+}
+
+.meta-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.tag-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.tag-box input {
+  width: 120px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.note {
+  flex: 1;
+  min-width: 160px;
+  min-height: 24px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+/* ---------- Takvim ---------- */
+
+.calendar-heat .day {
+  fill: var(--panel-2);
+}
+
+.calendar-heat .day.on {
+  cursor: pointer;
+}
+
+.calendar-heat .day.on:hover {
+  stroke: var(--text);
+  stroke-width: 1;
+}
+
+.cal-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 11.5px;
+}
+
+.cal-swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+.type-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.type-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.type-tile:hover {
+  border-color: var(--accent);
+}
+
+/* ---------- Güzergâh ---------- */
+
+.route-modal .dot circle {
+  fill: #2a78d6;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.route-modal .dot circle.best {
+  fill: #e0a100;
+  opacity: 1;
+}
+
+.route-modal .dot circle.current {
+  fill: var(--text);
+  opacity: 1;
+}
+
+.dot-key {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #2a78d6;
+}
+
+.dot-key.best {
+  background: #e0a100;
+}
+
+.dot-key.current {
+  background: var(--text);
+}
+
+.table-wrap.tall {
+  max-height: 340px;
+}
+
+.data-table tr.current td {
+  background: var(--selected);
+  font-weight: 600;
+}
+
+/* ---------- Karşılaştırma ---------- */
+
+.compare-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 4px 8px 0;
+}
+
+.compare-body > .data-table.compact {
+  width: auto;
+  align-self: flex-start;
+  margin-bottom: 4px;
+}
+
+.data-table.compact th,
+.data-table.compact td {
+  padding: 2px 8px;
+}
+
+.calendar-heat .filter-row select {
+  flex: none;
+  width: auto;
+}

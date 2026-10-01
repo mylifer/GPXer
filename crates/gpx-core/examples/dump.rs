@@ -27,7 +27,7 @@ fn main() {
         .sum();
     let detail = summaries
         .first()
-        .map(|s| gpx_core::load_detail(s.path.as_ref()).unwrap());
+        .map(|s| gpx_core::load_detail(s.path.as_ref(), &Default::default()).unwrap());
     let json = serde_json::json!({ "summaries": summaries, "errors": errors, "detail": detail });
     let text = serde_json::to_string(&json).unwrap();
     std::fs::write(&out, &text).unwrap();

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
-import type { Detail, Stats } from "../api";
-import { METRICS, PALETTE, type FileEntry } from "../types";
+import type { Detail, FileMeta, Stats, Stop } from "../api";
+import { METRICS, PALETTE, placeLabel, type FileEntry } from "../types";
+import { MetaEditor } from "./MetaEditor";
 import type { Metric, TrackColorBy, XAxis } from "../prefs";
 import {
   fmtBytes,
@@ -53,9 +54,15 @@ interface Props {
   onClose(): void;
   onZoom(): void;
   onExportGpx(): void;
+  meta: FileMeta;
+  allTags: string[];
+  onMeta(m: FileMeta): void;
+  /** Bu kaydın güzergâhındaki kayıt sayısı (tekrarlanmıyorsa 0). */
+  routeCount: number;
+  onOpenRoute(): void;
 }
 
-function StatCards({ st }: { st: Stats }) {
+function StatCards({ st, stops }: { st: Stats; stops?: Stop[] }) {
   const cards: [string, string][] = [
     ["Mesafe", fmtDistance(st.distanceM)],
     ["Toplam süre", fmtDuration(st.durationMs)],
@@ -72,6 +79,10 @@ function StatCards({ st }: { st: Stats }) {
   if (st.avgCad != null) cards.push(["Ort. kadans", fmtUnit(st.avgCad, "dev/dk")]);
   if (st.avgPower != null) cards.push(["Ort. güç", fmtUnit(st.avgPower, "W")], ["Maks. güç", fmtUnit(st.maxPower, "W")]);
   if (st.avgTemp != null) cards.push(["Ort. sıcaklık", fmtUnit(st.avgTemp, "°C", 1)]);
+  if (stops?.length) {
+    const total = stops.reduce((a, x) => a + x.durationMs, 0);
+    cards.push([`Duraklama (${stops.length})`, fmtDuration(total)]);
+  }
   return (
     <div className="stat-grid">
       {cards.map(([k, v]) => (
@@ -159,18 +170,26 @@ export function DetailPanel(p: Props) {
             {tz && ` (${tz})`} · {s.fileName} · {fmtBytes(s.fileSize)} · {fmtNumber(st.pointCount)} nokta
             {st.segmentCount > 1 && ` · ${st.segmentCount} parça`}
             {s.waypoints.length > 0 && ` · ${s.waypoints.length} işaret`}
+            {s.removedPoints > 0 && ` · ${s.removedPoints} GPS sıçraması ayıklandı`}
           </div>
+          {placeLabel(s) && <div className="muted place-line">{placeLabel(s)}</div>}
         </div>
+        {p.routeCount > 1 && (
+          <button className="btn small" onClick={p.onOpenRoute} title="Aynı güzergâhtaki kayıtları karşılaştır">
+            ↻ Bu güzergâh: {p.routeCount} kez
+          </button>
+        )}
         <button className="btn small" onClick={p.onZoom}>
           Yakınlaştır
         </button>
-        <button className="btn small" onClick={p.onExportGpx} title="GPX olarak kaydet (Ctrl/⌘+S)">
+        <button className="btn small" onClick={p.onExportGpx} title="GPX, KML ya da TCX olarak kaydet (Ctrl/⌘+S)">
           Kaydet…
         </button>
         <button className="icon-btn" onClick={p.onClose} title="Kapat (Esc)">
           ×
         </button>
       </header>
+      <MetaEditor summary={s} meta={p.meta} allTags={p.allTags} onChange={p.onMeta} />
       <div className="detail-toolbar">
         <div className="chips" role="group" aria-label="Grafikte gösterilecekler">
           {ALL_METRICS.filter((m) => available.includes(m)).map((m) => (
@@ -257,7 +276,7 @@ export function DetailPanel(p: Props) {
       )}
 
       <div className="detail-body">
-        <StatCards st={st} />
+        <StatCards st={st} stops={s.stops} />
         <div className="chart-wrap">
           <div className="readout" aria-live="off">
             {d && i != null && i < d.dist.length ? (

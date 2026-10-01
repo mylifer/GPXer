@@ -27,6 +27,8 @@ export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose
   const [eleM, setEleM] = useState(settings.stats.elevationThresholdM);
   const [folders, setFolders] = useState(settings.watchedFolders);
   const [tz, setTz] = useState<TzMode>(tzMode);
+  const [clean, setClean] = useState(settings.stats.cleanSpikes);
+  const [perType, setPerType] = useState(settings.stats.perType);
   const preset = PRESETS.find((p) => p.movingKmh === movingKmh && p.eleM === eleM)?.id ?? "";
 
   const save = () =>
@@ -35,6 +37,8 @@ export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose
         stats: {
           movingSpeedMs: Math.max(0, movingKmh) / 3.6,
           elevationThresholdM: Math.max(0, eleM),
+          cleanSpikes: clean,
+          perType,
         },
         watchedFolders: folders,
       },
@@ -82,6 +86,19 @@ export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose
             <input type="number" min={0} step={0.5} value={eleM} onChange={(e) => setEleM(Number(e.target.value))} />
             <small>Bundan küçük iniş çıkışlar tırmanışa/inişe sayılmaz. GPS yüksekliği için 3–5 m uygundur.</small>
           </label>
+          <label className="check">
+            <input type="checkbox" checked={perType} onChange={(e) => setPerType(e.target.checked)} />
+            Eşikleri her kaydın etkinlik türüne göre seç
+          </label>
+          <small>
+            Açıkken yürüyüş, koşu, bisiklet ve araç kayıtları kendi hazır eşikleriyle hesaplanır; tür, kayıt
+            panelinden değiştirilebilir. Türü bilinmeyen kayıtlarda yukarıdaki değerler kullanılır.
+          </small>
+          <label className="check">
+            <input type="checkbox" checked={clean} onChange={(e) => setClean(e.target.checked)} />
+            GPS sıçramalarını temizle
+          </label>
+          <small>İzden bir anlığına uzağa fırlayıp geri dönen ya da akla yatkın olmayan hızla atlayan noktalar hesaplara katılmaz. Orijinal dosya değişmez.</small>
         </fieldset>
 
         <fieldset>
@@ -99,7 +116,7 @@ export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose
 
         <fieldset>
           <legend>İzlenen klasörler</legend>
-          <small>Bu klasörlere (alt klasörler dahil) eklenen GPX dosyaları kütüphaneye kendiliğinden eklenir.</small>
+          <small>Bu klasörlere (alt klasörler dahil) eklenen GPX, FIT, TCX ve KML dosyaları kütüphaneye kendiliğinden eklenir.</small>
           <ul className="folder-list">
             {folders.map((f) => (
               <li key={f}>
