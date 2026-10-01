@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "GPXer",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "identifier": "com.mylifer.gpxer",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -53,7 +53,7 @@
           "fit"
         ],
         "name": "FIT Dosyası",
-        "description": "Garmin FIT etkinlik dosyası",
+        "description": "Garmin FIT activity file",
         "role": "Viewer",
         "mimeType": "application/vnd.ant.fit"
       },
