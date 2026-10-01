@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Önbellek biçimi ya da özet hesaplaması değiştiğinde artırılır; eski
 /// önbellek yok sayılır.
-const CACHE_VERSION: u32 = 4;
+const CACHE_VERSION: u32 = 5;
 /// Çöp kutusundaki dosyalar bu süreden sonra kalıcı olarak silinir.
 const TRASH_KEEP_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 

@@ -549,8 +549,9 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
         id: "gaps",
         type: "line",
         source: "gaps",
+        filter: ["==", ["get", "path"], ""],
         layout: { "line-cap": "butt" },
-        paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.7, "line-dasharray": [2, 3] },
+        paint: { "line-color": ["get", "color"], "line-width": 2.5, "line-opacity": 0.8, "line-dasharray": [2, 3] },
       });
       map.addLayer({
         id: "tracks",
@@ -877,6 +878,8 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       const f: maplibregl.FilterSpecification = ["in", ["get", "path"], ["literal", paths]];
       map.setFilter("tracks-selected", f);
       map.setFilter("tracks-selected-casing", f);
+      // Boşluklar yalnızca seçili (ya da karşılaştırılan) kayıtta çizilir.
+      map.setFilter("gaps", f);
       map.setPaintProperty("tracks", "line-opacity", paths.length ? 0.45 : 0.85);
       map.setPaintProperty("tracks-casing", "line-opacity", paths.length ? 0.4 : 0.9);
     });

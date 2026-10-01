@@ -152,16 +152,25 @@ pub struct Gap {
     pub distance_m: f64,
 }
 
-/// Bu kadar süre ve mesafe nokta yoksa boşluk sayılır ...
-const GAP_MIN_MS: i64 = 5 * 60 * 1000;
-const GAP_MIN_M: f64 = 1000.0;
-/// ... zaman bilgisi yoksa yalnızca mesafeye bakılır.
+/// Bu kadar süre ve mesafe nokta yoksa boşluk sayılır (sinyal kaybı, kaydın
+/// durdurulup başka yerde sürdürülmesi). Daha kısa aralıklar seyrek kayıttır;
+/// iz bağlı kalır.
+const GAP_MIN_MS: i64 = 10 * 60 * 1000;
+const GAP_MIN_M: f64 = 2000.0;
+/// Süre kısa olsa da uçuş hızında uzun atlama da boşluktur.
+const GAP_FLIGHT_M: f64 = 20_000.0;
+const GAP_FLIGHT_SPEED_MS: f64 = 300.0 / 3.6;
+/// Zaman bilgisi yoksa yalnızca mesafeye bakılır.
 const GAP_MIN_M_UNTIMED: f64 = 10_000.0;
 
 fn is_gap(a: &Point, b: &Point) -> bool {
     let d = stats::haversine_m(a, b);
     match (a.time, b.time) {
-        (Some(ta), Some(tb)) => d > GAP_MIN_M && (tb - ta).abs() > GAP_MIN_MS,
+        (Some(ta), Some(tb)) => {
+            let dt = (tb - ta).abs();
+            (d > GAP_MIN_M && dt > GAP_MIN_MS)
+                || (d > GAP_FLIGHT_M && d / (dt.max(1000) as f64 / 1000.0) > GAP_FLIGHT_SPEED_MS)
+        }
         _ => d > GAP_MIN_M_UNTIMED,
     }
 }

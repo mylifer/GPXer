@@ -48,9 +48,10 @@ ile yazılmıştır.
   hesaplardan ayıklanır; düz giden hızlı hareket (uçak, tren) korunur. Harita
   araç çubuğundaki *Sıçramaları temizle* kutusuyla açılıp kapatılır; orijinal
   dosya değişmez.
-- Kayıt boşlukları (uçuş, sinyal kaybı: 5 dakikadan uzun ve 1 km'den uzak iki
-  nokta arası) haritada kesik çizgiyle gösterilir; üstüne gelince süresi ve
-  mesafesi görünür.
+- Kayıt boşlukları (uçuş, sinyal kaybı: 10 dakikadan uzun ve 2 km'den uzak ya
+  da uçuş hızında 20 km'den uzun iki nokta arası) izi böler; haritada düz
+  çizgiyle birleştirilmez. Seçili kayıtta boşluklar kesik çizgiyle gösterilir,
+  üstüne gelince süresi ve mesafesi görünür.
 
 **Kütüphane ve liste**
 - Açılan dosyaların kopyası uygulamanın veri klasöründe saklanır ve her
