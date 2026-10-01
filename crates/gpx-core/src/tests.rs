@@ -467,3 +467,37 @@ fn splits_lines_at_recording_gaps() {
     assert!(g.distance_m > 1_000_000.0);
     assert_eq!(g.end.unwrap() - g.start.unwrap(), 7481 * 1000);
 }
+
+#[test]
+fn collapses_long_stays() {
+    // Yürüyüş, 1 saat aynı yerde titreme (±100 m, arada 300 m sıçramalar), yürüyüş.
+    let mut seg: Vec<Point> = (0..60)
+        .map(|i| pt(41.0, 29.0 + i as f64 * 1.67e-5, i))
+        .collect();
+    let (lat0, lon0) = (41.0, seg.last().unwrap().lon);
+    let mut t = 60;
+    for k in 0..360 {
+        let a = k as f64 * 2.4;
+        let r = if k % 37 == 0 {
+            2.7e-3
+        } else {
+            8e-4 * ((k * 7 % 10) as f64 / 10.0)
+        };
+        seg.push(pt(lat0 + r * a.sin(), lon0 + r * a.cos(), t));
+        t += 10;
+    }
+    seg.extend((1..60).map(|i| pt(41.0, lon0 + i as f64 * 1.67e-5, t + i)));
+    let n = seg.len();
+    let removed = analysis::collapse_segment_stays(&mut seg);
+    assert!(removed > 350, "removed {removed} of {n}");
+    // Duraklama iki noktaya indi ve süresi korundu.
+    let stops = analysis::detect_stops([seg.as_slice()]);
+    assert_eq!(stops.len(), 1);
+    assert!(stops[0].duration_ms > 55 * 60 * 1000);
+
+    // Sürekli yürüyüş dokunulmaz.
+    let mut walk: Vec<Point> = (0..600)
+        .map(|i| pt(41.0, 29.0 + i as f64 * 1.67e-5, i))
+        .collect();
+    assert_eq!(analysis::collapse_segment_stays(&mut walk), 0);
+}

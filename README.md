@@ -43,11 +43,13 @@ ile yazılmıştır.
   üste, her noktadaki zaman farkı ve aynı anda başlamış gibi "yarıştırma".
 - Etkinlik türü (yürüyüş, koşu, bisiklet, araç) hız ve kadanstan tahmin edilir,
   elle değiştirilebilir; istenirse eşikler türe göre seçilir.
-- GPS sıçramaları (izden bir ya da birkaç noktalığına uzağa çıkıp geri dönen
-  noktalar, segment başındaki/sonundaki kopuk konumlar) haritadan ve
-  hesaplardan ayıklanır; düz giden hızlı hareket (uçak, tren) korunur. Harita
-  araç çubuğundaki *Sıçramaları temizle* kutusuyla açılıp kapatılır; orijinal
-  dosya değişmez.
+- GPS gürültüsü temizlenir: izden bir ya da birkaç noktalığına uzağa çıkıp
+  geri dönen noktalar ve segment başındaki/sonundaki kopuk konumlar atılır;
+  düz giden hızlı hareket (uçak, tren) korunur. Bir yerde 10 dakikadan uzun
+  süre 120 m içinde kalındığında (ev, iş yeri) oluşan konum titremesi
+  duraklamanın merkezindeki tek noktaya indirilir. Harita araç çubuğundaki
+  *GPS gürültüsünü temizle* kutusuyla açılıp kapatılır (duraklama kısmı
+  Ayarlar'dan ayrıca kapatılabilir); orijinal dosya değişmez.
 - Kayıt boşlukları (uçuş, sinyal kaybı: 10 dakikadan uzun ve 2 km'den uzak ya
   da uçuş hızında 20 km'den uzun iki nokta arası) izi böler; haritada düz
   çizgiyle birleştirilmez. Seçili kayıtta boşluklar kesik çizgiyle gösterilir,

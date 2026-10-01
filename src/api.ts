@@ -113,6 +113,8 @@ export interface StatsConfig {
   elevationThresholdM: number;
   cleanSpikes: boolean;
   perType: boolean;
+  /** Uzun duraklamalardaki konum titremesi tek noktaya indirilsin (cleanSpikes açıkken). */
+  collapseStays: boolean;
 }
 
 export interface Settings {

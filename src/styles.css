@@ -1634,3 +1634,7 @@ button.link:hover {
   color: var(--text);
   font-size: 13px;
 }
+
+label.check.sub-check {
+  margin-left: 22px;
+}

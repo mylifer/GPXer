@@ -22,6 +22,9 @@ pub struct StatsConfig {
     pub clean_spikes: bool,
     /// Eşikler her kaydın (tahmin edilen ya da seçilen) türüne göre seçilsin.
     pub per_type: bool,
+    /// Uzun duraklamalardaki konum titremesi tek noktaya indirilsin
+    /// (`clean_spikes` açıkken).
+    pub collapse_stays: bool,
 }
 
 impl Default for StatsConfig {
@@ -32,6 +35,7 @@ impl Default for StatsConfig {
             elevation_threshold_m: 3.0,
             clean_spikes: true,
             per_type: false,
+            collapse_stays: true,
         }
     }
 }

@@ -225,11 +225,14 @@ pub fn effective_config(
 /// Okunan kayda ayarların gerektirdiği ön işlemleri uygular (sıçrama
 /// temizliği); ayıklanan nokta sayısını döndürür.
 pub fn prepare(gpx: &mut Gpx, cfg: &StatsConfig) -> usize {
-    if cfg.clean_spikes {
-        analysis::clean_spikes(gpx)
-    } else {
-        0
+    if !cfg.clean_spikes {
+        return 0;
     }
+    let mut removed = analysis::clean_spikes(gpx);
+    if cfg.collapse_stays {
+        removed += analysis::collapse_stays(gpx);
+    }
+    removed
 }
 
 pub fn summarize(

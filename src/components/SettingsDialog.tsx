@@ -29,6 +29,7 @@ export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose
   const [tz, setTz] = useState<TzMode>(tzMode);
   const [clean, setClean] = useState(settings.stats.cleanSpikes);
   const [perType, setPerType] = useState(settings.stats.perType);
+  const [stays, setStays] = useState(settings.stats.collapseStays);
   const preset = PRESETS.find((p) => p.movingKmh === movingKmh && p.eleM === eleM)?.id ?? "";
 
   const save = () =>
@@ -39,6 +40,7 @@ export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose
           elevationThresholdM: Math.max(0, eleM),
           cleanSpikes: clean,
           perType,
+          collapseStays: stays,
         },
         watchedFolders: folders,
       },
@@ -96,9 +98,17 @@ export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose
           </small>
           <label className="check">
             <input type="checkbox" checked={clean} onChange={(e) => setClean(e.target.checked)} />
-            GPS sıçramalarını temizle
+            GPS gürültüsünü temizle
           </label>
           <small>İzden bir anlığına uzağa fırlayıp geri dönen ya da akla yatkın olmayan hızla atlayan noktalar hesaplara katılmaz. Orijinal dosya değişmez.</small>
+          <label className="check sub-check">
+            <input type="checkbox" checked={stays} disabled={!clean} onChange={(e) => setStays(e.target.checked)} />
+            Uzun duraklamalardaki titremeyi tek noktaya indir
+          </label>
+          <small>
+            Bir yerde 10 dakikadan uzun süre 120 m içinde kalındığında (ev, iş yeri) GPS konumu oynar ve iz yumak gibi
+            görünür; bu aralık duraklamanın merkezindeki tek noktaya indirilir. Mesafe ve hareket süresi de düzelir.
+          </small>
         </fieldset>
 
         <fieldset>

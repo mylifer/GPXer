@@ -260,6 +260,94 @@ pub fn clean_spikes(gpx: &mut Gpx) -> usize {
         .sum()
 }
 
+/// Duraklama sayılması için en az bu kadar süre ...
+const STAY_MIN_MS: i64 = 10 * 60 * 1000;
+/// ... bu yarıçap içinde kalınmalı.
+const STAY_RADIUS_M: f64 = 120.0;
+/// Duraklama sırasında yarıçapın dışına en fazla bu kadar nokta/süre çıkılıp
+/// dönülebilir (titreme ya da kısa sıçrama); daha uzunsa duraklama biter.
+const STAY_MAX_OUT_POINTS: usize = 8;
+const STAY_MAX_OUT_MS: i64 = 5 * 60 * 1000;
+
+/// Uzun duraklamaları tek noktaya indirir: bir yerde uzun süre kalınırken GPS
+/// konumu onlarca, yüzlerce metre titrer ve iz yumak gibi görünür. Bu
+/// aralıktaki noktalar duraklamanın merkezinde, başlangıç ve bitiş zamanlı iki
+/// noktaya dönüşür. Atılan nokta sayısını döndürür.
+pub fn collapse_stays(gpx: &mut Gpx) -> usize {
+    let source = if gpx.tracks.is_empty() {
+        &mut gpx.routes
+    } else {
+        &mut gpx.tracks
+    };
+    source
+        .iter_mut()
+        .flat_map(|t| t.segments.iter_mut())
+        .map(collapse_segment_stays)
+        .sum()
+}
+
+/// Tek segmentteki uzun duraklamaları tek noktaya indirir.
+pub fn collapse_segment_stays(seg: &mut Vec<Point>) -> usize {
+    let n = seg.len();
+    if n < 3 || seg.iter().all(|p| p.time.is_none()) {
+        return 0;
+    }
+    let pts = std::mem::take(seg);
+    let mut out: Vec<Point> = Vec::with_capacity(n);
+    let mut i = 0;
+    while i < n {
+        let Some(t0) = pts[i].time else {
+            out.push(pts[i]);
+            i += 1;
+            continue;
+        };
+        // Yarıçap içindeki noktaların ortalaması merkezdir; dışarı çıkıp kısa
+        // sürede dönen noktalar duraklamaya dahildir ama merkezi etkilemez.
+        let (mut sum_lat, mut sum_lon, mut count) = (pts[i].lat, pts[i].lon, 1.0);
+        let mut last_in = i;
+        let mut j = i + 1;
+        while j < n {
+            let center = Point {
+                lat: sum_lat / count,
+                lon: sum_lon / count,
+                ..Point::default()
+            };
+            if haversine_m(&center, &pts[j]) <= STAY_RADIUS_M {
+                sum_lat += pts[j].lat;
+                sum_lon += pts[j].lon;
+                count += 1.0;
+                last_in = j;
+            } else {
+                let out_ms = match (pts[last_in].time, pts[j].time) {
+                    (Some(a), Some(b)) => b - a,
+                    _ => 0,
+                };
+                if j - last_in > STAY_MAX_OUT_POINTS || out_ms > STAY_MAX_OUT_MS {
+                    break;
+                }
+            }
+            j += 1;
+        }
+        let t1 = pts[last_in].time.unwrap_or(t0);
+        if last_in > i + 1 && t1 - t0 >= STAY_MIN_MS {
+            let (lat, lon) = (sum_lat / count, sum_lon / count);
+            out.push(Point { lat, lon, ..pts[i] });
+            out.push(Point {
+                lat,
+                lon,
+                ..pts[last_in]
+            });
+            i = last_in + 1;
+        } else {
+            out.push(pts[i]);
+            i += 1;
+        }
+    }
+    let removed = n - out.len();
+    *seg = out;
+    removed
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Stop {

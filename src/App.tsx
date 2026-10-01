@@ -473,7 +473,8 @@ export default function App() {
         prev.stats.movingSpeedMs !== next.stats.movingSpeedMs ||
         prev.stats.elevationThresholdM !== next.stats.elevationThresholdM ||
         prev.stats.cleanSpikes !== next.stats.cleanSpikes ||
-        prev.stats.perType !== next.stats.perType;
+        prev.stats.perType !== next.stats.perType ||
+        prev.stats.collapseStays !== next.stats.collapseStays;
       if (statsChanged) {
         // İstatistikleri yeni eşiklerle yeniden hesapla.
         setFiles([]);
@@ -1011,10 +1012,12 @@ export default function App() {
                     className="check map-check"
                     title={
                       settings.stats.cleanSpikes
-                        ? `Bir anlığına uzağa fırlayıp geri dönen GPS noktaları haritadan ve hesaplardan çıkarılıyor (${fmtNumber(
+                        ? `Uzağa fırlayıp geri dönen GPS noktaları${
+                            settings.stats.collapseStays ? " ve uzun duraklamalardaki konum titremesi" : ""
+                          } haritadan ve hesaplardan çıkarılıyor (${fmtNumber(
                             files.reduce((n, f) => n + f.summary.removedPoints, 0),
-                          )} nokta). Orijinal dosyalar değişmez.`
-                        : "GPS sıçramaları temizlenmiyor; kayıtlar olduğu gibi gösteriliyor."
+                          )} nokta). Orijinal dosyalar değişmez. Ayrıntılar: Ayarlar.`
+                        : "GPS gürültüsü temizlenmiyor; kayıtlar olduğu gibi gösteriliyor."
                     }
                   >
                     <input
@@ -1024,7 +1027,7 @@ export default function App() {
                         applySettings({ ...settings, stats: { ...settings.stats, cleanSpikes: e.target.checked } })
                       }
                     />
-                    Sıçramaları temizle
+                    GPS gürültüsünü temizle
                   </label>
                 )}
                 <button className="btn small" onClick={fitAll} title="Tümünü göster (Ctrl/⌘+0)">
