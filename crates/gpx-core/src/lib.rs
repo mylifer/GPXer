@@ -52,6 +52,10 @@ pub struct FileSummary {
     /// `lines` ile aynı düzende nokta zamanları (Unix ms). Dosyada hiç zaman
     /// bilgisi yoksa boş bırakılır.
     pub times: Vec<Vec<Option<i64>>>,
+    /// Kayıt boşlukları (uzun süre ya da uzun mesafe nokta yok: uçuş, sinyal
+    /// kaybı). `lines` bu yerlerde bölünür; harita boşluğu ayrıca gösterir.
+    #[serde(default)]
+    pub gaps: Vec<Gap>,
     pub waypoints: Vec<WaypointOut>,
     /// Kaydın başladığı yerin IANA saat dilimi (ör. "Europe/Istanbul").
     /// Çekirdek doldurmaz; uygulama katmanı konumdan bulur.
@@ -136,6 +140,57 @@ pub fn primary_segments(gpx: &Gpx) -> Vec<&[Point]> {
         .collect()
 }
 
+/// İz üzerinde nokta olmayan bir aralık.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Gap {
+    /// Boşluktan önceki ve sonraki nokta [lon, lat].
+    pub from: [f64; 2],
+    pub to: [f64; 2],
+    pub start: Option<i64>,
+    pub end: Option<i64>,
+    pub distance_m: f64,
+}
+
+/// Bu kadar süre ve mesafe nokta yoksa boşluk sayılır ...
+const GAP_MIN_MS: i64 = 5 * 60 * 1000;
+const GAP_MIN_M: f64 = 1000.0;
+/// ... zaman bilgisi yoksa yalnızca mesafeye bakılır.
+const GAP_MIN_M_UNTIMED: f64 = 10_000.0;
+
+fn is_gap(a: &Point, b: &Point) -> bool {
+    let d = stats::haversine_m(a, b);
+    match (a.time, b.time) {
+        (Some(ta), Some(tb)) => d > GAP_MIN_M && (tb - ta).abs() > GAP_MIN_MS,
+        _ => d > GAP_MIN_M_UNTIMED,
+    }
+}
+
+/// Segmentleri kayıt boşluklarında parçalara böler.
+fn split_at_gaps<'a>(segments: &[&'a [Point]]) -> (Vec<&'a [Point]>, Vec<Gap>) {
+    let mut pieces = Vec::new();
+    let mut gaps = Vec::new();
+    for seg in segments {
+        let mut start = 0;
+        for i in 1..seg.len() {
+            let (a, b) = (&seg[i - 1], &seg[i]);
+            if is_gap(a, b) {
+                pieces.push(&seg[start..i]);
+                gaps.push(Gap {
+                    from: [round6(a.lon), round6(a.lat)],
+                    to: [round6(b.lon), round6(b.lat)],
+                    start: a.time,
+                    end: b.time,
+                    distance_m: stats::haversine_m(a, b),
+                });
+                start = i;
+            }
+        }
+        pieces.push(&seg[start..]);
+    }
+    (pieces, gaps)
+}
+
 fn round6(v: f64) -> f64 {
     (v * 1e6).round() / 1e6
 }
@@ -213,7 +268,8 @@ pub fn summarize_with(
         stats.bbox = Some(b);
     }
 
-    let simplified: Vec<Vec<Point>> = segments
+    let (pieces, gaps) = split_at_gaps(&segments);
+    let simplified: Vec<Vec<Point>> = pieces
         .iter()
         .map(|seg| simplify::douglas_peucker(seg, MAP_TOLERANCE_M))
         .filter(|l| l.len() >= 2)
@@ -253,6 +309,7 @@ pub fn summarize_with(
         stats,
         lines,
         times,
+        gaps,
         waypoints: gpx
             .waypoints
             .iter()

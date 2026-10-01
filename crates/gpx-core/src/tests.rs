@@ -312,6 +312,33 @@ fn removes_multi_point_jumps_and_bad_edges() {
 }
 
 #[test]
+fn keeps_flights_and_bunched_updates() {
+    // Yürüyüş, ardından segmentin ortasında 220 m/s uçuş, sonra yine yürüyüş.
+    let mut seg: Vec<Point> = (0..30)
+        .map(|i| pt(41.0, 29.0 + i as f64 * 1.67e-5, i))
+        .collect();
+    let lon0 = seg.last().unwrap().lon;
+    seg.extend((1..=200).map(|k| pt(41.0 + k as f64 * 1.98e-3, lon0, 29 + k)));
+    let lat1 = seg.last().unwrap().lat;
+    seg.extend((1..30).map(|k| pt(lat1, lon0 + k as f64 * 1.67e-5, 229 + k)));
+    let n = seg.len();
+    assert_eq!(analysis::clean_segment(&mut seg), 0);
+    assert_eq!(seg.len(), n);
+
+    // Telefonun konumu kümeler hâlinde güncellemesi: aynı konum, sonra 110 m ileri.
+    let mut bunched: Vec<Point> = (0..40)
+        .map(|i| pt(41.0, 29.0 + (i / 3) as f64 * 1.3e-3, i))
+        .collect();
+    assert_eq!(analysis::clean_segment(&mut bunched), 0);
+
+    // Segmentin başında eski konum (2000 km uzakta, 1 sn önce) atılır.
+    let mut stale: Vec<Point> = vec![pt(50.88, 7.12, 0)];
+    stale.extend((1..30).map(|i| pt(40.88, 29.27 + i as f64 * 1e-4, i)));
+    assert_eq!(analysis::clean_segment(&mut stale), 1);
+    assert!(stale[0].lat < 41.0);
+}
+
+#[test]
 fn detects_stops_and_activity() {
     // 3,5 m/s (12,6 km/sa).
     let mut seg: Vec<Point> = (0..60)
@@ -416,4 +443,27 @@ fn tcx_and_kml_round_trip() {
     assert_eq!(g.waypoints[0].name.as_deref(), Some("P"));
     assert_eq!(pts(&g).len(), 2);
     assert!(formats::parse_kml(b"<gpx/>").is_err());
+}
+
+#[test]
+fn splits_lines_at_recording_gaps() {
+    // Yürüyüş, 2 saat 1700 km boşluk (uçuş), yine yürüyüş.
+    let mut seg: Vec<Point> = (0..20)
+        .map(|i| pt(41.0, 29.0 + i as f64 * 1.67e-5, i))
+        .collect();
+    seg.extend((0..20).map(|i| pt(50.2, 12.2 + i as f64 * 2.6e-5, 7500 + i)));
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let s = summarize(&gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
+    assert_eq!(s.lines.len(), 2);
+    assert_eq!(s.times.len(), 2);
+    assert_eq!(s.gaps.len(), 1);
+    let g = &s.gaps[0];
+    assert!(g.distance_m > 1_000_000.0);
+    assert_eq!(g.end.unwrap() - g.start.unwrap(), 7481 * 1000);
 }

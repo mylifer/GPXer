@@ -198,6 +198,35 @@ function tracksGeoJSON(files: FileEntry[]): GeoJSON.FeatureCollection {
   };
 }
 
+function gapsGeoJSON(files: FileEntry[]): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+  for (const f of files) {
+    for (const g of f.summary.gaps ?? []) {
+      features.push({
+        type: "Feature",
+        properties: {
+          path: f.summary.path,
+          color: f.color,
+          start: g.start ?? 0,
+          end: g.end ?? 0,
+          dist: g.distanceM,
+          tz: f.summary.timeZone ?? "",
+        },
+        geometry: { type: "LineString", coordinates: [g.from, g.to] },
+      });
+    }
+  }
+  return { type: "FeatureCollection", features };
+}
+
+function gapPopupHtml(pr: Record<string, unknown>): string {
+  const tz = tzOf({ timeZone: (pr.tz as string) || null });
+  const start = Number(pr.start);
+  const end = Number(pr.end);
+  const when = start && end ? `<br>${fmtTimestamp(start, tz)} → ${fmtTimestamp(end, tz)} · ${fmtDuration(end - start)}` : "";
+  return `<strong>Kayıt boşluğu</strong> · ${fmtDistance(Number(pr.dist))}${when}<br><span class="muted">Bu arada nokta kaydedilmemiş (uçuş, sinyal kaybı ya da kayıt durdurulmuş).</span>`;
+}
+
 function waypointsGeoJSON(files: FileEntry[]): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   for (const f of files) {
@@ -490,7 +519,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     // "load" altlık parçaları gelene kadar beklediği için (yavaş ya da kopuk
     // bağlantıda hiç gelmeyebilir) izler stil hazır olur olmaz eklenir.
     map.once("style.load", () => {
-      for (const id of ["tracks", "waypoints", "cursor", "heat", "colored", "range", "stops", "hotspots", "area"]) {
+      for (const id of ["tracks", "gaps", "waypoints", "cursor", "heat", "colored", "range", "stops", "hotspots", "area"]) {
         map.addSource(id, { type: "geojson", data: EMPTY, tolerance: id === "tracks" ? 0.2 : 0.375 });
       }
 
@@ -514,6 +543,14 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
         source: "tracks",
         layout: { "line-join": "round", "line-cap": "round" },
         paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": 0.9 },
+      });
+      // Kayıt boşlukları: iz rengiyle ince kesik çizgi.
+      map.addLayer({
+        id: "gaps",
+        type: "line",
+        source: "gaps",
+        layout: { "line-cap": "butt" },
+        paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.7, "line-dasharray": [2, 3] },
       });
       map.addLayer({
         id: "tracks",
@@ -709,6 +746,16 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
           return;
         }
         const hits = trackHits(e.point);
+        const gap = hits.length || heatOn ? null : map.queryRenderedFeatures(hitBox(e.point, 4), { layers: ["gaps"] })[0];
+        if (gap && !chooser.current?.isOpen()) {
+          if (!hoverPopup.current) {
+            hoverPopup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: "hover-popup" });
+          }
+          hoverPopup.current.setLngLat(e.lngLat).setHTML(gapPopupHtml(gap.properties ?? {})).addTo(map);
+          map.getCanvas().style.cursor = "default";
+          releaseHover();
+          return;
+        }
         const wp = hits.length ? null : map.queryRenderedFeatures(hitBox(e.point, 4), { layers: ["waypoints"] })[0];
         map.getCanvas().style.cursor = hits.length || wp ? "pointer" : "";
         if (chooser.current?.isOpen()) return;
@@ -783,6 +830,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
   useEffect(() => {
     whenReady((map) => {
       setData(map, "tracks", tracksGeoJSON(files));
+      setData(map, "gaps", gapsGeoJSON(files));
       setData(map, "waypoints", waypointsGeoJSON(files));
     });
   }, [files]);
@@ -799,6 +847,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       vis("heat", heatmap);
       vis("tracks", !heatmap);
       vis("tracks-casing", !heatmap);
+      vis("gaps", !heatmap);
       vis("waypoints", !heatmap);
       const ramp = dark ? SEQ_DARK : SEQ_LIGHT;
       map.setPaintProperty("heat", "heatmap-color", [

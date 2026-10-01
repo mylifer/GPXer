@@ -43,8 +43,14 @@ ile yazılmıştır.
   üste, her noktadaki zaman farkı ve aynı anda başlamış gibi "yarıştırma".
 - Etkinlik türü (yürüyüş, koşu, bisiklet, araç) hız ve kadanstan tahmin edilir,
   elle değiştirilebilir; istenirse eşikler türe göre seçilir.
-- GPS sıçramaları (bir anlığına uzağa fırlayıp dönen noktalar) hesaplardan
-  ayıklanır; orijinal dosya değişmez.
+- GPS sıçramaları (izden bir ya da birkaç noktalığına uzağa çıkıp geri dönen
+  noktalar, segment başındaki/sonundaki kopuk konumlar) haritadan ve
+  hesaplardan ayıklanır; düz giden hızlı hareket (uçak, tren) korunur. Harita
+  araç çubuğundaki *Sıçramaları temizle* kutusuyla açılıp kapatılır; orijinal
+  dosya değişmez.
+- Kayıt boşlukları (uçuş, sinyal kaybı: 5 dakikadan uzun ve 1 km'den uzak iki
+  nokta arası) haritada kesik çizgiyle gösterilir; üstüne gelince süresi ve
+  mesafesi görünür.
 
 **Kütüphane ve liste**
 - Açılan dosyaların kopyası uygulamanın veri klasöründe saklanır ve her

@@ -31,6 +31,14 @@ export interface Waypoint {
   name: string | null;
 }
 
+export interface Gap {
+  from: [number, number];
+  to: [number, number];
+  start: number | null;
+  end: number | null;
+  distanceM: number;
+}
+
 export interface FileSummary {
   path: string;
   fileName: string;
@@ -43,6 +51,8 @@ export interface FileSummary {
   lines: [number, number][][];
   /** `lines` ile aynı düzende nokta zamanları (Unix ms); zaman yoksa boş. */
   times: (number | null)[][];
+  /** Kayıt boşlukları (uçuş, sinyal kaybı); `lines` bu yerlerde bölünür. */
+  gaps: Gap[];
   waypoints: Waypoint[];
   /** Kaydın başladığı yerin IANA saat dilimi. */
   timeZone: string | null;

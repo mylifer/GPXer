@@ -5,10 +5,23 @@ use crate::parse::{Gpx, Point};
 use crate::stats::{haversine_m, Stats, StatsConfig};
 use serde::{Deserialize, Serialize};
 
-/// Sıçrama sayılması için iki komşu adımın en az bu kadar uzun olması gerekir.
-const SPIKE_MIN_STEP_M: f64 = 30.0;
-/// Hız sınırının üst ucu: bunun üstündeki adım her durumda sıçramadır.
-const TELEPORT_SPEED_MS: f64 = 120.0;
+/// Sıçrama: iz bu kadar uzağa çıkıp geri dönmeli ...
+const SPIKE_MIN_DEV_M: f64 = 150.0;
+/// ... ve gittiği uzaklık, çıktığı ve döndüğü noktalar arasındaki mesafenin
+/// en az bu katı olmalı (düz giden hızlı hareket böylece sıçrama sayılmaz).
+const SPIKE_DEV_RATIO: f64 = 2.0;
+/// Bir sıçrama en fazla bu kadar nokta ve süre sürebilir.
+const SPIKE_MAX_POINTS: usize = 12;
+const SPIKE_MAX_MS: i64 = 10 * 60 * 1000;
+/// Sıçramadaki hız, çevresindeki olağan hızın en az bu katı ve şu kadar olmalı.
+const SPIKE_SPEED_FACTOR: f64 = 3.0;
+const SPIKE_MIN_SPEED_MS: f64 = 4.0;
+/// Segmentin başında/sonunda izin geri kalanından kopuk en fazla bu kadar nokta atılır.
+const EDGE_POINTS: usize = 5;
+/// Kopukluk: en az bu kadar uzak ve izin devamındaki hızın bu katından hızlı.
+const EDGE_MIN_JUMP_M: f64 = 500.0;
+const EDGE_SPEED_FACTOR: f64 = 5.0;
+const EDGE_MIN_SPEED_MS: f64 = 30.0;
 /// Duraklama: en az bu kadar süre ...
 pub const STOP_MIN_MS: i64 = 2 * 60 * 1000;
 /// ... bu yarıçap içinde kalınması.
@@ -81,106 +94,156 @@ fn median(mut v: Vec<f64>) -> Option<f64> {
     Some(v[v.len() / 2])
 }
 
-/// Hız sınırı en az bu (43 km/sa): yürüyüş/koşu kayıtlarında bunun üstü sıçramadır.
-const SPEED_FLOOR_MS: f64 = 12.0;
-/// Sıçramadan sonra izin geri döndüğü nokta en fazla bu kadar ileride aranır.
-const LOOKAHEAD_POINTS: usize = 40;
-const LOOKAHEAD_MS: i64 = 3 * 60 * 1000;
-/// Segmentin başında/sonunda bu kadar ya da daha az nokta, izin geri kalanından
-/// akla yatkın olmayan hızla kopuksa (uydu kilitlenmeden alınmış konumlar) atılır.
-const EDGE_POINTS: usize = 5;
-
-/// İki nokta arasındaki hız (m/s); zaman yoksa ya da geri gidiyorsa `None`.
+/// İki nokta arasındaki hız (m/s); zaman yoksa `None`. Sıra önemli değildir.
 /// Saniyenin altındaki aralıklar 1 sn sayılır (yuvarlanmış zaman damgaları).
 fn step_speed(a: &Point, b: &Point) -> Option<f64> {
-    let dt = b.time? - a.time?;
-    (dt >= 0).then(|| haversine_m(a, b) / (dt.max(1000) as f64 / 1000.0))
+    let dt = (b.time? - a.time?).abs();
+    Some(haversine_m(a, b) / (dt.max(1000) as f64 / 1000.0))
+}
+
+/// Verilen noktalar arasındaki adımların ortanca hızı.
+fn median_speed<'a>(pts: impl Iterator<Item = &'a Point>) -> Option<f64> {
+    let pts: Vec<&Point> = pts.collect();
+    median(
+        pts.windows(2)
+            .filter_map(|w| step_speed(w[0], w[1]))
+            .collect(),
+    )
+}
+
+/// `a`dan çıkıp `run` noktalarından geçerek `b`ye dönen bölüm bir sıçrama mı?
+fn is_excursion(a: &Point, run: &[Point], b: &Point, local_speed: Option<f64>) -> bool {
+    let d_ab = haversine_m(a, b);
+    // Her noktanın iki uca da uzaklığı; sıçramadaki her nokta uzakta olmalı,
+    // yoksa sıçramanın öncesindeki/sonrasındaki doğru noktalar da atılırdı.
+    let far: Vec<f64> = run
+        .iter()
+        .map(|p| haversine_m(a, p).min(haversine_m(p, b)))
+        .collect();
+    let dev = far.iter().copied().fold(0.0, f64::max);
+    let near = far.iter().copied().fold(f64::INFINITY, f64::min);
+    if dev < SPIKE_MIN_DEV_M
+        || dev < SPIKE_DEV_RATIO * d_ab
+        || near < (dev * 0.3).max(SPIKE_DEV_RATIO * d_ab)
+    {
+        return false;
+    }
+    match (a.time, b.time) {
+        (Some(ta), Some(tb)) if tb >= ta => {
+            let mut path = 0.0;
+            let mut prev = a;
+            for p in run.iter().chain(std::iter::once(b)) {
+                path += haversine_m(prev, p);
+                prev = p;
+            }
+            let speed = path / ((tb - ta).max(1000) as f64 / 1000.0);
+            let usual = local_speed.unwrap_or(0.0);
+            speed > (usual * SPIKE_SPEED_FACTOR).max(SPIKE_MIN_SPEED_MS)
+        }
+        // Zaman yoksa yalnızca belirgin ve kısa dikenler.
+        _ => run.len() <= 3 && dev > 300.0 && dev > 3.0 * d_ab,
+    }
+}
+
+/// `a`dan `b`ye adım, izin devamına göre kopuk mu?
+fn is_detached(a: &Point, b: &Point, rest: &[Point]) -> bool {
+    let d = haversine_m(a, b);
+    if d < EDGE_MIN_JUMP_M {
+        return false;
+    }
+    let usual = median_speed(rest.iter().take(11)).unwrap_or(0.0);
+    match step_speed(a, b) {
+        Some(v) => v > (usual * EDGE_SPEED_FACTOR).max(EDGE_MIN_SPEED_MS),
+        None => {
+            let steps: Vec<f64> = rest
+                .windows(2)
+                .take(10)
+                .map(|w| haversine_m(&w[0], &w[1]))
+                .collect();
+            d > 2000.0 && median(steps).is_some_and(|m| d > 20.0 * m)
+        }
+    }
 }
 
 /// Tek bir segmentteki sıçramaları ayıklar; atılan nokta sayısını döndürür.
 ///
-/// - Kaydın olağan hızına göre akla yatkın olmayan hızla başka yere gidip
-///   (bir ya da birkaç nokta) yeniden ize dönen konumlar atılır.
-/// - Segmentin başında ya da sonunda izden kopuk birkaç nokta atılır.
-/// - Zaman bilgisi olmayan izlerde gidip geri gelen tek nokta (sivri diken)
-///   atılır.
+/// - İzden bir ya da birkaç noktalığına uzağa çıkıp aynı yere dönen,
+///   bunu çevresindeki olağan hızın çok üstünde yapan noktalar atılır. Düz
+///   giden hızlı hareket (uçak, tren) ve gerçek yer değiştirmeler korunur.
+/// - Segmentin başında ya da sonunda izin geri kalanından kopuk birkaç nokta
+///   (uydu kilitlenmeden alınmış ya da eski konum) atılır.
 pub fn clean_segment(seg: &mut Vec<Point>) -> usize {
-    if seg.len() < 3 {
-        return 0;
-    }
-    // Hareket hâlindeki adımların ortanca hızının 4 katı; 43–432 km/sa arası.
-    let moving: Vec<f64> = seg
-        .windows(2)
-        .filter_map(|w| step_speed(&w[0], &w[1]))
-        .filter(|&v| v > 0.5)
-        .collect();
-    let limit = median(moving).map_or(SPEED_FLOOR_MS, |m| {
-        (m * 4.0).clamp(SPEED_FLOOR_MS, TELEPORT_SPEED_MS)
-    });
-    let too_fast = |a: &Point, b: &Point| {
-        haversine_m(a, b) > SPIKE_MIN_STEP_M && step_speed(a, b).is_some_and(|v| v > limit)
-    };
+    let before = seg.len();
+    remove_excursions(seg);
+    trim_detached_edges(seg);
+    before - seg.len()
+}
 
-    let n = seg.len();
-    let mut out: Vec<Point> = Vec::with_capacity(n);
-    let mut removed = 0;
+/// İzden çıkıp aynı yere dönen sıçramaları atar.
+fn remove_excursions(seg: &mut Vec<Point>) {
+    if seg.len() < 3 {
+        return;
+    }
+    let pts = std::mem::take(seg);
+    let mut out: Vec<Point> = Vec::with_capacity(pts.len());
     let mut i = 0;
-    while i < n {
-        let p = seg[i];
-        let Some(last) = out.last().copied() else {
-            out.push(p);
+    while i < pts.len() {
+        let Some(a) = out.last().copied() else {
+            out.push(pts[i]);
             i += 1;
             continue;
         };
-        if too_fast(&last, &p) {
-            // İz, son güvenilir noktadan olağan hızla varılabilecek bir yere
-            // dönüyor mu? Dönüyorsa aradakiler sıçramadır.
-            let back = (i + 1..n.min(i + 1 + LOOKAHEAD_POINTS))
-                .take_while(|&j| match (last.time, seg[j].time) {
-                    (Some(a), Some(b)) => b - a <= LOOKAHEAD_MS,
-                    _ => true,
-                })
-                .find(|&j| !too_fast(&last, &seg[j]));
-            if let Some(j) = back {
-                removed += j - i;
-                i = j;
-                continue;
-            }
-            if out.len() <= EDGE_POINTS && n - i > EDGE_POINTS {
-                // Baştaki kopuk noktalar.
-                removed += out.len();
-                out.clear();
-            } else if n - i <= EDGE_POINTS {
-                // Sondaki kopuk noktalar.
-                removed += n - i;
-                break;
-            }
-            // Aksi hâlde gerçek bir yer değiştirme (ör. sinyal kaybından sonra).
-            out.push(p);
-            i += 1;
-            continue;
-        }
-        // Zamansız izlerde sivri diken: önceki ve sonraki noktaya uzak, ama
-        // onlar birbirine yakın.
-        if p.time.is_none() || last.time.is_none() {
-            if let Some(next) = seg.get(i + 1) {
-                let d_in = haversine_m(&last, &p);
-                let d_out = haversine_m(&p, next);
-                if d_in > 200.0
-                    && d_out > 200.0
-                    && haversine_m(&last, next) < 0.35 * d_in.min(d_out)
-                {
-                    removed += 1;
-                    i += 1;
-                    continue;
-                }
+        // Çevredeki olağan hız: önceki 10 nokta ve olası sıçramanın ötesindeki 10 nokta.
+        let after = (i + SPIKE_MAX_POINTS).min(pts.len());
+        let local = median_speed(
+            out[out.len().saturating_sub(10)..]
+                .iter()
+                .chain(pts[after..].iter().take(10)),
+        );
+        // Bu noktadan başlayan en kısa sıçrama.
+        let spike = (1..=SPIKE_MAX_POINTS)
+            .take_while(|&k| i + k < pts.len())
+            .take_while(|&k| match (a.time, pts[i + k].time) {
+                (Some(ta), Some(tb)) => tb - ta <= SPIKE_MAX_MS,
+                _ => true,
+            })
+            .find(|&k| is_excursion(&a, &pts[i..i + k], &pts[i + k], local));
+        match spike {
+            Some(k) => i += k,
+            None => {
+                out.push(pts[i]);
+                i += 1;
             }
         }
-        out.push(p);
-        i += 1;
     }
     *seg = out;
-    removed
+}
+
+/// Segmentin başında ve sonunda izin geri kalanından kopuk birkaç noktayı atar.
+fn trim_detached_edges(seg: &mut Vec<Point>) {
+    let n = seg.len();
+    if n < 3 {
+        return;
+    }
+    // Baştaki k nokta: k. noktaya kopuk bir sıçramayla geçiliyor ve ilk nokta
+    // da izin devamından uzakta (geri dönen sıçrama başka kural).
+    // En kısa kopuk baş seçilir; böylece kopukluktan sonraki doğru noktalar kalır.
+    let head = (1..=EDGE_POINTS.min(n - 2))
+        .find(|&k| {
+            is_detached(&seg[k - 1], &seg[k], &seg[k..])
+                && haversine_m(&seg[0], &seg[k]) > EDGE_MIN_JUMP_M
+        })
+        .unwrap_or(0);
+    let tail = (1..=EDGE_POINTS.min(n.saturating_sub(head + 2)))
+        .find(|&k| {
+            let i = n - k;
+            let rest: Vec<Point> = seg[head..i].iter().rev().copied().collect();
+            is_detached(&seg[i], &seg[i - 1], &rest)
+                && haversine_m(&seg[n - 1], &seg[i - 1]) > EDGE_MIN_JUMP_M
+        })
+        .unwrap_or(0);
+    seg.truncate(n - tail);
+    seg.drain(..head);
 }
 
 /// Kaydın asıl segmentlerindeki sıçramaları temizler.
