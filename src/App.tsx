@@ -949,6 +949,7 @@ export default function App() {
               up({ filters: { ...prefsRef.current.filters, area } });
             }}
             stopsLayer={prefs.stopsLayer}
+            showGaps={prefs.showGaps}
             highlight={compare}
             cursors={cursors}
           />
@@ -998,6 +999,13 @@ export default function App() {
                 >
                   Duraklar
                 </button>
+                <label
+                  className="check map-check"
+                  title="Seçili kayıtta nokta kaydedilmemiş aralıkları (uçuş, sinyal kaybı) kesik çizgiyle göster"
+                >
+                  <input type="checkbox" checked={prefs.showGaps} onChange={(e) => up({ showGaps: e.target.checked })} />
+                  Boşluklar
+                </label>
                 {settings && (
                   <label
                     className="check map-check"

@@ -51,7 +51,8 @@ ile yazılmıştır.
 - Kayıt boşlukları (uçuş, sinyal kaybı: 10 dakikadan uzun ve 2 km'den uzak ya
   da uçuş hızında 20 km'den uzun iki nokta arası) izi böler; haritada düz
   çizgiyle birleştirilmez. Seçili kayıtta boşluklar kesik çizgiyle gösterilir,
-  üstüne gelince süresi ve mesafesi görünür.
+  üstüne gelince süresi ve mesafesi görünür; araç çubuğundaki *Boşluklar*
+  kutusuyla gizlenebilir.
 
 **Kütüphane ve liste**
 - Açılan dosyaların kopyası uygulamanın veri klasöründe saklanır ve her

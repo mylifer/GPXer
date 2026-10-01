@@ -62,6 +62,8 @@ interface Props {
   onArea(b: BBox | null): void;
   /** Tüm kayıtlarda sık durulan yerler. */
   stopsLayer: boolean;
+  /** Seçili kayıtta kayıt boşlukları (kesik çizgi). */
+  showGaps: boolean;
   /** Karşılaştırmada vurgulanan izler (seçimin yerine). */
   highlight: string[] | null;
   /** Ek imleçler (karşılaştırma). */
@@ -448,6 +450,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     areaMode,
     area,
     stopsLayer,
+    showGaps,
     highlight,
     cursors,
   } = props;
@@ -848,7 +851,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       vis("heat", heatmap);
       vis("tracks", !heatmap);
       vis("tracks-casing", !heatmap);
-      vis("gaps", !heatmap);
+      vis("gaps", !heatmap && showGaps);
       vis("waypoints", !heatmap);
       const ramp = dark ? SEQ_DARK : SEQ_LIGHT;
       map.setPaintProperty("heat", "heatmap-color", [
@@ -869,7 +872,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
         ramp[6],
       ]);
     });
-  }, [heatmap, dark]);
+  }, [heatmap, dark, showGaps]);
 
   const highlightKey = (highlight ?? (selected ? [selected] : [])).join("\n");
   useEffect(() => {

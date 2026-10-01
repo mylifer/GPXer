@@ -52,6 +52,8 @@ export interface Prefs {
   playSpeed: number;
   /** Haritada duraklama yoğunluğu katmanı. */
   stopsLayer: boolean;
+  /** Seçili kayıtta kayıt boşluklarını kesik çizgiyle göster. */
+  showGaps: boolean;
 }
 
 export const DEFAULT_FILTERS: Filters = {
@@ -85,6 +87,7 @@ const DEFAULTS: Prefs = {
   follow: true,
   playSpeed: 60,
   stopsLayer: false,
+  showGaps: true,
 };
 
 const KEY = "gpxer.prefs.v1";
