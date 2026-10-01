@@ -280,6 +280,38 @@ fn removes_gps_spikes() {
 }
 
 #[test]
+fn removes_multi_point_jumps_and_bad_edges() {
+    // 1,4 m/s ile yürüyüş (doğuya).
+    let walk = |i: i64| pt(41.0, 29.0 + i as f64 * 1.67e-5, i);
+    // Ortada 3 nokta 400 m kuzeye kaymış.
+    let mut seg: Vec<Point> = (0..60).map(walk).collect();
+    for p in &mut seg[30..33] {
+        p.lat += 0.0036;
+    }
+    // Başta uydu kilitlenmeden alınmış 2 nokta (2 km uzakta).
+    seg[0].lat += 0.018;
+    seg[1].lat += 0.018;
+    seg[1].lon += 0.001;
+    // Sonda kopuk 1 nokta.
+    seg.push(pt(41.02, 29.02, 60));
+    let removed = analysis::clean_segment(&mut seg);
+    assert_eq!(removed, 6);
+    assert!(seg.iter().all(|p| (p.lat - 41.0).abs() < 1e-9));
+
+    // Yürüyüş içinde gerçek tren yolculuğu (30 m/s, 5 dk) ve tünelde 2 dk
+    // sinyal kaybı silinmez.
+    let mut trip: Vec<Point> = (0..60).map(walk).collect();
+    let lon0 = trip.last().unwrap().lon;
+    trip.extend((1..=300).map(|k| pt(41.0, lon0 + k as f64 * 3.58e-4, 59 + k)));
+    let lon1 = trip.last().unwrap().lon;
+    trip.push(pt(41.0, lon1 + 0.012, 359 + 120));
+    trip.extend((1..30).map(|k| pt(41.0, lon1 + 0.012 + k as f64 * 1.67e-5, 479 + k)));
+    let n = trip.len();
+    assert_eq!(analysis::clean_segment(&mut trip), 0);
+    assert_eq!(trip.len(), n);
+}
+
+#[test]
 fn detects_stops_and_activity() {
     // 3,5 m/s (12,6 km/sa).
     let mut seg: Vec<Point> = (0..60)

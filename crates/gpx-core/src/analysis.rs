@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Sıçrama sayılması için iki komşu adımın en az bu kadar uzun olması gerekir.
 const SPIKE_MIN_STEP_M: f64 = 30.0;
-/// Bu hızın üstündeki tek adım (ör. yanlış uydu kilidi) her durumda sıçramadır.
+/// Hız sınırının üst ucu: bunun üstündeki adım her durumda sıçramadır.
 const TELEPORT_SPEED_MS: f64 = 120.0;
 /// Duraklama: en az bu kadar süre ...
 pub const STOP_MIN_MS: i64 = 2 * 60 * 1000;
@@ -81,64 +81,103 @@ fn median(mut v: Vec<f64>) -> Option<f64> {
     Some(v[v.len() / 2])
 }
 
+/// Hız sınırı en az bu (43 km/sa): yürüyüş/koşu kayıtlarında bunun üstü sıçramadır.
+const SPEED_FLOOR_MS: f64 = 12.0;
+/// Sıçramadan sonra izin geri döndüğü nokta en fazla bu kadar ileride aranır.
+const LOOKAHEAD_POINTS: usize = 40;
+const LOOKAHEAD_MS: i64 = 3 * 60 * 1000;
+/// Segmentin başında/sonunda bu kadar ya da daha az nokta, izin geri kalanından
+/// akla yatkın olmayan hızla kopuksa (uydu kilitlenmeden alınmış konumlar) atılır.
+const EDGE_POINTS: usize = 5;
+
+/// İki nokta arasındaki hız (m/s); zaman yoksa ya da geri gidiyorsa `None`.
+/// Saniyenin altındaki aralıklar 1 sn sayılır (yuvarlanmış zaman damgaları).
+fn step_speed(a: &Point, b: &Point) -> Option<f64> {
+    let dt = b.time? - a.time?;
+    (dt >= 0).then(|| haversine_m(a, b) / (dt.max(1000) as f64 / 1000.0))
+}
+
 /// Tek bir segmentteki sıçramaları ayıklar; atılan nokta sayısını döndürür.
 ///
-/// İki tür sıçrama yakalanır:
-/// - gidip geri gelen nokta: önceki ve sonraki noktaya uzak, ama onlar
-///   birbirine yakın (izde sivri bir diken);
-/// - akla yatkın olmayan hızla tek adımda başka yere atlama.
+/// - Kaydın olağan hızına göre akla yatkın olmayan hızla başka yere gidip
+///   (bir ya da birkaç nokta) yeniden ize dönen konumlar atılır.
+/// - Segmentin başında ya da sonunda izden kopuk birkaç nokta atılır.
+/// - Zaman bilgisi olmayan izlerde gidip geri gelen tek nokta (sivri diken)
+///   atılır.
 pub fn clean_segment(seg: &mut Vec<Point>) -> usize {
     if seg.len() < 3 {
         return 0;
     }
-    let speeds: Vec<f64> = seg
+    // Hareket hâlindeki adımların ortanca hızının 4 katı; 43–432 km/sa arası.
+    let moving: Vec<f64> = seg
         .windows(2)
-        .filter_map(|w| {
-            let dt = (w[1].time? - w[0].time?) as f64 / 1000.0;
-            (dt > 0.0).then(|| haversine_m(&w[0], &w[1]) / dt)
-        })
+        .filter_map(|w| step_speed(&w[0], &w[1]))
+        .filter(|&v| v > 0.5)
         .collect();
-    // Kaydın olağan hızının birkaç katı, ama en az 15 m/s (54 km/sa).
-    let fast = median(speeds).map_or(15.0, |m| (m * 4.0).max(15.0));
+    let limit = median(moving).map_or(SPEED_FLOOR_MS, |m| {
+        (m * 4.0).clamp(SPEED_FLOOR_MS, TELEPORT_SPEED_MS)
+    });
+    let too_fast = |a: &Point, b: &Point| {
+        haversine_m(a, b) > SPIKE_MIN_STEP_M && step_speed(a, b).is_some_and(|v| v > limit)
+    };
 
-    let mut out: Vec<Point> = Vec::with_capacity(seg.len());
+    let n = seg.len();
+    let mut out: Vec<Point> = Vec::with_capacity(n);
     let mut removed = 0;
-    for i in 0..seg.len() {
+    let mut i = 0;
+    while i < n {
         let p = seg[i];
-        let Some(prev) = out.last().copied() else {
+        let Some(last) = out.last().copied() else {
             out.push(p);
+            i += 1;
             continue;
         };
-        let d_in = haversine_m(&prev, &p);
-        let speed_in = match (prev.time, p.time) {
-            (Some(a), Some(b)) if b > a => Some(d_in / ((b - a) as f64 / 1000.0)),
-            _ => None,
-        };
-        if speed_in.is_some_and(|v| v > TELEPORT_SPEED_MS) {
-            removed += 1;
+        if too_fast(&last, &p) {
+            // İz, son güvenilir noktadan olağan hızla varılabilecek bir yere
+            // dönüyor mu? Dönüyorsa aradakiler sıçramadır.
+            let back = (i + 1..n.min(i + 1 + LOOKAHEAD_POINTS))
+                .take_while(|&j| match (last.time, seg[j].time) {
+                    (Some(a), Some(b)) => b - a <= LOOKAHEAD_MS,
+                    _ => true,
+                })
+                .find(|&j| !too_fast(&last, &seg[j]));
+            if let Some(j) = back {
+                removed += j - i;
+                i = j;
+                continue;
+            }
+            if out.len() <= EDGE_POINTS && n - i > EDGE_POINTS {
+                // Baştaki kopuk noktalar.
+                removed += out.len();
+                out.clear();
+            } else if n - i <= EDGE_POINTS {
+                // Sondaki kopuk noktalar.
+                removed += n - i;
+                break;
+            }
+            // Aksi hâlde gerçek bir yer değiştirme (ör. sinyal kaybından sonra).
+            out.push(p);
+            i += 1;
             continue;
         }
-        if let Some(next) = seg.get(i + 1) {
-            let d_out = haversine_m(&p, next);
-            let d_skip = haversine_m(&prev, next);
-            let out_and_back = d_in > SPIKE_MIN_STEP_M
-                && d_out > SPIKE_MIN_STEP_M
-                && d_skip < 0.35 * d_in.min(d_out);
-            let speed_out = match (p.time, next.time) {
-                (Some(a), Some(b)) if b > a => Some(d_out / ((b - a) as f64 / 1000.0)),
-                _ => None,
-            };
-            let too_fast = match (speed_in, speed_out) {
-                (Some(a), Some(b)) => a > fast && b > fast,
-                // Zaman yoksa yalnızca belirgin (200 m üstü) dikenler.
-                _ => d_in > 200.0 && d_out > 200.0,
-            };
-            if out_and_back && too_fast {
-                removed += 1;
-                continue;
+        // Zamansız izlerde sivri diken: önceki ve sonraki noktaya uzak, ama
+        // onlar birbirine yakın.
+        if p.time.is_none() || last.time.is_none() {
+            if let Some(next) = seg.get(i + 1) {
+                let d_in = haversine_m(&last, &p);
+                let d_out = haversine_m(&p, next);
+                if d_in > 200.0
+                    && d_out > 200.0
+                    && haversine_m(&last, next) < 0.35 * d_in.min(d_out)
+                {
+                    removed += 1;
+                    i += 1;
+                    continue;
+                }
             }
         }
         out.push(p);
+        i += 1;
     }
     *seg = out;
     removed
