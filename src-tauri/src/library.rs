@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Önbellek biçimi ya da özet hesaplaması değiştiğinde artırılır; eski
 /// önbellek yok sayılır.
-const CACHE_VERSION: u32 = 10;
+const CACHE_VERSION: u32 = 11;
 /// Bellekte tutulan hazırlanmış (temizlenmiş) kayıt sayısı.
 const PREPARED_KEEP: usize = 4;
 /// Çöp kutusundaki dosyalar bu süreden sonra kalıcı olarak silinir.
@@ -153,6 +153,12 @@ pub fn time_zone_at(lon: f64, lat: f64) -> Option<String> {
 /// Konuma en yakın yerleşim yerinin adı (GeoNames, çevrimdışı). 25 km'den
 /// uzaktaki yerler (deniz, ıssız alan) ad vermez.
 pub fn place_at(lon: f64, lat: f64) -> Option<String> {
+    place_info(lon, lat).map(|(_, name)| name)
+}
+
+/// Konuma en yakın yerleşim yerinin ülke kodu ve (Türkiye'deyse Türkçe
+/// yazımlı) adı; 25 km'den uzaktaysa `None`.
+pub fn place_info(lon: f64, lat: f64) -> Option<(String, String)> {
     static GEO: OnceLock<reverse_geocoder::ReverseGeocoder> = OnceLock::new();
     let r = GEO
         .get_or_init(reverse_geocoder::ReverseGeocoder::new)
@@ -173,11 +179,29 @@ pub fn place_at(lon: f64, lat: f64) -> Option<String> {
     if near > 25_000.0 {
         return None;
     }
-    Some(if r.cc == "TR" {
+    let name = if r.cc == "TR" {
         turkish(&r.name)
     } else {
         r.name.clone()
-    })
+    };
+    Some((r.cc.clone(), name))
+}
+
+/// Saat saat geçilen yerler: her saatin ilk noktasının yeri, yalnızca bir
+/// öncekinden farklıysa (ardışık aynı yerler tek girdi). Yeri bulunamayan
+/// (25 km'den uzak) saatler atlanır.
+pub fn visits(gpx: &gpx_core::parse::Gpx, hours: &[[f64; 3]]) -> Vec<(i64, String, String)> {
+    let mut out: Vec<(i64, String, String)> = Vec::new();
+    for (hour, [lon, lat]) in gpx_core::hour_first_points(gpx, hours) {
+        let Some((cc, name)) = place_info(lon, lat) else {
+            continue;
+        };
+        if out.last().is_some_and(|(_, c, n)| *c == cc && *n == name) {
+            continue;
+        }
+        out.push((hour, cc, name));
+    }
+    out
 }
 
 /// Veri kümesindeki Türkiye yer adları ASCII'ye çevrilmiş ("Kadikoy",
@@ -446,6 +470,7 @@ impl Library {
         summary.time_zone = summary.start.and_then(|[lon, lat]| time_zone_at(lon, lat));
         summary.start_place = summary.start.and_then(|[lon, lat]| place_at(lon, lat));
         summary.end_place = summary.end.and_then(|[lon, lat]| place_at(lon, lat));
+        summary.visits = visits(&prepared.gpx, &summary.hours);
         let mut cache = self.cache.lock().unwrap();
         cache.entries.insert(
             path.to_owned(),
@@ -976,5 +1001,47 @@ mod place_tests {
         assert_eq!(turkish("Ankara"), "Ankara");
         // Şişli'deki bir nokta.
         assert_eq!(place_at(28.987, 41.060).as_deref(), Some("Şişli"));
+    }
+
+    #[test]
+    fn hourly_visits_are_run_length_compressed() {
+        use gpx_core::parse::{Gpx, Point, Track};
+        let pt = |lon: f64, lat: f64, h: i64, m: i64| Point {
+            lat,
+            lon,
+            time: Some(h * 3_600_000 + m * 60_000),
+            ..Default::default()
+        };
+        // Şişli'de iki saat, sonra Kadıköy, açık denizde bir saat, yine Şişli.
+        let seg = vec![
+            pt(28.987, 41.060, 0, 0),
+            pt(28.987, 41.061, 0, 30),
+            pt(28.988, 41.060, 1, 0),
+            pt(29.03, 40.99, 2, 5),
+            pt(29.031, 40.99, 2, 50),
+            pt(-30.0, 40.0, 3, 1),
+            pt(-30.0, 40.0, 3, 2),
+            pt(28.987, 41.060, 4, 0),
+            pt(28.987, 41.060, 4, 1),
+        ];
+        let gpx = Gpx {
+            tracks: vec![Track {
+                name: None,
+                segments: vec![seg],
+            }],
+            ..Default::default()
+        };
+        let hours: Vec<[f64; 3]> = (0..5).map(|h| [(h * 3_600_000) as f64, 0.0, 0.0]).collect();
+        let v = visits(&gpx, &hours);
+        let names: Vec<(i64, &str, &str)> = v
+            .iter()
+            .map(|(h, c, n)| (*h, c.as_str(), n.as_str()))
+            .collect();
+        assert_eq!(names.len(), 3, "{names:?}");
+        assert_eq!(names[0], (0, "TR", "Şişli"));
+        assert_eq!(names[1].0, 2 * 3_600_000);
+        assert_eq!(names[1].1, "TR");
+        assert_ne!(names[1].2, "Şişli");
+        assert_eq!(names[2], (4 * 3_600_000, "TR", "Şişli"));
     }
 }

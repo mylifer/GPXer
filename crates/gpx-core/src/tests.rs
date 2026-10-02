@@ -902,3 +902,29 @@ fn hourly_buckets_match_totals() {
     assert_eq!(m as i64, s.stats.moving_ms.unwrap_or(0));
     assert!(s.hours.windows(2).all(|w| w[0][0] < w[1][0]));
 }
+
+#[test]
+fn hour_first_points_follow_hours() {
+    // Saat başından 30 dk önce başlayan, 2,5 saat süren kayıt.
+    let seg: Vec<Point> = (0..9000)
+        .map(|i| pt(41.0 + i as f64 * 1e-5, 29.0, 1800 + i))
+        .collect();
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let s = summarize(&gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
+    assert!(s.visits.is_empty());
+    let firsts = hour_first_points(&gpx, &s.hours);
+    assert_eq!(firsts.len(), s.hours.len());
+    assert_eq!(firsts.len(), 3);
+    assert_eq!(firsts[0], (0, [29.0, 41.0]));
+    // İkinci saatin ilk noktası 3600. saniyedeki nokta.
+    assert_eq!(firsts[1].0, HOUR_MS);
+    assert!((firsts[1].1[1] - (41.0 + 1800.0 * 1e-5)).abs() < 1e-9);
+    // Listede olmayan saat atlanır.
+    assert!(hour_first_points(&gpx, &[[5.0 * HOUR_MS as f64, 0.0, 0.0]]).is_empty());
+}

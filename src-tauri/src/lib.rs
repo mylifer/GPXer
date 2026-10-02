@@ -1,11 +1,15 @@
 mod library;
 mod meta;
+mod photos;
+mod places;
 mod settings;
 
 use base64::Engine;
 use gpx_core::{Detail, Stats};
 use library::{is_track_file, Library, LoadResult, TrashItem};
 use meta::{FileMeta, MetaStore};
+use photos::PhotoInfo;
+use places::{NamedPlace, PlacesStore};
 use rayon::prelude::*;
 use serde::Deserialize;
 use settings::{Settings, SettingsStore};
@@ -469,6 +473,110 @@ async fn export_as(
     .await?
 }
 
+/// Kütüphanedeki kayıtları (ham halleriyle) başlangıç zamanına göre
+/// sıralayıp tek bir izde birleştirir; her kayıt kendi segment(ler)ini korur.
+/// Kütüphaneye eklenmez, seçilen yere seçilen biçimde yazılır.
+fn merge_for_export(parts: Vec<gpx_core::parse::Gpx>) -> gpx_core::parse::Gpx {
+    let name = format!("GPXer – {} kayıt", parts.len());
+    let mut merged = gpx_core::ops::merge(parts, Some(name.clone()));
+    let segments = std::mem::take(&mut merged.tracks)
+        .into_iter()
+        .flat_map(|t| t.segments)
+        .collect();
+    merged.tracks = vec![gpx_core::parse::Track {
+        name: Some(name),
+        segments,
+    }];
+    merged
+}
+
+/// Seçilen kayıtları tek dosyada birleştirip seçilen yere seçilen biçimde
+/// (gpx, kml, tcx, fit) kaydeder.
+#[tauri::command]
+async fn export_many(
+    app: AppHandle,
+    paths: Vec<String>,
+    dest: String,
+    format: String,
+) -> Result<(), String> {
+    run_blocking(move || {
+        if !["gpx", "kml", "tcx", "fit"].contains(&format.as_str()) {
+            return Err(format!("Bilinmeyen biçim: {format}"));
+        }
+        if paths.is_empty() {
+            return Err("Dışa aktarılacak kayıt yok".into());
+        }
+        let library = app.state::<Library>();
+        for p in &paths {
+            library.check(p)?;
+        }
+        take_approved(&app, &dest)?;
+        if paths
+            .iter()
+            .any(|p| same_file(Path::new(p), Path::new(&dest)))
+        {
+            return Err("Kayıt kendi üzerine kaydedilemez; başka bir yer seçin".into());
+        }
+        let parts = paths
+            .iter()
+            .map(|p| read_raw(&app, p))
+            .collect::<Result<Vec<_>, _>>()?;
+        let merged = merge_for_export(parts);
+        let bytes = match format.as_str() {
+            "gpx" => gpx_core::write::write_gpx(&merged).into_bytes(),
+            "kml" => gpx_core::formats::write_kml(&merged).into_bytes(),
+            "tcx" => gpx_core::formats::write_tcx(&merged).into_bytes(),
+            _ => {
+                // Spor türü yalnızca tüm kayıtlarda aynıysa yazılır.
+                let summaries = app.state::<Library>();
+                let cfg = app.state::<SettingsStore>().stats();
+                let meta = app.state::<MetaStore>();
+                let kinds: Vec<gpx_core::Activity> = paths
+                    .iter()
+                    .map(|p| {
+                        summaries
+                            .summarize(p, &cfg, meta.activity(p))
+                            .map(|(s, _)| s.activity)
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                let first = kinds[0];
+                let activity = if kinds.iter().all(|k| *k == first) {
+                    first
+                } else {
+                    gpx_core::Activity::Unknown
+                };
+                gpx_core::formats::write_fit(&merged, activity)
+            }
+        };
+        std::fs::write(&dest, bytes).map_err(|e| e.to_string())
+    })
+    .await?
+}
+
+/// Fotoğrafların (dosyalar ya da klasörler) çekim zamanı, konumu ve küçük
+/// resmi.
+#[tauri::command]
+async fn read_photos(paths: Vec<String>) -> Result<Vec<PhotoInfo>, String> {
+    run_blocking(move || photos::read_all(&paths)).await
+}
+
+/// Adlandırılmış yerler.
+#[tauri::command]
+fn get_places(store: tauri::State<'_, PlacesStore>) -> Vec<NamedPlace> {
+    store.all()
+}
+
+#[tauri::command]
+async fn set_places(app: AppHandle, places: Vec<NamedPlace>) -> Result<(), String> {
+    run_blocking(move || {
+        app.state::<PlacesStore>()
+            .set(places)
+            .map_err(|e| e.to_string())
+    })
+    .await?
+}
+
 #[tauri::command]
 async fn write_text_file(app: AppHandle, path: String, contents: String) -> Result<(), String> {
     run_blocking(move || {
@@ -675,6 +783,7 @@ pub fn run() {
             app.manage(library);
             app.manage(SettingsStore::open(&root));
             app.manage(meta);
+            app.manage(PlacesStore::open(&root));
             app.set_menu(build_menu(handle)?)?;
             for e in start_watcher(handle) {
                 eprintln!("{e}");
@@ -704,13 +813,17 @@ pub fn run() {
             split_file,
             merge_files,
             export_as,
+            export_many,
             pick_save_path,
             get_meta,
             set_meta,
             write_text_file,
             write_base64_file,
             get_settings,
-            set_settings
+            set_settings,
+            read_photos,
+            get_places,
+            set_places
         ])
         .build(tauri::generate_context!())
         .expect("uygulama başlatılamadı");
@@ -727,4 +840,33 @@ pub fn run() {
             queue_paths(_app, paths);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gpx(text: &str) -> gpx_core::parse::Gpx {
+        gpx_core::parse_gpx(text.as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn export_merge_keeps_sources_as_segments() {
+        let late = gpx(
+            r#"<gpx><trk><trkseg><trkpt lat="41" lon="29"><time>2024-05-02T06:00:00Z</time></trkpt><trkpt lat="41.01" lon="29"><time>2024-05-02T06:01:00Z</time></trkpt></trkseg></trk></gpx>"#,
+        );
+        let early = gpx(
+            r#"<gpx><trk><trkseg><trkpt lat="40" lon="29"><time>2024-05-01T06:00:00Z</time></trkpt></trkseg><trkseg><trkpt lat="40.1" lon="29"><time>2024-05-01T07:00:00Z</time></trkpt></trkseg></trk></gpx>"#,
+        );
+        let m = merge_for_export(vec![late, early]);
+        assert_eq!(m.name.as_deref(), Some("GPXer – 2 kayıt"));
+        assert_eq!(m.tracks.len(), 1);
+        assert_eq!(m.tracks[0].name.as_deref(), Some("GPXer – 2 kayıt"));
+        let firsts: Vec<f64> = m.tracks[0].segments.iter().map(|s| s[0].lat).collect();
+        // Başlangıç zamanına göre sıralı; kaynakların segmentleri korunur.
+        assert_eq!(firsts, [40.0, 40.1, 41.0]);
+        let text = gpx_core::write::write_gpx(&m);
+        assert_eq!(text.matches("<trkseg>").count(), 3);
+        assert!(!gpx_core::formats::write_fit(&m, gpx_core::Activity::Unknown).is_empty());
+    }
 }

@@ -78,6 +78,12 @@ pub struct FileSummary {
     pub start_place: Option<String>,
     #[serde(default)]
     pub end_place: Option<String>,
+    /// Saat saat geçilen yerler `[saat başı (Unix ms), ülke kodu, yer adı]`:
+    /// `hours` içindeki her saatin ilk noktasının yeri; yalnızca bir önceki
+    /// girdiden farklıysa eklenir. Uygulama katmanı doldurur
+    /// ([`hour_first_points`]).
+    #[serde(default)]
+    pub visits: Vec<(i64, String, String)>,
     /// Etkinlik türü (seçilmişse o, değilse tahmin).
     #[serde(default)]
     pub activity: Activity,
@@ -218,6 +224,27 @@ fn hourly_buckets(pieces: &[&[Point]], cfg: &StatsConfig) -> Vec<[f64; 3]> {
     }
     map.into_iter()
         .map(|(h, (d, m))| [h as f64, (d * 10.0).round() / 10.0, m as f64])
+        .collect()
+}
+
+/// `hours` içindeki her saatin (saat başı, Unix ms) asıl segmentlerde o saate
+/// düşen ilk noktası `[lon, lat]`. Noktası bulunamayan saat atlanır; sıra
+/// `hours` ile aynıdır.
+pub fn hour_first_points(gpx: &Gpx, hours: &[[f64; 3]]) -> Vec<(i64, [f64; 2])> {
+    let mut first: std::collections::HashMap<i64, [f64; 2]> = Default::default();
+    for p in primary_segments(gpx).into_iter().flatten() {
+        if let Some(t) = p.time {
+            first
+                .entry(t.div_euclid(HOUR_MS) * HOUR_MS)
+                .or_insert([p.lon, p.lat]);
+        }
+    }
+    hours
+        .iter()
+        .filter_map(|h| {
+            let hour = h[0] as i64;
+            first.get(&hour).map(|&p| (hour, p))
+        })
         .collect()
 }
 
@@ -460,6 +487,7 @@ pub fn summarize_with(
             .map(|p| [p.lon, p.lat]),
         start_place: None,
         end_place: None,
+        visits: Vec::new(),
         activity,
         activity_set: chosen.is_some(),
         stops: analysis::detect_stops(segments.iter().copied()),
