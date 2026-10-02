@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 const EARTH_RADIUS_M: f64 = 6_371_008.8;
 /// İki nokta arası bu süreden uzunsa (ör. cihaz kapatılmış) hareket süresine eklenmez.
-const MAX_MOVING_GAP_MS: i64 = 10 * 60 * 1000;
+pub(crate) const MAX_MOVING_GAP_MS: i64 = 10 * 60 * 1000;
 /// Maksimum hız GPS gürültüsünden etkilenmesin diye en az bu kadar sürelik
 /// pencereler üzerinden hesaplanır.
 const MAX_SPEED_WINDOW_MS: i64 = 10_000;

@@ -875,3 +875,30 @@ fn fit_clamps_long_durations() {
         assert!((secs - 4_294_967.294).abs() < 0.01, "{field} {secs}");
     }
 }
+
+#[test]
+fn hourly_buckets_match_totals() {
+    // 3 saat süren yürüyüş, arada 1678 km'lik bir uçuş boşluğu.
+    let mut seg: Vec<Point> = (0..5400)
+        .map(|i| pt(41.0, 29.0 + i as f64 * 1.67e-5, i * 2))
+        .collect();
+    seg.extend((0..600).map(|i| pt(50.2, 12.2 + i as f64 * 1.67e-5, 20_000 + i * 2)));
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let s = summarize(&gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
+    assert!(s.hours.len() >= 4, "{:?}", s.hours.len());
+    let d: f64 = s.hours.iter().map(|h| h[1]).sum();
+    let m: f64 = s.hours.iter().map(|h| h[2]).sum();
+    assert!(
+        (d - s.stats.distance_m).abs() < 1.0,
+        "{d} vs {}",
+        s.stats.distance_m
+    );
+    assert_eq!(m as i64, s.stats.moving_ms.unwrap_or(0));
+    assert!(s.hours.windows(2).all(|w| w[0][0] < w[1][0]));
+}

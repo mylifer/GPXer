@@ -56,6 +56,12 @@ pub struct FileSummary {
     /// kaybı). `lines` bu yerlerde bölünür; harita boşluğu ayrıca gösterir.
     #[serde(default)]
     pub gaps: Vec<Gap>,
+    /// Saatlik toplamlar `[saat başı (Unix ms, UTC), mesafe (m), hareket (ms)]`;
+    /// yalnızca kayıt olan saatler. Çok günlük kayıtların takvimde, tarih
+    /// filtresinde ve özette gün gün sayılması için (arayüz kendi saat
+    /// dilimine göre günlere toplar).
+    #[serde(default)]
+    pub hours: Vec<[f64; 3]>,
     pub waypoints: Vec<WaypointOut>,
     /// Kaydın başladığı yerin IANA saat dilimi (ör. "Europe/Istanbul").
     /// Çekirdek doldurmaz; uygulama katmanı konumdan bulur.
@@ -178,6 +184,41 @@ pub(crate) fn is_gap(a: &Point, b: &Point) -> bool {
         }
         _ => d > GAP_MIN_M_UNTIMED,
     }
+}
+
+const HOUR_MS: i64 = 3_600_000;
+
+/// Boşluklarda bölünmüş parçalardan saatlik mesafe ve hareket süresi.
+/// Bir adım, başladığı saate yazılır.
+fn hourly_buckets(pieces: &[&[Point]], cfg: &StatsConfig) -> Vec<[f64; 3]> {
+    let mut map: std::collections::BTreeMap<i64, (f64, i64)> = Default::default();
+    for piece in pieces {
+        for w in piece.windows(2) {
+            let (Some(t0), Some(t1)) = (w[0].time, w[1].time) else {
+                continue;
+            };
+            let hour = t0.div_euclid(HOUR_MS) * HOUR_MS;
+            let step = stats::haversine_m(&w[0], &w[1]);
+            let e = map.entry(hour).or_default();
+            e.0 += step;
+            let dt = t1 - t0;
+            if dt > 0
+                && dt <= stats::MAX_MOVING_GAP_MS
+                && step / (dt as f64 / 1000.0) >= cfg.moving_speed_ms
+            {
+                e.1 += dt;
+            }
+        }
+        // Tek noktalık parça da o saatte kayıt olduğunu gösterir.
+        if piece.len() == 1 {
+            if let Some(t) = piece[0].time {
+                map.entry(t.div_euclid(HOUR_MS) * HOUR_MS).or_default();
+            }
+        }
+    }
+    map.into_iter()
+        .map(|(h, (d, m))| [h as f64, (d * 10.0).round() / 10.0, m as f64])
+        .collect()
 }
 
 /// Segmentleri kayıt boşluklarında parçalara böler.
@@ -353,6 +394,7 @@ pub fn summarize_with(
     }
 
     let (pieces, gaps) = split_at_gaps(&segments);
+    let hours = hourly_buckets(&pieces, &eff);
     let simplified: Vec<Vec<Point>> = pieces
         .iter()
         .map(|seg| simplify::douglas_peucker(seg, MAP_TOLERANCE_M))
@@ -394,6 +436,7 @@ pub fn summarize_with(
         lines,
         times,
         gaps,
+        hours,
         waypoints: gpx
             .waypoints
             .iter()
