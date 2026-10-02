@@ -17,6 +17,7 @@ const KEYS: [string, string][] = [
   [`${MOD}+Shift+W`, "Kütüphaneyi boşalt"],
   ["↑ / ↓", "Listede önceki / sonraki kayıt"],
   ["Boşluk", "Seçili kaydı oynat / duraklat"],
+  ["G", "Tarihe git: girilen tarih ve saatte neredeydim?"],
   ["Esc", "Alan seçmeyi, karşılaştırmayı, aralığı, çoklu seçimi ya da seçimi kaldır (bu sırayla)"],
   ["?", "Bu pencere"],
 ];
@@ -30,6 +31,12 @@ const MOUSE: [string, string][] = [
   ["Haritada ize tıklama", "Kaydı seç; üst üste binen izlerde hangisinin seçileceği sorulur"],
   ["“⬚ Alan seç” açıkken haritada sürükleme", "Yalnızca o alandan geçen kayıtları listele"],
   ["Paneli üst kenarından sürükleme", "Kayıt panelini büyüt / küçült"],
+  ["Haritada duraklamaya ya da sık durulan yere tıklama", "“Bu yere ad ver…” (Ev, İş); yarıçap ve ad Ayarlar'da değiştirilir"],
+  ["Kayıt panelinde duraklamaya tıklama", "Haritada o duraklamaya git; ✎ ile o yere ad ver"],
+  ["“✈ Uçuşlar” açıkken uçuş yayına tıklama", "Kaydı seçip uçuşa yakınlaştır (Özet'teki uçuş listesinde de)"],
+  ["Fotoğrafları haritaya sürükleyip bırakma", "Fotoğraf ekle; konum bilgisi olmayanlar çekim zamanına göre iz üzerine yerleşir"],
+  ["Fotoğraf işaretine tıklama", "Büyük önizleme ve kaydı; sayılı işarette o fotoğraflara yakınlaştır"],
+  ["Listede ⧉ işaretinin üzerine gelme", "Zamanı çakışan kayıtları gör; kayıt panelinden karşılaştır"],
 ];
 
 export function HelpDialog({ onClose }: { onClose(): void }) {

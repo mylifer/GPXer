@@ -1,7 +1,8 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FileEntry } from "../types";
 import { ACTIVITIES, activityOf, placeLabel } from "../types";
-import type { FileMeta } from "../api";
+import type { FileMeta, NamedPlace } from "../api";
+import type { Overlap } from "../overlaps";
 import { filtersActive, resetFilters, type Filters, type GroupBy, type SortKey } from "../prefs";
 import { fmtDate, fmtDistance, fmtDuration, fmtElevation, fmtNumber, isoToTr, tzOf, type TzMode } from "../format";
 import { dayBuckets, rangeShare } from "../days";
@@ -61,6 +62,13 @@ interface Props {
   tzMode: TzMode;
   multiHintSeen: boolean;
   onDismissMultiHint(): void;
+  /** Zamanı çakışan kayıtlar. */
+  overlaps: Map<string, Overlap[]>;
+  /** Adlandırılmış yerler: değişince satırlardaki yer adları yeniden yazılır. */
+  places: NamedPlace[];
+  onGoTo(): void;
+  onExportFiltered(): void;
+  onExportMulti(): void;
 }
 
 /** Sanal liste ölçüleri (px); styles.css'teki .file-row / .group-head yükseklikleriyle aynı. */
@@ -87,8 +95,13 @@ const Row = memo(function Row({
   onZoom,
   onToggle,
   onRemove,
+  overlap,
 }: {
   entry: FileEntry;
+  /** Çakışan kayıtların açıklaması (yoksa undefined). */
+  overlap: string | undefined;
+  /** Yalnızca memo karşılaştırması için: yer adları değişince yeniden yazılsın. */
+  places: NamedPlace[];
   selected: boolean;
   inMulti: boolean;
   tags: string[] | undefined;
@@ -131,6 +144,11 @@ const Row = memo(function Row({
           <span className="act" title={activityOf(s.activity).label}>
             {activityOf(s.activity).icon}
           </span>
+          {overlap && (
+            <span className="overlap-badge" title={overlap}>
+              ⧉
+            </span>
+          )}
           {s.name || s.fileName}
         </div>
         <div className="file-meta">
@@ -198,6 +216,15 @@ function FileList(p: Props) {
   };
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
 
+  const names = useMemo(() => new Map(p.files.map((f) => [f.summary.path, f.summary.name || f.summary.fileName])), [p.files]);
+  const overlapTip = (path: string) => {
+    const l = p.overlaps.get(path);
+    if (!l?.length) return undefined;
+    const lines = l.slice(0, 6).map((o) => `• ${names.get(o.path) ?? o.path} (${fmtDuration(o.ms)})`);
+    if (l.length > 6) lines.push(`… ve ${l.length - 6} kayıt daha`);
+    return `Zamanı çakışan kayıtlar:\n${lines.join("\n")}`;
+  };
+
   const { items, total, heads } = useMemo(() => {
     const out: Item[] = [];
     let y = 0;
@@ -217,7 +244,7 @@ function FileList(p: Props) {
       }
     const heads = out.filter((x): x is Extract<Item, { kind: "head" }> => x.kind === "head");
     return { items: out, total: y, heads };
-  }, [p.shown, p.groups, p.groupBy, p.collapsed, p.meta, p.filters.from, p.filters.to]);
+  }, [p.shown, p.groups, p.groupBy, p.collapsed, p.meta, p.filters.from, p.filters.to, p.places]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -317,6 +344,8 @@ function FileList(p: Props) {
               onZoom={p.onZoom}
               onToggle={p.onToggle}
               onRemove={p.onRemove}
+              overlap={overlapTip(it.entry.summary.path)}
+              places={p.places}
             />
           ),
         )}
@@ -457,6 +486,27 @@ export const Sidebar = memo(function Sidebar(p: Props) {
               ⬚ Alan seç
             </button>
           </div>
+          <div className="filter-row">
+            <button
+              className={`btn small${p.filters.overlap ? " primary" : ""}`}
+              onClick={() => set({ overlap: !p.filters.overlap })}
+              disabled={!p.overlaps.size && !p.filters.overlap}
+              title={
+                p.overlaps.size
+                  ? "Yalnızca zamanı başka bir kayıtla en az 30 dakika çakışan kayıtları göster (ör. aynı anda iki cihazla kaydedilenler)"
+                  : "Zamanı çakışan kayıt yok"
+              }
+            >
+              ⧉ Çakışanlar{p.overlaps.size ? ` (${fmtNumber(p.overlaps.size)})` : ""}
+            </button>
+            <button
+              className="btn small"
+              onClick={p.onGoTo}
+              title="Ne zaman neredeydim? Bir tarih ve saat girin; o anı kapsayan kayda gidilir (G)"
+            >
+              🕑 Tarihe git
+            </button>
+          </div>
           {(p.filters.area || p.filters.route) && (
             <div className="chips">
               {p.filters.area && (
@@ -521,6 +571,9 @@ export const Sidebar = memo(function Sidebar(p: Props) {
             <button className="btn small" onClick={p.onExportCsv}>
               CSV
             </button>
+            <button className="btn small" onClick={p.onExportMulti} title="Seçili kayıtları tek dosyada dışa aktar (GPX, KML, TCX, FIT)">
+              Dışa aktar…
+            </button>
             <button className="btn small" onClick={() => p.onSetVisible(multi, true)}>
               Göster
             </button>
@@ -570,6 +623,14 @@ export const Sidebar = memo(function Sidebar(p: Props) {
             <span>Toplam tırmanış</span>
             <strong>{fmtElevation(totals.gain)}</strong>
           </div>
+          <button
+            className="btn small totals-export"
+            onClick={p.onExportFiltered}
+            disabled={p.shown.length === 0}
+            title="Listede görünen (filtreye uyan) tüm kayıtları tek dosyada dışa aktar (GPX, KML, TCX, FIT)"
+          >
+            {filtered ? "Filtrelenenleri" : "Tümünü"} dışa aktar…
+          </button>
         </div>
       )}
     </aside>

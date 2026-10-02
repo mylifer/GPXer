@@ -10,12 +10,15 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // MapLibre worker'ı kendi yanında arar; bu Vite paketinde ve tauri:// adresinde
 // çalışmadığı için worker'ı Vite'a ayrı parça olarak paketletip adresini veriyoruz.
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
-import type { Detail, FileSummary } from "../api";
+import type { Detail, FileSummary, NamedPlace } from "../api";
 import { METRICS, SEQ_DARK, SEQ_LIGHT, type FileEntry } from "../types";
 import type { TrackColorBy } from "../prefs";
 import { fmtDate, fmtDistance, fmtDuration, fmtKmh, fmtNumber, fmtTime, fmtTimestamp, fmtUnit, tzOf } from "../format";
 import { metersBetween, type BBox } from "../geo";
 import { clipToRange, dayIn, fastDayKey } from "../days";
+import { endName, greatCircle, type Flight } from "../flights";
+import { namedPlaceAt } from "../places";
+import type { PlacedPhoto } from "../photos";
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -39,6 +42,8 @@ export interface MapHandle {
   fitPoints(lonLat: [number, number][]): void;
   /** Haritanın görüntüsünü PNG olarak (base64, önek olmadan) verir. */
   exportPng(): Promise<string>;
+  /** Noktayı ortaya alır (gerekirse yakınlaştırır). */
+  centerOn(lonLat: [number, number], minZoom?: number): void;
 }
 
 interface Props {
@@ -73,6 +78,18 @@ interface Props {
   cursors: { lon: number; lat: number; color: string }[];
   /** Tarih filtresi (yoksa null): kayıtların yalnızca bu günlere düşen kısmı çizilir. */
   dateWindow: DateWindow | null;
+  /** Adlandırılmış yerler (duraklama kutularında ad). */
+  places: NamedPlace[];
+  /** Duraklamaya / sık durulan yere ad verme (yer zaten adlıysa o yer). */
+  onNamePlace(lon: number, lat: number, place: NamedPlace | null): void;
+  /** Gösterilen kayıtların uçuşları; katman kapalıysa null. */
+  flights: Flight[] | null;
+  onFlight(f: Flight): void;
+  /** Haritadaki fotoğraflar; katman kapalıysa null. */
+  photos: PlacedPhoto[] | null;
+  /** Fotoğrafın eşleştiği kaydın özeti (ad ve saat dilimi için). */
+  summaryOf(path: string): FileSummary | undefined;
+  onPhotoRecord(path: string): void;
 }
 
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -358,21 +375,27 @@ function nearestDetail(d: Detail, lon: number, lat: number): number {
 }
 
 /** Seçili kaydın duraklamaları. */
-function stopsGeoJSON(entry: FileEntry | undefined, win: DateWindow | null): GeoJSON.FeatureCollection {
+function stopsGeoJSON(entry: FileEntry | undefined, win: DateWindow | null, places: NamedPlace[]): GeoJSON.FeatureCollection {
   const zone = entry ? tzOf(entry.summary) : undefined;
   const stops = (entry?.summary.stops ?? []).filter((st) => !win || dayIn(fastDayKey(st.start, zone), win.from, win.to));
   return {
     type: "FeatureCollection",
     features: stops.map((st) => ({
       type: "Feature",
-      properties: { kind: "stop", start: st.start, dur: st.durationMs, tz: entry?.summary.timeZone ?? "" },
+      properties: {
+        kind: "stop",
+        start: st.start,
+        dur: st.durationMs,
+        tz: entry?.summary.timeZone ?? "",
+        name: namedPlaceAt(st.lon, st.lat, places)?.name ?? "",
+      },
       geometry: { type: "Point", coordinates: [st.lon, st.lat] },
     })),
   };
 }
 
 /** Tüm kayıtların duraklamaları ~150 m'lik hücrelerde toplanır. */
-function hotspotsGeoJSON(files: FileEntry[]): GeoJSON.FeatureCollection {
+function hotspotsGeoJSON(files: FileEntry[], places: NamedPlace[]): GeoJSON.FeatureCollection {
   const cells = new Map<string, { lon: number; lat: number; n: number; dur: number; files: Set<string> }>();
   const size = 0.0015;
   for (const f of files) {
@@ -391,7 +414,13 @@ function hotspotsGeoJSON(files: FileEntry[]): GeoJSON.FeatureCollection {
     type: "FeatureCollection",
     features: [...cells.values()].map((c) => ({
       type: "Feature",
-      properties: { kind: "hot", n: c.n, dur: c.dur, files: c.files.size },
+      properties: {
+        kind: "hot",
+        n: c.n,
+        dur: c.dur,
+        files: c.files.size,
+        name: namedPlaceAt(c.lon / c.n, c.lat / c.n, places)?.name ?? "",
+      },
       geometry: { type: "Point", coordinates: [c.lon / c.n, c.lat / c.n] },
     })),
   };
@@ -410,6 +439,34 @@ function areaGeoJSON(b: BBox | null): GeoJSON.FeatureCollection {
     type: "FeatureCollection",
     features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } }],
   };
+}
+
+function flightsGeoJSON(flights: Flight[] | null, color: (path: string) => string): GeoJSON.FeatureCollection {
+  if (!flights?.length) return EMPTY;
+  return {
+    type: "FeatureCollection",
+    features: flights.map((f, i) => ({
+      type: "Feature",
+      properties: { i, path: f.path, color: color(f.path) },
+      geometry: { type: "LineString", coordinates: greatCircle(f.from, f.to) },
+    })),
+  };
+}
+
+function flightPopupHtml(f: Flight, s: FileSummary | undefined): string {
+  const tz = tzOf(s);
+  return (
+    `<strong>✈ ${escapeHtml(endName(f, "from"))} → ${escapeHtml(endName(f, "to"))}</strong><br>` +
+    `<span class="popup-time">${fmtTimestamp(f.start, tz)}</span> · ${fmtDistance(f.distanceM)} · ${fmtDuration(f.durationMs)}` +
+    (s ? `<br><span class="muted">${escapeHtml(s.name || s.fileName)} · tıklayınca seçilir</span>` : "")
+  );
+}
+
+function stopPopupHtml(pr: Record<string, unknown>, kind: "stop" | "hot"): string {
+  const name = pr.name ? `<strong>${escapeHtml(String(pr.name))}</strong> · ` : "";
+  return kind === "stop"
+    ? `${name}<strong>Duraklama</strong><br>${fmtTime(Number(pr.start), tzOf({ timeZone: (pr.tz as string) || null }))} · ${fmtDuration(Number(pr.dur))}`
+    : `${name}<strong>Sık duraklanan yer</strong><br>${fmtNumber(Number(pr.n))} duraklama · ${fmtNumber(Number(pr.files))} kayıt<br>toplam ${fmtDuration(Number(pr.dur))}`;
 }
 
 function escapeHtml(s: string) {
@@ -481,6 +538,9 @@ function isGapStep(d: Detail, i: number, ends: GapEnds | null): boolean {
   return (dist > GAP_MIN_M && dt > GAP_MIN_MS) || (dist > GAP_FLIGHT_M && dist / (Math.max(dt, 1000) / 1000) > GAP_FLIGHT_SPEED_MS);
 }
 
+const PHOTO_CELL = 56;
+const PHOTO_MAX_MARKERS = 300;
+
 const hitBox = (p: maplibregl.Point, r = 5): [maplibregl.PointLike, maplibregl.PointLike] => [
   [p.x - r, p.y - r],
   [p.x + r, p.y + r],
@@ -526,6 +586,9 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     cursors,
     selectedSummary,
     dateWindow,
+    places,
+    flights,
+    photos,
   } = props;
   const winFrom = dateWindow?.from ?? "";
   const winTo = dateWindow?.to ?? "";
@@ -549,6 +612,11 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       const b = new maplibregl.LngLatBounds(pts[0], pts[0]);
       for (const p of pts) b.extend(p);
       map.fitBounds(b, { padding: 80, maxZoom: 17, duration: 600 });
+    },
+    centerOn(pt, minZoom = 13) {
+      const map = mapRef.current;
+      if (!map) return;
+      map.easeTo({ center: pt, zoom: Math.max(map.getZoom(), minZoom), duration: 600 });
     },
     exportPng() {
       const map = mapRef.current;
@@ -602,7 +670,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     // "load" altlık parçaları gelene kadar beklediği için (yavaş ya da kopuk
     // bağlantıda hiç gelmeyebilir) izler stil hazır olur olmaz eklenir.
     map.once("style.load", () => {
-      for (const id of ["tracks", "gaps", "waypoints", "cursor", "heat", "colored", "range", "stops", "hotspots", "area"]) {
+      for (const id of ["tracks", "gaps", "waypoints", "cursor", "heat", "colored", "range", "stops", "hotspots", "area", "flights"]) {
         map.addSource(id, { type: "geojson", data: EMPTY, tolerance: id === "tracks" ? 0.2 : 0.375 });
       }
 
@@ -635,6 +703,21 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
         filter: ["==", ["get", "path"], ""],
         layout: { "line-cap": "butt" },
         paint: { "line-color": ["get", "color"], "line-width": 2.5, "line-opacity": 0.8, "line-dasharray": [2, 3] },
+      });
+      // Uçuşlar: büyük daire yayı, iz renginde.
+      map.addLayer({
+        id: "flights-casing",
+        type: "line",
+        source: "flights",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#ffffff", "line-width": 4.5, "line-opacity": 0.7 },
+      });
+      map.addLayer({
+        id: "flights",
+        type: "line",
+        source: "flights",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": ["get", "color"], "line-width": 2.5, "line-opacity": 0.9, "line-dasharray": [4, 2] },
       });
       map.addLayer({
         id: "tracks",
@@ -760,9 +843,40 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
         }
       };
 
+      /** Tıklamayla açılan, üzerinde düğme olan kalıcı kutu (seçim penceresiyle aynı yuva). */
+      const openSticky = (lngLat: maplibregl.LngLatLike, content: HTMLElement, cls = "chooser-popup") => {
+        hoverPopup.current?.remove();
+        hoverPath.current = null;
+        chooserPaths.current = [];
+        chooser.current = new maplibregl.Popup({ closeButton: true, maxWidth: "300px", className: cls })
+          .setLngLat(lngLat)
+          .setDOMContent(content)
+          .addTo(map);
+      };
+
       map.on("click", (e) => {
         if (live.current.areaMode) return;
         chooser.current?.remove();
+        const spot = map.queryRenderedFeatures(hitBox(e.point, 6), { layers: ["stops", "hotspots"] })[0];
+        if (spot) {
+          const pr = spot.properties ?? {};
+          const [lon, lat] = (spot.geometry as GeoJSON.Point).coordinates as [number, number];
+          const place = namedPlaceAt(lon, lat, live.current.places);
+          const box = document.createElement("div");
+          box.className = "spot-box";
+          const info = document.createElement("div");
+          info.innerHTML = stopPopupHtml(pr, spot.layer.id === "stops" ? "stop" : "hot");
+          const btn = document.createElement("button");
+          btn.className = "btn small";
+          btn.textContent = place ? `“${place.name}” adını değiştir…` : "Bu yere ad ver…";
+          btn.onclick = () => {
+            chooser.current?.remove();
+            live.current.onNamePlace(lon, lat, place);
+          };
+          box.append(info, btn);
+          openSticky([lon, lat], box);
+          return;
+        }
         const wp = map.queryRenderedFeatures(hitBox(e.point, 4), { layers: ["waypoints"] })[0];
         if (wp) {
           const name = String(wp.properties?.name || "Nokta");
@@ -773,6 +887,14 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
           return;
         }
         const hits = trackHits(e.point, 6);
+        if (!hits.length && live.current.flights) {
+          const fl = map.queryRenderedFeatures(hitBox(e.point, 5), { layers: ["flights"] })[0];
+          const f = fl ? live.current.flights[Number(fl.properties?.i)] : undefined;
+          if (f) {
+            live.current.onFlight(f);
+            return;
+          }
+        }
         if (hits.length <= 1) {
           live.current.onSelect(hits[0] ?? null);
           return;
@@ -827,10 +949,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
         const spot = map.queryRenderedFeatures(hitBox(e.point, 6), { layers: ["stops", "hotspots"] })[0];
         if (spot && !chooser.current?.isOpen()) {
           const pr = spot.properties ?? {};
-          const html =
-            spot.layer.id === "stops"
-              ? `<strong>Duraklama</strong><br>${fmtTime(Number(pr.start), tzOf({ timeZone: pr.tz || null }))} · ${fmtDuration(Number(pr.dur))}`
-              : `<strong>Sık duraklanan yer</strong><br>${fmtNumber(Number(pr.n))} duraklama · ${fmtNumber(Number(pr.files))} kayıt<br>toplam ${fmtDuration(Number(pr.dur))}`;
+          const html = `${stopPopupHtml(pr, spot.layer.id === "stops" ? "stop" : "hot")}<br><small class="muted">Ad vermek için tıklayın</small>`;
           if (!hoverPopup.current) {
             hoverPopup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: "hover-popup" });
           }
@@ -841,6 +960,19 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
           return;
         }
         const hits = trackHits(e.point);
+        const flts = live.current.flights;
+        const fl = hits.length || !flts ? null : map.queryRenderedFeatures(hitBox(e.point, 4), { layers: ["flights"] })[0];
+        const flight = fl ? flts![Number(fl.properties?.i)] : undefined;
+        if (flight && !chooser.current?.isOpen()) {
+          if (!hoverPopup.current) {
+            hoverPopup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: "hover-popup" });
+          }
+          hoverPath.current = null;
+          hoverPopup.current.setLngLat(e.lngLat).setHTML(flightPopupHtml(flight, live.current.summaryOf(flight.path))).addTo(map);
+          map.getCanvas().style.cursor = "pointer";
+          releaseHover();
+          return;
+        }
         const gap = hits.length || heatOn ? null : map.queryRenderedFeatures(hitBox(e.point, 4), { layers: ["gaps"] })[0];
         if (gap && !chooser.current?.isOpen()) {
           if (!hoverPopup.current) {
@@ -1017,14 +1149,25 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
 
   // Seçili kaydın duraklamaları ve sık durulan yerler.
   useEffect(() => {
-    whenReady((map) => setData(map, "stops", stopsGeoJSON(files.find((f) => f.summary.path === selected), win)));
-  }, [files, selected, win]);
+    whenReady((map) => setData(map, "stops", stopsGeoJSON(files.find((f) => f.summary.path === selected), win, places)));
+  }, [files, selected, win, places]);
   useEffect(() => {
     whenReady((map) => {
       map.setLayoutProperty("hotspots", "visibility", stopsLayer ? "visible" : "none");
-      setData(map, "hotspots", stopsLayer ? hotspotsGeoJSON(files) : EMPTY);
+      setData(map, "hotspots", stopsLayer ? hotspotsGeoJSON(files, places) : EMPTY);
     });
-  }, [files, stopsLayer]);
+  }, [files, stopsLayer, places]);
+
+  // Uçuş yayları (renk iz renginden).
+  useEffect(() => {
+    whenReady((map) => {
+      const color = new Map(files.map((f) => [f.summary.path, f.color]));
+      const on = !!flights && !heatmap;
+      map.setLayoutProperty("flights", "visibility", on ? "visible" : "none");
+      map.setLayoutProperty("flights-casing", "visibility", on ? "visible" : "none");
+      setData(map, "flights", on ? flightsGeoJSON(flights, (p) => color.get(p) ?? "#3c78d8") : EMPTY);
+    });
+  }, [flights, files, heatmap]);
   useEffect(() => {
     whenReady((map) => setData(map, "area", areaGeoJSON(area)));
   }, [area]);
@@ -1194,6 +1337,133 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
         });
     });
   }, [baseLayer]);
+
+  // Fotoğraflar: ekranda yakın düşenler tek işarette toplanır (sayıyla); en fazla
+  // PHOTO_MAX_MARKERS işaret çizilir. Harita her durduğunda yeniden gruplanır.
+  const photoMarkers = useRef(new Map<string, maplibregl.Marker>());
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const markers = photoMarkers.current;
+    const clear = () => {
+      for (const m of markers.values()) m.remove();
+      markers.clear();
+    };
+    if (!photos?.length) {
+      clear();
+      return;
+    }
+    const render = () => {
+      const list = live.current.photos ?? [];
+      const c = map.getContainer();
+      const w = c.clientWidth;
+      const h = c.clientHeight;
+      const cells = new Map<string, PlacedPhoto[]>();
+      for (const ph of list) {
+        const pt = map.project([ph.lon, ph.lat]);
+        if (pt.x < -PHOTO_CELL || pt.y < -PHOTO_CELL || pt.x > w + PHOTO_CELL || pt.y > h + PHOTO_CELL) continue;
+        const key = `${Math.floor(pt.x / PHOTO_CELL)}:${Math.floor(pt.y / PHOTO_CELL)}`;
+        const cell = cells.get(key);
+        if (cell) cell.push(ph);
+        else cells.set(key, [ph]);
+      }
+      const keep = new Set<string>();
+      let n = 0;
+      for (const group of cells.values()) {
+        if (n++ >= PHOTO_MAX_MARKERS) break;
+        const first = group[0];
+        const key = `${first.path}|${group.length}`;
+        keep.add(key);
+        if (markers.has(key)) continue;
+        const el = document.createElement("div");
+        el.className = "photo-marker";
+        if (first.thumb) {
+          const img = document.createElement("img");
+          img.src = first.thumb;
+          img.alt = "";
+          img.loading = "lazy";
+          el.appendChild(img);
+        } else el.textContent = "📷";
+        if (group.length > 1) {
+          const badge = document.createElement("span");
+          badge.className = "photo-count";
+          badge.textContent = fmtNumber(group.length);
+          el.appendChild(badge);
+        }
+        const sum = first.record ? live.current.summaryOf(first.record) : undefined;
+        el.title =
+          group.length > 1
+            ? `${fmtNumber(group.length)} fotoğraf · tıklayınca yakınlaşır`
+            : `${first.name}${first.at != null ? `\n${fmtTimestamp(first.at, tzOf(sum))}` : ""}${sum ? `\n${sum.name || sum.fileName}` : ""}`;
+        const stop = (e: Event) => e.stopPropagation();
+        el.addEventListener("mousedown", stop);
+        el.addEventListener("dblclick", stop);
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (group.length > 1) {
+            const b = new maplibregl.LngLatBounds([first.lon, first.lat], [first.lon, first.lat]);
+            for (const g of group) b.extend([g.lon, g.lat]);
+            map.fitBounds(b, { padding: 80, maxZoom: Math.max(map.getZoom() + 2, 18), duration: 500 });
+            return;
+          }
+          openPhoto(map, first);
+        });
+        el.addEventListener("mouseenter", () => {
+          hoverPopup.current?.remove();
+        });
+        markers.set(key, new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([first.lon, first.lat]).addTo(map));
+      }
+      for (const [k, m] of markers) {
+        if (!keep.has(k)) {
+          m.remove();
+          markers.delete(k);
+        }
+      }
+    };
+    render();
+    map.on("moveend", render);
+    return () => {
+      map.off("moveend", render);
+    };
+  }, [photos]);
+  useEffect(() => () => photoMarkers.current.forEach((m) => m.remove()), []);
+
+  /** Fotoğraf kutusu: büyük önizleme, ad, çekim zamanı, eşleşen kayıt. */
+  const openPhoto = (map: maplibregl.Map, ph: PlacedPhoto) => {
+    chooser.current?.remove();
+    hoverPopup.current?.remove();
+    const sum = ph.record ? live.current.summaryOf(ph.record) : undefined;
+    const box = document.createElement("div");
+    box.className = "photo-box";
+    if (ph.thumb) {
+      const img = document.createElement("img");
+      img.src = ph.thumb;
+      img.alt = ph.name;
+      box.appendChild(img);
+    }
+    const info = document.createElement("div");
+    info.innerHTML =
+      `<strong>${escapeHtml(ph.name)}</strong>` +
+      (ph.at != null ? `<br><span class="popup-time">${fmtTimestamp(ph.at, tzOf(sum))}</span>` : "") +
+      (sum ? `<br><span class="muted">${escapeHtml(sum.name || sum.fileName)}</span>` : "") +
+      `<br><small class="muted">${ph.fromTrack ? "Konum izden (çekim zamanına göre)" : "Konum fotoğrafın GPS bilgisinden"}</small>`;
+    box.appendChild(info);
+    if (sum) {
+      const btn = document.createElement("button");
+      btn.className = "btn small";
+      btn.textContent = "Kaydı seç";
+      btn.onclick = () => {
+        chooser.current?.remove();
+        live.current.onPhotoRecord(sum.path);
+      };
+      box.appendChild(btn);
+    }
+    chooserPaths.current = [];
+    chooser.current = new maplibregl.Popup({ closeButton: true, maxWidth: "320px", className: "chooser-popup", offset: 40 })
+      .setLngLat([ph.lon, ph.lat])
+      .setDOMContent(box)
+      .addTo(map);
+  };
 
   return (
     <>

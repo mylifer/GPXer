@@ -17,6 +17,15 @@ import { Modal } from "./Modal";
 import { CalendarHeatmap } from "./CalendarHeatmap";
 import { ACTIVITIES, placeLabel } from "../types";
 import type { Route } from "../routes";
+import type { NamedPlace } from "../api";
+import { dayKey, isoToTr } from "../format";
+import { fastDayKey } from "../days";
+import { endName, flightsOf, type Flight } from "../flights";
+import { namedPlaceAt } from "../places";
+import { countryName, flagOf, hourPlaces } from "../visits";
+
+const FLIGHT_ROWS = 200;
+const TOP_CITIES = 8;
 
 type Period = "month" | "year";
 type Measure = "distance" | "moving" | "gain" | "count";
@@ -56,9 +65,97 @@ interface Props {
   onRoute(route: Route): void;
   onActivity(id: string): void;
   onClose(): void;
+  places: NamedPlace[];
+  onFlight(f: Flight): void;
 }
 
-export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRoute, onActivity, onClose }: Props) {
+interface YearVisits {
+  year: string;
+  countries: { cc: string; days: number }[];
+  cities: { cc: string; name: string; days: number }[];
+}
+
+/** Ülke ve şehirlerde geçen günler (yer dökümü olan saatlerden). */
+function visitedPlaces(files: FileEntry[], from: string, to: string) {
+  const years = new Map<string, { countries: Map<string, Set<string>>; cities: Map<string, Set<string>> }>();
+  const first = new Map<string, string>();
+  const allDays = new Map<string, Set<string>>();
+  for (const f of files) {
+    const s = f.summary;
+    const hp = hourPlaces(s);
+    if (!hp.length) continue;
+    const zone = tzOf(s);
+    const start = s.stats.startTime;
+    for (const x of hp) {
+      if (!x.cc && !x.name) continue;
+      const day = fastDayKey(start != null ? Math.max(x.h, start) : x.h, zone);
+      if (!dayIn(day, from, to)) continue;
+      const y = day.slice(0, 4);
+      let yv = years.get(y);
+      if (!yv) years.set(y, (yv = { countries: new Map(), cities: new Map() }));
+      const cc = x.cc.toUpperCase();
+      if (cc) {
+        let cs = yv.countries.get(cc);
+        if (!cs) yv.countries.set(cc, (cs = new Set()));
+        cs.add(day);
+        let all = allDays.get(cc);
+        if (!all) allDays.set(cc, (all = new Set()));
+        all.add(day);
+        const fd = first.get(cc);
+        if (!fd || day < fd) first.set(cc, day);
+      }
+      if (x.name) {
+        const k = `${cc}|${x.name}`;
+        let ci = yv.cities.get(k);
+        if (!ci) yv.cities.set(k, (ci = new Set()));
+        ci.add(day);
+      }
+    }
+  }
+  const out: YearVisits[] = [...years.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([year, v]) => ({
+      year,
+      countries: [...v.countries.entries()].map(([cc, d]) => ({ cc, days: d.size })).sort((a, b) => b.days - a.days),
+      cities: [...v.cities.entries()]
+        .map(([k, d]) => {
+          const i = k.indexOf("|");
+          return { cc: k.slice(0, i), name: k.slice(i + 1), days: d.size };
+        })
+        .sort((a, b) => b.days - a.days),
+    }));
+  const firsts = [...first.entries()]
+    .map(([cc, day]) => ({ cc, day, days: allDays.get(cc)?.size ?? 0 }))
+    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+  return { years: out, firsts };
+}
+
+/** Adlandırılmış yerlerde ay ay geçen süre (duraklamalardan). */
+function timeAtPlaces(files: FileEntry[], places: NamedPlace[], from: string, to: string) {
+  const months = new Map<string, Map<string, number>>();
+  const totals = new Map<string, number>();
+  if (!places.length) return { months: [] as { key: string; by: Map<string, number> }[], totals };
+  for (const f of files) {
+    const zone = tzOf(f.summary);
+    for (const st of f.summary.stops) {
+      const p = namedPlaceAt(st.lon, st.lat, places);
+      if (!p) continue;
+      const day = fastDayKey(st.start, zone);
+      if (!dayIn(day, from, to)) continue;
+      const m = day.slice(0, 7);
+      let by = months.get(m);
+      if (!by) months.set(m, (by = new Map()));
+      by.set(p.id, (by.get(p.id) ?? 0) + st.durationMs);
+      totals.set(p.id, (totals.get(p.id) ?? 0) + st.durationMs);
+    }
+  }
+  return {
+    months: [...months.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).map(([key, by]) => ({ key, by })),
+    totals,
+  };
+}
+
+export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRoute, onActivity, onClose, places, onFlight }: Props) {
   const [period, setPeriod] = useState<Period>("month");
   const [measure, setMeasure] = useState<Measure>("distance");
   const [hover, setHover] = useState<number | null>(null);
@@ -169,6 +266,29 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
     ];
     return rows.filter((r) => r.f);
   }, [files]);
+
+  const byPath = useMemo(() => new Map(files.map((f) => [f.summary.path, f])), [files]);
+  /** Gösterilen kayıtların tarih aralığına düşen uçuşları. */
+  const flights = useMemo(() => {
+    const list: Flight[] = [];
+    for (const f of files) {
+      const zone = tzOf(f.summary);
+      for (const x of flightsOf(f.summary)) if (dayIn(dayKey(x.start, zone), from, to)) list.push(x);
+    }
+    list.sort((a, b) => a.start - b.start);
+    const years = new Map<string, { n: number; m: number }>();
+    for (const x of list) {
+      const y = dayKey(x.start, tzOf(byPath.get(x.path)?.summary)).slice(0, 4);
+      const t = years.get(y) ?? { n: 0, m: 0 };
+      t.n++;
+      t.m += x.distanceM;
+      years.set(y, t);
+    }
+    return { list, years: [...years.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)) };
+  }, [files, from, to, byPath]);
+  const visited = useMemo(() => visitedPlaces(files, from, to), [files, from, to]);
+  const placeTime = useMemo(() => timeAtPlaces(files, places, from, to), [files, places, from, to]);
+  const usedPlaces = places.filter((p) => placeTime.totals.has(p.id));
 
   const m = MEASURES.find((x) => x.id === measure)!;
   const val = (b: Bucket) => b[measure];
@@ -380,6 +500,150 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
               })}
             </ul>
           </>
+        )}
+
+        <h3 className="chart-title">✈ Uçuşlar</h3>
+        {flights.list.length === 0 ? (
+          <div className="muted small-note">
+            Uçuş bulunamadı. Ortalama hızı 300 km/sa'i aşan, 100 km'den uzun kayıt boşlukları uçuş sayılır.
+          </div>
+        ) : (
+          <>
+            <div className="year-totals">
+              {flights.years.map(([y, t]) => (
+                <span key={y} className="chip">
+                  <strong>{y}</strong> {fmtNumber(t.n)} uçuş · {fmtDistance(t.m)}
+                </span>
+              ))}
+            </div>
+            <div className="table-wrap">
+              <table className="data-table compact flights-table">
+                <thead>
+                  <tr>
+                    <th>Tarih</th>
+                    <th>Nereden → nereye</th>
+                    <th>Mesafe</th>
+                    <th>Süre</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {flights.list.slice(-FLIGHT_ROWS).reverse().map((x) => {
+                    const f = byPath.get(x.path);
+                    return (
+                      <tr
+                        key={`${x.path}#${x.gap}`}
+                        className="clickable"
+                        onClick={() => onFlight(x)}
+                        title={`${f?.summary.name || f?.summary.fileName || ""} · tıklayınca kayıt seçilir ve uçuşa yakınlaşılır`}
+                      >
+                        <td>{fmtDate(x.start, tzOf(f?.summary))}</td>
+                        <td>
+                          {f && <span className="swatch" style={{ background: f.color }} />} {endName(x, "from")} →{" "}
+                          {endName(x, "to")}
+                        </td>
+                        <td>{fmtDistance(x.distanceM)}</td>
+                        <td>{fmtDuration(x.durationMs)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {flights.list.length > FLIGHT_ROWS && (
+              <div className="muted small-note">Son {fmtNumber(FLIGHT_ROWS)} uçuş gösteriliyor.</div>
+            )}
+          </>
+        )}
+
+        <h3 className="chart-title">Gezilen ülkeler ve şehirler</h3>
+        {visited.years.length === 0 ? (
+          <div className="muted small-note">
+            Yer bilgisi yok. Kayıtların saat saat hangi ülke ve şehirde geçtiği, kayıtlar yeniden hesaplandığında eklenir.
+          </div>
+        ) : (
+          <div className="visited">
+            {visited.years.map((y) => (
+              <div key={y.year} className="visited-year">
+                <strong className="visited-y">{y.year}</strong>
+                <div>
+                  <div className="visited-countries">
+                    {y.countries.map((c) => (
+                      <span key={c.cc} className="chip" title={`${countryName(c.cc)}: ${fmtNumber(c.days)} gün`}>
+                        {flagOf(c.cc)} {countryName(c.cc)} · {fmtNumber(c.days)} gün
+                      </span>
+                    ))}
+                  </div>
+                  {y.cities.length > 0 && (
+                    <div className="muted visited-cities">
+                      {y.cities
+                        .slice(0, TOP_CITIES)
+                        .map((c) => `${c.name} (${fmtNumber(c.days)} gün)`)
+                        .join(" · ")}
+                      {y.cities.length > TOP_CITIES && ` · +${fmtNumber(y.cities.length - TOP_CITIES)} yer`}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            <table className="data-table compact">
+              <thead>
+                <tr>
+                  <th>Ülke</th>
+                  <th>İlk ziyaret</th>
+                  <th>Toplam gün</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visited.firsts.map((c) => (
+                  <tr key={c.cc}>
+                    <td>
+                      {flagOf(c.cc)} {countryName(c.cc)}
+                    </td>
+                    <td>{isoToTr(c.day)}</td>
+                    <td>{fmtNumber(c.days)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <h3 className="chart-title">Yerlerde geçen süre</h3>
+        {places.length === 0 ? (
+          <div className="muted small-note">
+            Adlandırılmış yer yok. Haritada bir duraklamaya ya da sık durulan yere tıklayıp “Bu yere ad ver…” ile ekleyin.
+          </div>
+        ) : usedPlaces.length === 0 ? (
+          <div className="muted small-note">Gösterilen kayıtlarda adlandırılmış yerlerde duraklama yok.</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table compact">
+              <thead>
+                <tr>
+                  <th>Ay</th>
+                  {usedPlaces.map((p) => (
+                    <th key={p.id}>{p.name}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {placeTime.months.map((mo) => (
+                  <tr key={mo.key}>
+                    <td>{monthLabel(mo.key)}</td>
+                    {usedPlaces.map((p) => (
+                      <td key={p.id}>{mo.by.has(p.id) ? fmtDuration(mo.by.get(p.id)) : ""}</td>
+                    ))}
+                  </tr>
+                ))}
+                <tr className="total-row">
+                  <th>Toplam</th>
+                  {usedPlaces.map((p) => (
+                    <th key={p.id}>{fmtDuration(placeTime.totals.get(p.id) ?? 0)}</th>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
         )}
 
         <h3 className="chart-title">Rekorlar</h3>

@@ -28,6 +28,8 @@ export interface Filters {
   /** Tekrarlanan güzergâhın bir kaydının yolu; yalnızca o kaydı içeren
    * güzergâhın kayıtları gösterilir (üyelik değişse de filtre korunur). */
   route: string | null;
+  /** Yalnızca başka bir kayıtla zamanı çakışan kayıtlar. */
+  overlap: boolean;
 }
 
 export interface Prefs {
@@ -57,6 +59,14 @@ export interface Prefs {
   showGaps: boolean;
   /** Çoklu seçim ipucu kapatıldı (ya da çoklu seçim kullanıldı). */
   multiHintSeen: boolean;
+  /** Haritada uçuş yayları. */
+  flightsLayer: boolean;
+  /** Eklenen fotoğrafların (ya da klasörlerin) yolları. */
+  photos: string[];
+  /** Haritada fotoğraflar. */
+  photosLayer: boolean;
+  /** Fotoğraf makinesinin saat hatası düzeltmesi (saat). */
+  photoOffsetH: number;
 }
 
 export const DEFAULT_FILTERS: Filters = {
@@ -69,11 +79,12 @@ export const DEFAULT_FILTERS: Filters = {
   activity: "",
   tag: "",
   route: null,
+  overlap: false,
 };
 
 /** Listeyi daraltan bir filtre etkin mi (sıralama filtre sayılmaz). */
 export const filtersActive = (f: Filters) =>
-  !!(f.query.trim() || f.from || f.to || f.activity || f.tag || f.area || f.route);
+  !!(f.query.trim() || f.from || f.to || f.activity || f.tag || f.area || f.route || f.overlap);
 
 /** Filtreleri kaldırır; sıralama korunur. */
 export const resetFilters = (f: Filters): Filters => ({ ...DEFAULT_FILTERS, sort: f.sort });
@@ -99,6 +110,10 @@ const DEFAULTS: Prefs = {
   stopsLayer: false,
   showGaps: true,
   multiHintSeen: false,
+  flightsLayer: false,
+  photos: [],
+  photosLayer: true,
+  photoOffsetH: 0,
 };
 
 const KEY = "gpxer.prefs.v1";

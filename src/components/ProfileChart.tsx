@@ -131,6 +131,9 @@ export function ProfileChart({ detail, color, metrics, xAxis, tz, hoverIdx, rang
             (u) => {
               if (syncing.current) return;
               const idx = u.cursor.idx ?? null;
+              // Kurulum ve boyutlandırmadaki boş imleç bildirimleri dışarıdan
+              // konan imleci (ör. "Tarihe git") silmesin.
+              if (idx === lastFromChart.current) return;
               lastFromChart.current = idx;
               cb.current.onHover(idx);
             },

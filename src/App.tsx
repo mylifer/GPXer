@@ -12,7 +12,11 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import {
   exportAs,
+  exportMany,
   expandPaths,
+  getPlaces,
+  readPhotos,
+  setPlaces as savePlaces,
   getMeta,
   setMeta as saveMeta,
   flushCache,
@@ -36,6 +40,8 @@ import {
   type FileMeta,
   type FileSummary,
   type LoadResult,
+  type NamedPlace,
+  type PhotoInfo,
   type Settings,
   type Stats,
   type TrashItem,
@@ -55,8 +61,27 @@ import { METRICS, SEQ_DARK, SEQ_LIGHT, defaultColor, placeLabel, rampColor, type
 import { loadPrefs, savePrefs, type Filters, type Prefs } from "./prefs";
 import { HelpDialog } from "./components/HelpDialog";
 import { dayBuckets, detailDays, rangeShare, touchesRange } from "./days";
-import { dayKey, fmtDate, fmtNumber, fmtUnit, monthLabel, setTzMode, tzOf, type TzMode } from "./format";
+import {
+  dayKey,
+  fmtDate,
+  fmtDuration,
+  fmtNumber,
+  fmtTimestamp,
+  fmtUnit,
+  monthLabel,
+  setTzMode,
+  tzOf,
+  wallToUtc,
+  type TzMode,
+} from "./format";
 import { csvFor } from "./csv";
+import { findOverlaps } from "./overlaps";
+import { flightsOf, greatCircle, type Flight } from "./flights";
+import { DEFAULT_RADIUS_M, namedPlaceAt, newPlaceId, setNamedPlaces } from "./places";
+import { isImagePath, placePhotos } from "./photos";
+import { visitAt, countryName } from "./visits";
+import { GoToDialog, type GoToResult } from "./components/GoToDialog";
+import { PhotoControl } from "./components/PhotoControl";
 
 /** Tek seferde Rust tarafına gönderilen dosya sayısı; ilerleme çubuğunun
  * akıcı güncellenmesi için küçük tutulur. */
@@ -99,6 +124,26 @@ const PLAY_GAP_AS_MS = 1_000;
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 const EMPTY_META: FileMeta = { tags: [], note: "", activity: null };
 const OPEN_EXTS = ["gpx", "GPX", "fit", "FIT", "tcx", "TCX", "kml", "KML"];
+const PHOTO_EXTS = ["jpg", "jpeg", "JPG", "JPEG", "heic", "HEIC", "heif", "png", "PNG", "tif", "tiff", "dng", "DNG", "webp"];
+/** "Tarihe git": kayıt yoksa en fazla bu kadar uzaktaki kayda gidilir. */
+const GOTO_NEAR_MS = 6 * 3_600_000;
+/** Bu sayıdan çok kayıt tek dosyaya aktarılacaksa onay sorulur. */
+const EXPORT_CONFIRM = 500;
+
+const SAVE_FILTERS = [
+  { name: "GPX", extensions: ["gpx"] },
+  { name: "KML (Google Earth)", extensions: ["kml"] },
+  { name: "TCX (Garmin)", extensions: ["tcx"] },
+  { name: "FIT (Garmin, Strava)", extensions: ["fit"] },
+];
+
+/** Kaydetme penceresinde seçilen yolun uzantısından biçim. */
+function formatOf(path: string): { format: ExportFormat; hasExt: boolean } {
+  const name = baseName(path);
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  return { format: ext === "kml" || ext === "tcx" || ext === "fit" ? ext : "gpx", hasExt: !!ext };
+}
 
 /**
  * İmleç konumu (grafik/harita üzerindeki nokta) için küçük dış depo: fare
@@ -188,7 +233,14 @@ export default function App() {
   const [undo, setUndo] = useState<{ items: TrashItem[]; count: number } | null>(null);
   const [watchOffer, setWatchOffer] = useState<string[] | null>(null);
   const [settings, setSettingsState] = useState<Settings | null>(null);
-  const [dialog, setDialog] = useState<"settings" | "summary" | "merge" | "tag" | "help" | null>(null);
+  const [dialog, setDialog] = useState<"settings" | "summary" | "merge" | "tag" | "help" | "goto" | null>(null);
+  const [places, setPlacesState] = useState<NamedPlace[]>([]);
+  setNamedPlaces(places);
+  /** Ad verilecek yer (duraklama/sık durulan yer); yer zaten adlıysa o yer. */
+  const [namePrompt, setNamePrompt] = useState<{ lon: number; lat: number; place: NamedPlace | null } | null>(null);
+  const [photoInfo, setPhotoInfo] = useState<PhotoInfo[]>([]);
+  /** "Tarihe git": ayrıntı yüklenince imlecin konacağı an. */
+  const [seek, setSeek] = useState<{ path: string; t: number } | null>(null);
   const [meta, setMetaState] = useState<Record<string, FileMeta>>({});
   const [areaMode, setAreaMode] = useState(false);
   const [compare, setCompare] = useState<[string, string] | null>(null);
@@ -294,6 +346,9 @@ export default function App() {
   /** Güzergâh filtresi: kayıtlı yolu içeren güzergâh (yoksa null). */
   const activeRoute = prefs.filters.route ? (routeInfo.byPath.get(prefs.filters.route) ?? null) : null;
 
+  /** Zamanı çakışan kayıtlar (tüm kütüphane üzerinden). */
+  const overlapInfo = useMemo(() => findOverlaps(summaries), [summaries]);
+
   const allTags = useMemo(
     () => [...new Set(Object.values(meta).flatMap((m) => m.tags))].sort((a, b) => a.localeCompare(b, "tr-TR")),
     [meta],
@@ -307,12 +362,13 @@ export default function App() {
       const s = f.summary;
       const m = meta[s.path];
       if (q) {
-        const hay = `${s.name ?? ""} ${s.fileName} ${s.startPlace ?? ""} ${s.endPlace ?? ""} ${m?.tags.join(" ") ?? ""} ${m?.note ?? ""}`;
+        const hay = `${s.name ?? ""} ${s.fileName} ${s.startPlace ?? ""} ${s.endPlace ?? ""} ${places.length ? (placeLabel(s) ?? "") : ""} ${m?.tags.join(" ") ?? ""} ${m?.note ?? ""}`;
         if (!hay.toLocaleLowerCase("tr-TR").includes(q)) return false;
       }
       if (fl.activity && s.activity !== fl.activity) return false;
       if (fl.tag && !m?.tags.includes(fl.tag)) return false;
       if (fl.route && (!activeRoute || routeInfo.byPath.get(s.path) !== activeRoute)) return false;
+      if (fl.overlap && !overlapInfo.has(s.path)) return false;
       if (fl.area && !linesHitBox(s.lines, fl.area, s.stats.bbox)) return false;
       if (!dateOn) return true;
       if (s.stats.startTime == null) return fl.includeUndated;
@@ -340,7 +396,7 @@ export default function App() {
       case "distance":
         return list.sort((a, b) => b.summary.stats.distanceM - a.summary.stats.distanceM);
     }
-  }, [colored, prefs.filters, meta, routeInfo, activeRoute, prefs.tzMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [colored, prefs.filters, meta, routeInfo, activeRoute, prefs.tzMode, overlapInfo, places]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groups = useMemo<Group[]>(() => {
     if (prefs.groupBy === "none") return [];
@@ -387,6 +443,30 @@ export default function App() {
   );
   const onMapRef = useRef(onMap);
   onMapRef.current = onMap;
+
+  /** Haritada uçuş yayları: gösterilen kayıtların (tarih filtresine düşen) uçuşları. */
+  const mapFlights = useMemo(() => {
+    if (!prefs.flightsLayer) return null;
+    const out: Flight[] = [];
+    for (const f of onMap) {
+      const zone = tzOf(f.summary);
+      for (const x of flightsOf(f.summary)) {
+        if (dateWindow) {
+          const d = dayKey(x.start, zone);
+          if ((dateWindow.from && d < dateWindow.from) || (dateWindow.to && d > dateWindow.to)) continue;
+        }
+        out.push(x);
+      }
+    }
+    return out;
+  }, [onMap, prefs.flightsLayer, dateWindow, prefs.tzMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Fotoğrafların haritadaki yerleri (GPS ya da çekim zamanına göre iz). */
+  const placedPhotos = useMemo(
+    () => placePhotos(photoInfo, summaries, prefs.photoOffsetH),
+    [photoInfo, summaries, prefs.photoOffsetH],
+  );
+  const mapPhotos = prefs.photosLayer && placedPhotos.placed.length ? placedPhotos.placed : null;
   const selectedEntry = useMemo(
     () => (selected ? (colored.find((f) => f.summary.path === selected) ?? null) : null),
     [colored, selected],
@@ -428,6 +508,28 @@ export default function App() {
       cancelled = true;
     };
   }, [selected, cursor]);
+
+  // "Tarihe git": ayrıntı gelince o ana en yakın örneğe imleç konur ve harita ortalanır.
+  useEffect(() => {
+    if (!seek || !detail || selected !== seek.path) return;
+    let best = -1;
+    let bestDt = Infinity;
+    const times = detail.time;
+    for (let i = 0; i < times.length; i++) {
+      const t = times[i];
+      if (t == null) continue;
+      const dt = Math.abs(t - seek.t);
+      if (dt < bestDt) {
+        bestDt = dt;
+        best = i;
+      }
+    }
+    setSeek(null);
+    if (best < 0) return;
+    setPlaying(false);
+    cursor.set(best);
+    mapRef.current?.centerOn([detail.lon[best], detail.lat[best]]);
+  }, [seek, detail, selected, cursor]);
 
   // Karşılaştırılan iki kaydın grafik verisi.
   useEffect(() => {
@@ -908,6 +1010,217 @@ export default function App() {
     setDialog("merge");
   }, [multi, say]);
 
+  /** Birden çok kaydı tek dosyada dışa aktarır. */
+  const exportPaths = useCallback(
+    async (paths: string[]) => {
+      if (paths.length === 0) return;
+      if (paths.length > EXPORT_CONFIRM) {
+        const ok = await ask(
+          `${fmtNumber(paths.length)} kayıt tek bir dosyada dışa aktarılsın mı? Dosya çok büyük olabilir ve biraz sürebilir.`,
+          { title: "Toplu dışa aktarma", kind: "warning", okLabel: "Dışa aktar", cancelLabel: "Vazgeç" },
+        );
+        if (!ok) return;
+      }
+      try {
+        const path = await pickSavePath(`GPXer-${paths.length}-kayit.gpx`, SAVE_FILTERS);
+        if (!path) return;
+        const { format, hasExt } = formatOf(path);
+        say(`${fmtNumber(paths.length)} kayıt dışa aktarılıyor…`);
+        if (hasExt) await exportMany(paths, path, format);
+        else {
+          try {
+            await exportMany(paths, `${path}.gpx`, "gpx");
+          } catch {
+            await exportMany(paths, path, "gpx");
+          }
+        }
+        say(`${fmtNumber(paths.length)} kayıt tek ${format.toUpperCase()} dosyasına kaydedildi.`);
+      } catch (e) {
+        fail(String(e));
+      }
+    },
+    [say, fail],
+  );
+  const exportFiltered = useCallback(() => exportPaths(shown.map((f) => f.summary.path)), [exportPaths, shown]);
+  const exportMulti = useCallback(
+    () => exportPaths(shown.filter((f) => multi.has(f.summary.path)).map((f) => f.summary.path)),
+    [exportPaths, shown, multi],
+  );
+
+  // ---------- Adlandırılmış yerler ----------
+
+  const updatePlaces = useCallback(
+    (next: NamedPlace[]) => {
+      setPlacesState(next);
+      savePlaces(next).catch((e) => fail(`Yerler kaydedilemedi: ${e}`));
+    },
+    [fail],
+  );
+  const onNamePlace = useCallback((lon: number, lat: number, place: NamedPlace | null) => {
+    setNamePrompt({ lon, lat, place: place ?? namedPlaceAt(lon, lat) });
+  }, []);
+  const namePlace = useCallback(
+    (name: string) => {
+      const np = namePrompt;
+      setNamePrompt(null);
+      if (!np) return;
+      if (np.place) {
+        updatePlaces(places.map((p) => (p.id === np.place!.id ? { ...p, name } : p)));
+        say(`Yerin adı “${name}” olarak değiştirildi.`);
+      } else {
+        updatePlaces([...places, { id: newPlaceId(), name, lat: np.lat, lon: np.lon, radiusM: DEFAULT_RADIUS_M }]);
+        say(`“${name}” eklendi (${DEFAULT_RADIUS_M} m yarıçap; Ayarlar'dan değiştirilebilir).`);
+      }
+    },
+    [namePrompt, places, updatePlaces, say],
+  );
+
+  // ---------- Fotoğraflar ----------
+
+  const addPhotoPaths = useCallback(
+    async (paths: string[]) => {
+      if (!paths.length) return;
+      const known = new Set(prefsRef.current.photos);
+      const fresh = paths.filter((p) => !known.has(p));
+      up({ photos: [...prefsRef.current.photos, ...fresh], photosLayer: true });
+      try {
+        const list = (await readPhotos(paths)) ?? [];
+        setPhotoInfo((prev) => {
+          const byPath = new Map(prev.map((x) => [x.path, x]));
+          for (const x of list) byPath.set(x.path, x);
+          return [...byPath.values()];
+        });
+        const placed = placePhotos(list, filesRef.current.map((f) => f.summary), prefsRef.current.photoOffsetH);
+        say(
+          list.length
+            ? `${fmtNumber(list.length)} fotoğraf eklendi; ${fmtNumber(placed.placed.length)} tanesi haritada${
+                placed.unplaced ? ` (${fmtNumber(placed.unplaced)} tanesinin konumu ya da o saatte kaydı yok)` : ""
+              }.`
+            : "Fotoğraf bulunamadı.",
+        );
+      } catch (e) {
+        fail(`Fotoğraflar okunamadı: ${e}`);
+      }
+    },
+    [up, say, fail],
+  );
+  const pickPhotos = useCallback(
+    async (folder: boolean) => {
+      const res = folder
+        ? await open({ directory: true, multiple: true })
+        : await open({ multiple: true, filters: [{ name: "Fotoğraflar", extensions: PHOTO_EXTS }] });
+      if (res) addPhotoPaths(Array.isArray(res) ? res : [res]);
+    },
+    [addPhotoPaths],
+  );
+  const clearPhotos = useCallback(() => {
+    up({ photos: [] });
+    setPhotoInfo([]);
+  }, [up]);
+  const addPhotosRef = useRef(addPhotoPaths);
+  addPhotosRef.current = addPhotoPaths;
+
+  // ---------- Uçuşlar, tarihe git, çakışmalar ----------
+
+  const showFlight = useCallback(
+    (f: Flight) => {
+      setDialog(null);
+      setMulti(new Set());
+      setCompare(null);
+      pick(f.path);
+      mapRef.current?.fitPoints(greatCircle(f.from, f.to, 16));
+    },
+    [pick],
+  );
+
+  /** Duvar saatindeki (gg.aa.yyyy ss:dd) ana en yakın kayıt. */
+  const findAt = useCallback(
+    (wall: number): GoToResult => {
+      const record = prefsRef.current.tzMode === "record";
+      let cover: { s: FileSummary; t: number; active: boolean; span: number } | null = null;
+      let near: { s: FileSummary; t: number; dt: number } | null = null;
+      for (const f of filesRef.current) {
+        const s = f.summary;
+        const a = s.stats.startTime;
+        const b = s.stats.endTime;
+        if (a == null || b == null) continue;
+        const t = wallToUtc(wall, record ? s.timeZone : null);
+        if (t >= a && t <= b) {
+          const h = Math.floor(t / 3_600_000) * 3_600_000;
+          const active = !Array.isArray(s.hours) || s.hours.some((x) => x[0] === h);
+          const span = b - a;
+          // Verisi olan saatteki kayıt, sonra kısa kayıt tercih edilir.
+          if (!cover || (active && !cover.active) || (active === cover.active && span < cover.span)) cover = { s, t, active, span };
+        } else {
+          const dt = t < a ? t - a : t - b;
+          if (!near || Math.abs(dt) < Math.abs(near.dt)) near = { s, t: t < a ? a : b, dt };
+        }
+      }
+      if (cover) return { kind: "cover", path: cover.s.path, t: cover.t };
+      if (near) return { kind: "near", path: near.s.path, t: near.t, dt: near.dt, go: Math.abs(near.dt) <= GOTO_NEAR_MS };
+      return { kind: "none" };
+    },
+    [],
+  );
+
+  /** Kaydın `t` anına en yakın noktası (özetteki iz) ve o yerin adı. */
+  const placeAtTime = useCallback((s: FileSummary, t: number): { name: string | null; at: number | null } => {
+    let best: [number, number] | null = null;
+    let at: number | null = null;
+    s.lines.forEach((line, li) => {
+      const ts = s.times[li] ?? [];
+      for (let i = 0; i < line.length; i++) {
+        const x = ts[i];
+        if (x != null && (at == null || Math.abs(x - t) < Math.abs(at - t))) {
+          at = x;
+          best = line[i];
+        }
+      }
+    });
+    const pt = best as [number, number] | null;
+    const named = pt ? namedPlaceAt(pt[0], pt[1]) : null;
+    if (named) return { name: named.name, at };
+    const v = visitAt(s, at ?? t);
+    if (v) return { name: v.name ? `${v.name}${v.cc ? `, ${countryName(v.cc)}` : ""}` : countryName(v.cc), at };
+    return { name: s.startPlace ?? null, at };
+  }, []);
+
+  const goTo = useCallback(
+    (r: GoToResult) => {
+      if (r.kind === "none") return;
+      const f = filesRef.current.find((x) => x.summary.path === r.path);
+      if (!f) return;
+      const s = f.summary;
+      setDialog(null);
+      setMulti(new Set());
+      setCompare(null);
+      setRange(null);
+      pick(s.path);
+      setSeek({ path: s.path, t: r.t });
+      const { name: place, at } = placeAtTime(s, r.t);
+      const name = s.name || s.fileName;
+      const ago = (dt: number) => `${fmtDuration(Math.abs(dt))} ${dt < 0 ? "sonra" : "önce"}`;
+      if (r.kind === "cover") {
+        // Kaydın süresi içinde ama o saatte nokta yok (ör. aylarca süren kayıtta ara gün).
+        if (at != null && Math.abs(at - r.t) > 30 * 60_000)
+          say(`Bu anda ${name} kaydında veri yok (en yakın nokta: ${ago(r.t - at)} · ${fmtTimestamp(at, tzOf(s))}${place ? ` · ${place}` : ""})`);
+        else say(`Bu anda: ${place ? `${place}, ` : ""}${name}`);
+      } else say(`Kayıt yok (en yakın: ${name}, ${ago(r.dt)} · ${fmtTimestamp(r.t, tzOf(s))}${place ? ` · ${place}` : ""})`);
+    },
+    [pick, say, placeAtTime],
+  );
+
+  const compareWith = useCallback(
+    (a: string, b: string) => {
+      const t = (p: string) => filesRef.current.find((f) => f.summary.path === p)?.summary.stats.startTime ?? 0;
+      const pair: [string, string] = t(a) <= t(b) ? [a, b] : [b, a];
+      setCompare(pair);
+      pick(null);
+      mapRef.current?.fitFiles(filesRef.current.filter((f) => pair.includes(f.summary.path)));
+    },
+    [pick],
+  );
+
   // ---------- Başlangıç, sürükle-bırak, menü ----------
 
   useEffect(() => {
@@ -924,7 +1237,11 @@ export default function App() {
         else if (t === "leave") setDragging(false);
         else if (t === "drop") {
           setDragging(false);
-          openPaths(e.payload.paths, { explicit: true });
+          // Fotoğraflar haritaya, iz dosyaları ve klasörler kütüphaneye.
+          const photos = e.payload.paths.filter(isImagePath);
+          const rest = e.payload.paths.filter((p) => !isImagePath(p));
+          if (photos.length) addPhotosRef.current(photos);
+          if (rest.length) openPaths(rest, { explicit: true });
         }
       }),
     );
@@ -943,6 +1260,9 @@ export default function App() {
       getMeta()
         .then(setMetaState)
         .catch(() => {});
+      getPlaces()
+        .then((p) => Array.isArray(p) && setPlacesState(p))
+        .catch(() => {});
       try {
         await openPaths(await libraryFiles(), { quiet: true, noFit: hadView.current, noSelect: true });
         if (s?.watchedFolders.length) await openPaths(s.watchedFolders, { quiet: true, noFit: true, noSelect: true });
@@ -952,6 +1272,13 @@ export default function App() {
         initialLoad.current = false;
         // Kayıtlı seçim artık yoksa bırak.
         setSelected((sel) => (sel && filesRef.current.some((f) => f.summary.path === sel) ? sel : null));
+      }
+      // Kayıtlı fotoğraflar kütüphaneden sonra, arka planda okunur.
+      const photoPaths = prefsRef.current.photos;
+      if (photoPaths.length) {
+        readPhotos(photoPaths)
+          .then((list) => Array.isArray(list) && setPhotoInfo(list))
+          .catch((e) => fail(`Fotoğraflar okunamadı: ${e}`));
       }
       try {
         await openPaths(await takePendingPaths(), { explicit: true });
@@ -1036,6 +1363,10 @@ export default function App() {
       if (e.key === "?") {
         e.preventDefault();
         setDialog("help");
+      }
+      if ((e.key === "g" || e.key === "G") && filesRef.current.length) {
+        e.preventDefault();
+        setDialog("goto");
       }
       if (e.key === " " && detail && tag !== "BUTTON") {
         e.preventDefault();
@@ -1204,6 +1535,7 @@ export default function App() {
   );
   const openSettings = useCallback(() => setDialog("settings"), []);
   const openHelp = useCallback(() => setDialog("help"), []);
+  const openGoTo = useCallback(() => setDialog("goto"), []);
   const dismissMultiHint = useCallback(() => up({ multiHintSeen: true }), [up]);
   const openSummary = useCallback(() => setDialog("summary"), []);
   const openTag = useCallback(() => setDialog("tag"), []);
@@ -1216,6 +1548,21 @@ export default function App() {
   }, [activeRoute, files]);
 
   const coloredByPath = useMemo(() => new Map(colored.map((f) => [f.summary.path, f])), [colored]);
+  const coloredByPathRef = useRef(coloredByPath);
+  coloredByPathRef.current = coloredByPath;
+  const summaryOf = useCallback((p: string) => coloredByPathRef.current.get(p)?.summary, []);
+  const libraryFlights = useMemo(() => summaries.reduce((n, s) => n + flightsOf(s).length, 0), [summaries]);
+  /** Seçili kayıtla çakışanlar (ad ve ortak süreyle). */
+  const selOverlaps = useMemo(
+    () =>
+      selected
+        ? (overlapInfo.get(selected) ?? []).flatMap((o) => {
+            const f = coloredByPath.get(o.path);
+            return f ? [{ path: o.path, ms: o.ms, name: f.summary.name || f.summary.fileName, color: f.color }] : [];
+          })
+        : [],
+    [selected, overlapInfo, coloredByPath],
+  );
 
   const ramp = dark ? SEQ_DARK : SEQ_LIGHT;
   const gradient = `linear-gradient(to right, ${ramp.join(", ")})`;
@@ -1261,6 +1608,11 @@ export default function App() {
           onAreaMode={setAreaMode}
           onCompare={startCompare}
           onTagMany={openTag}
+          overlaps={overlapInfo}
+          places={places}
+          onGoTo={openGoTo}
+          onExportFiltered={exportFiltered}
+          onExportMulti={exportMulti}
         />
       )}
       <main className="main">
@@ -1296,6 +1648,13 @@ export default function App() {
             highlight={compare}
             cursors={cursors}
             dateWindow={dateWindow}
+            places={places}
+            onNamePlace={onNamePlace}
+            flights={mapFlights}
+            onFlight={showFlight}
+            photos={mapPhotos}
+            summaryOf={summaryOf}
+            onPhotoRecord={selectAndZoom}
           />
           <div className="map-toolbar">
             <button
@@ -1342,6 +1701,17 @@ export default function App() {
                   title="Tüm kayıtlarda en sık duraklama yapılan yerler"
                 >
                   Duraklamalar
+                </button>
+                <button
+                  className={`btn small${prefs.flightsLayer ? " primary" : ""}`}
+                  onClick={() => up({ flightsLayer: !prefs.flightsLayer })}
+                  title={
+                    libraryFlights
+                      ? `Gösterilen kayıtlardaki uçuşları (300 km/sa üstü boşluklar) yay olarak çiz · kütüphanede ${fmtNumber(libraryFlights)} uçuş`
+                      : "Kayıtlarda uçuş bulunamadı (300 km/sa üstü, 100 km'den uzun boşluk)"
+                  }
+                >
+                  ✈ Uçuşlar
                 </button>
                 <label
                   className="check map-check"
@@ -1391,6 +1761,16 @@ export default function App() {
                 </button>
               </>
             )}
+            <PhotoControl
+              count={placedPhotos.placed.length}
+              unplaced={placedPhotos.unplaced}
+              on={prefs.photosLayer}
+              offset={prefs.photoOffsetH}
+              onToggle={() => up({ photosLayer: !prefs.photosLayer })}
+              onOffset={(photoOffsetH) => up({ photoOffsetH })}
+              onAdd={pickPhotos}
+              onClear={clearPhotos}
+            />
           </div>
 
           <div className="legends">
@@ -1579,6 +1959,11 @@ export default function App() {
             onMeta={(m) => updateMeta(selectedEntry.summary.path, m)}
             routeCount={routeInfo.byPath.get(selectedEntry.summary.path)?.paths.length ?? 0}
             onOpenRoute={() => setRouteModal(routeInfo.byPath.get(selectedEntry.summary.path) ?? null)}
+            overlaps={selOverlaps}
+            onCompareWith={(p) => compareWith(selectedEntry.summary.path, p)}
+            places={places}
+            onNamePlace={onNamePlace}
+            onFocusPoint={(pt) => mapRef.current?.centerOn(pt, 15)}
           />
         )}
       </main>
@@ -1592,11 +1977,13 @@ export default function App() {
             const r = await open({ directory: true, multiple: false });
             return typeof r === "string" ? r : null;
           }}
-          onSave={(s, tzMode: TzMode) => {
+          onSave={(s, tzMode: TzMode, nextPlaces) => {
             setDialog(null);
             up({ tzMode });
             applySettings(s);
+            if (JSON.stringify(nextPlaces) !== JSON.stringify(places)) updatePlaces(nextPlaces);
           }}
+          places={places}
           libraryCount={files.length}
           onClearLibrary={() => {
             setDialog(null);
@@ -1628,6 +2015,26 @@ export default function App() {
             setDialog(null);
             selectAndZoom(p);
           }}
+          places={places}
+          onFlight={showFlight}
+        />
+      )}
+      {dialog === "goto" && (
+        <GoToDialog
+          find={findAt}
+          summaryOf={summaryOf}
+          onGo={goTo}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {namePrompt && (
+        <PromptModal
+          title={namePrompt.place ? "Yerin adını değiştir" : "Bu yere ad ver"}
+          label={`Ad (ör. Ev, İş) · ${namePrompt.lat.toFixed(5)}, ${namePrompt.lon.toFixed(5)}`}
+          initial={namePrompt.place?.name ?? ""}
+          okLabel="Kaydet"
+          onOk={namePlace}
+          onClose={() => setNamePrompt(null)}
         />
       )}
       {dialog === "tag" && (
@@ -1668,7 +2075,7 @@ export default function App() {
       )}
       {dragging && (
         <div className="drop-overlay">
-          <div>GPX, FIT, TCX, KML dosyalarını ya da klasörleri bırakın</div>
+          <div>GPX, FIT, TCX, KML dosyalarını, klasörleri ya da fotoğrafları bırakın</div>
         </div>
       )}
     </div>

@@ -71,6 +71,9 @@ export interface FileSummary {
   /** Saatlik döküm: [saat başı (Unix ms, UTC), mesafe m, hareket ms]; yalnızca
    * verisi olan saatler, boşluklar hariç, sıralı. Eski önbellekte olmayabilir. */
   hours?: [number, number, number][];
+  /** Saat saat bulunulan yer, değişince yeni öğe (run-length): [saat başı (Unix ms,
+   * UTC), ülke kodu (ISO 3166-1 alfa-2), yer adı]. Eski önbellekte olmayabilir. */
+  visits?: [number, string, string][];
 }
 
 export type Activity = "walk" | "run" | "bike" | "car" | "unknown";
@@ -122,6 +125,29 @@ export interface StatsConfig {
   collapseStays: boolean;
 }
 
+/** Kullanıcının adlandırdığı yer ("Ev", "İş"); yarıçap içindeki duraklamalar ve
+ * başlangıç/bitiş noktaları bu adla gösterilir. */
+export interface NamedPlace {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  radiusM: number;
+}
+
+export interface PhotoInfo {
+  path: string;
+  name: string;
+  /** Çekim zamanı (Unix ms); bilinmiyorsa null. */
+  time: number | null;
+  /** true: EXIF'teki saat dilimsiz duvar saati, UTC'ymiş gibi saklandı. */
+  timeIsLocal: boolean;
+  lat: number | null;
+  lon: number | null;
+  /** Küçük resim (data: adresi). */
+  thumb: string | null;
+}
+
 export interface Settings {
   stats: StatsConfig;
   watchedFolders: string[];
@@ -164,3 +190,10 @@ export const writeBase64File = (path: string, data: string) => invoke<void>("wri
 export const getSettings = () => invoke<Settings>("get_settings");
 /** Kaydeder; izlenemeyen klasörler için hata mesajları döner. */
 export const setSettings = (settings: Settings) => invoke<string[]>("set_settings", { settings });
+export const getPlaces = () => invoke<NamedPlace[] | null>("get_places");
+export const setPlaces = (places: NamedPlace[]) => invoke<void>("set_places", { places });
+/** Dosya ya da klasör yolları; klasörlerdeki fotoğraflar arka uçta bulunur. */
+export const readPhotos = (paths: string[]) => invoke<PhotoInfo[] | null>("read_photos", { paths });
+/** Kayıtları tek dosyada dışa aktarır; `dest` pickSavePath'ten gelmeli. */
+export const exportMany = (paths: string[], dest: string, format: ExportFormat) =>
+  invoke<void>("export_many", { paths, dest, format });

@@ -196,3 +196,39 @@ export function trToIso(tr: string): string | null {
 export function isoOf(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
+
+/** Saat diliminin `t` anındaki farkı (ms): yerel duvar saati = t + fark.
+ * `tz` verilmezse bilgisayarın saat dilimi. */
+export function tzOffsetMs(t: number, tz?: string | null): number {
+  if (!tz) return -new Date(t).getTimezoneOffset() * 60_000;
+  const f = dtf(
+    "off",
+    { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" },
+    tz,
+    "en-US",
+  );
+  const p: Record<string, number> = {};
+  for (const x of f.formatToParts(t)) if (x.type !== "literal") p[x.type] = Number(x.value);
+  const wall = Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute, p.second);
+  return wall - Math.floor(t / 1000) * 1000;
+}
+
+/** UTC'ymiş gibi saklanan duvar saatini (ör. EXIF) gerçek ana çevirir. */
+export function wallToUtc(wall: number, tz?: string | null): number {
+  const guess = wall - tzOffsetMs(wall, tz);
+  return wall - tzOffsetMs(guess, tz);
+}
+
+/** Gerçek anı o saat dilimindeki duvar saatine (UTC'ymiş gibi) çevirir. */
+export const utcToWall = (t: number, tz?: string | null) => t + tzOffsetMs(t, tz);
+
+/** "gg.aa.yyyy" ve "ss:dd" → duvar saati (UTC'ymiş gibi, ms); geçersizse null. */
+export function parseTrWall(date: string, time: string): number | null {
+  const iso = trToIso(date);
+  const m = /^\s*(\d{1,2})[:.](\d{2})\s*$/.exec(time || "00:00");
+  if (!iso || !m) return null;
+  const [h, mi] = [Number(m[1]), Number(m[2])];
+  if (h > 23 || mi > 59) return null;
+  const [y, mo, d] = iso.split("-").map(Number);
+  return Date.UTC(y, mo - 1, d, h, mi);
+}

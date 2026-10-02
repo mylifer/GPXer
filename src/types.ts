@@ -1,4 +1,5 @@
 import type { FileSummary } from "./api";
+import { namedPlaceAt } from "./places";
 
 export interface FileEntry {
   summary: FileSummary;
@@ -76,9 +77,16 @@ export function activityOf(id: string) {
   return ACTIVITIES.find((a) => a.id === id) ?? ACTIVITIES[ACTIVITIES.length - 1];
 }
 
-/** "Kadıköy → Beşiktaş" ya da tek yerse "Kadıköy". */
-export function placeLabel(s: { startPlace: string | null; endPlace: string | null }): string | null {
-  const { startPlace: a, endPlace: b } = s;
+/** "Kadıköy → Beşiktaş" ya da tek yerse "Kadıköy". Başlangıç/bitiş adlandırılmış
+ * bir yerin yarıçapındaysa o ad kullanılır ("Ev → İş"). */
+export function placeLabel(s: {
+  startPlace: string | null;
+  endPlace: string | null;
+  start?: [number, number] | null;
+  end?: [number, number] | null;
+}): string | null {
+  const a = (s.start && namedPlaceAt(s.start[0], s.start[1])?.name) || s.startPlace;
+  const b = (s.end && namedPlaceAt(s.end[0], s.end[1])?.name) || s.endPlace;
   if (a && b && a !== b) return `${a} → ${b}`;
   return a ?? b ?? null;
 }

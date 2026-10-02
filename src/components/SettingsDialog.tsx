@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Settings } from "../api";
+import type { NamedPlace, Settings } from "../api";
 import type { TzMode } from "../format";
 import { Modal } from "./Modal";
 
@@ -17,7 +17,9 @@ const r1 = (v: number) => Math.round(v * 10) / 10;
 interface Props {
   settings: Settings;
   tzMode: TzMode;
-  onSave(s: Settings, tzMode: TzMode): void;
+  onSave(s: Settings, tzMode: TzMode, places: NamedPlace[]): void;
+  /** Adlandırılmış yerler (ad, yarıçap düzenlenir, silinir). */
+  places: NamedPlace[];
   onPickFolder(): Promise<string | null>;
   onClose(): void;
   /** Kütüphanedeki kayıt sayısı (boşaltma düğmesi için). */
@@ -26,7 +28,10 @@ interface Props {
   onClearLibrary(): void;
 }
 
-export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose, libraryCount, onClearLibrary }: Props) {
+export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose, libraryCount, onClearLibrary, places: initialPlaces }: Props) {
+  const [places, setPlaces] = useState(initialPlaces);
+  const editPlace = (id: string, patch: Partial<NamedPlace>) =>
+    setPlaces((list) => list.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const [movingKmh, setMovingKmh] = useState(r1(settings.stats.movingSpeedMs * 3.6));
   const [eleM, setEleM] = useState(settings.stats.elevationThresholdM);
   const [folders, setFolders] = useState(settings.watchedFolders);
@@ -49,6 +54,9 @@ export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose
         watchedFolders: folders,
       },
       tz,
+      places
+        .map((x) => ({ ...x, name: x.name.trim(), radiusM: Math.max(10, Math.min(5000, Math.round(x.radiusM) || 150)) }))
+        .filter((x) => x.name),
     );
 
   return (
@@ -155,6 +163,63 @@ export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose
           >
             Klasör ekle…
           </button>
+        </fieldset>
+
+        <fieldset>
+          <legend>Adlandırılmış yerler</legend>
+          <small>
+            Haritada bir duraklamaya ya da sık durulan yere tıklayıp “Bu yere ad ver…” ile eklenir. Yarıçap içinde başlayan
+            ya da biten kayıtlar ve oradaki duraklamalar bu adla gösterilir (“Ev → İş”); Özet'te her yerde geçen süre
+            listelenir.
+          </small>
+          {places.length === 0 ? (
+            <div className="muted">Adlandırılmış yer yok.</div>
+          ) : (
+            <table className="data-table compact places-table">
+              <thead>
+                <tr>
+                  <th>Ad</th>
+                  <th>Yarıçap (m)</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {places.map((x) => (
+                  <tr key={x.id}>
+                    <td>
+                      <input
+                        value={x.name}
+                        onChange={(e) => editPlace(x.id, { name: e.target.value })}
+                        aria-label="Yerin adı"
+                        title={`${x.lat.toFixed(5)}, ${x.lon.toFixed(5)}`}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min={10}
+                        max={5000}
+                        step={10}
+                        value={x.radiusM}
+                        onChange={(e) => editPlace(x.id, { radiusM: Number(e.target.value) })}
+                        aria-label="Yarıçap (m)"
+                      />
+                    </td>
+                    <td>
+                      <button
+                        className="icon-btn"
+                        onClick={() => setPlaces((list) => list.filter((y) => y.id !== x.id))}
+                        title="Yeri sil"
+                        aria-label={`${x.name} yerini sil`}
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </fieldset>
 
         <fieldset className="danger-zone">

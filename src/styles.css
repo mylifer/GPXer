@@ -1791,3 +1791,279 @@ kbd {
   font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: nowrap;
 }
+
+/* ---------- Uçuşlar, yerler, fotoğraflar, çakışmalar ---------- */
+
+.overlap-badge {
+  margin-right: 5px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: normal;
+  cursor: help;
+}
+
+.overlap-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.overlap-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn.tiny {
+  padding: 1px 7px;
+  font-size: 11.5px;
+}
+
+.totals-export {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.stop-list {
+  grid-column: 1 / -1;
+}
+
+.stat.stat-btn {
+  width: 100%;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stat.stat-btn:hover {
+  background: var(--hover);
+}
+
+.stop-list ul {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.stop-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.stop-list li button.link {
+  flex: 1;
+  gap: 8px;
+  margin: 0;
+  padding: 3px 2px;
+}
+
+.stop-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.stop-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spot-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.spot-box .btn {
+  align-self: flex-start;
+  color: #1d2327;
+  background: #fff;
+  border-color: #d5d2ca;
+}
+
+.photo-control {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  box-shadow: none !important;
+}
+
+.photo-control > * {
+  box-shadow: var(--shadow);
+}
+
+.menu-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.menu-pop button {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-pop button:hover {
+  background: var(--hover);
+}
+
+.menu-pop button.danger {
+  color: var(--danger);
+}
+
+.photo-marker {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border: 2px solid #fff;
+  border-radius: 6px;
+  background: #3c78d8;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 18px;
+  line-height: 34px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+  transform-origin: 50% 100%;
+}
+
+.photo-marker:hover {
+  z-index: 3;
+  transform: scale(2.4);
+}
+
+.photo-marker img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.photo-count {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #e8553d;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.photo-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.photo-box img {
+  display: block;
+  max-width: 280px;
+  max-height: 240px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.photo-box .btn {
+  align-self: flex-start;
+  color: #1d2327;
+  background: #fff;
+  border-color: #d5d2ca;
+}
+
+.goto-row {
+  display: flex;
+  gap: 10px;
+}
+
+.goto-row .field {
+  flex: 1;
+}
+
+.goto-miss {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.year-totals,
+.visited-countries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.flights-table td:nth-child(2) {
+  white-space: normal;
+}
+
+.visited-year {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.visited-cities {
+  font-size: 12px;
+}
+
+.visited .data-table {
+  margin-top: 10px;
+}
+
+.places-table input {
+  width: 100%;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+}
+
+.places-table input[type="number"] {
+  width: 90px;
+}
+
+.data-table tr.total-row th {
+  border-top: 2px solid var(--border);
+}
+
+.year-totals .chip,
+.visited-countries .chip {
+  gap: 5px;
+}
+
+.flights-table th:nth-child(2),
+.flights-table td:nth-child(2) {
+  text-align: left;
+}

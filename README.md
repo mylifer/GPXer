@@ -63,6 +63,24 @@ ile yazılmıştır.
   üstüne gelince süresi ve mesafesi görünür; araç çubuğundaki *Boşluklar*
   kutusuyla gizlenebilir.
 
+**Yolculuklar, yerler ve fotoğraflar**
+- Uçuşlar: kayıttaki uçuş hızındaki boşluklar uçuş olarak listelenir (Özet →
+  ✈ Uçuşlar: tarih, nereden → nereye, mesafe, süre, yıllık toplam);
+  *✈ Uçuşlar* düğmesi haritada yay olarak çizer.
+- Yerlere ad verme: bir duraklamaya ya da sık duraklanan yere tıklayıp *Bu
+  yere ad ver…* (ör. Ev, İş). Adlar başlangıç/bitiş yerlerinde ve aramada
+  kullanılır; Özet'te "Yerlerde geçen süre" aylık tablosu; Ayarlar'da düzenleme.
+- *🕑 Tarihe git* (G): bir tarih ve saat girilir, o anda hangi kayıtta ve nerede
+  olduğunuz haritada gösterilir.
+- Gezilen ülkeler ve şehirler: Özet'te yıl yıl ülkeler (gün sayısıyla), en çok
+  bulunulan şehirler ve ilk ziyaret tarihleri.
+- Fotoğraflar: *📷 Fotoğraf ekle* (ya da fotoğrafları pencereye bırakın).
+  Konumu olan fotoğraflar oraya, olmayanlar çekim saatine göre ize yerleşir;
+  fotoğraf makinesinin saati yanlışsa ± saat düzeltmesi yapılabilir.
+- Çakışan kayıtlar: aynı zaman aralığını içeren kayıtlar (ör. günlük kayıt ve
+  uzun telefon kaydı) ⧉ ile işaretlenir, *⧉ Çakışanlar* ile filtrelenir,
+  karşılaştırılabilir.
+
 **Kütüphane ve liste**
 - Açılan dosyaların kopyası uygulamanın veri klasöründe saklanır ve her
   açılışta yüklenir; aynı kayıt (farklı adla kaydedilmiş olsa bile) ikinci kez
@@ -89,6 +107,8 @@ ile yazılmıştır.
 - Kütüphaneyi boşaltma Ayarlar'dadır ve onay ister.
 
 **Dışa aktarma ve ayarlar**
+- Seçili ya da filtrelenmiş kayıtlar tek dosyada birleştirilerek GPX, KML,
+  TCX ya da FIT olarak dışa aktarılabilir.
 - Özet tablosu CSV olarak (Türkçe Excel'in doğrudan açacağı biçimde), seçili
   kayıt GPX, KML (Google Earth), TCX ya da FIT (Garmin Connect, Strava) olarak
   kaydedilebilir. FIT, TCX ve KML dosyaları kütüphaneye GPX'e çevrilerek

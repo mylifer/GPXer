@@ -1,10 +1,13 @@
 import { useMemo, useRef, useState } from "react";
-import type { Detail, FileMeta, Stats, Stop } from "../api";
+import type { Detail, FileMeta, NamedPlace, Stats, Stop } from "../api";
+import { namedPlaceAt } from "../places";
 import { METRICS, PALETTE, placeLabel, type FileEntry } from "../types";
 import { MetaEditor } from "./MetaEditor";
 import type { Metric, TrackColorBy, XAxis } from "../prefs";
 import {
   fmtBytes,
+  fmtDate,
+  fmtTime,
   fmtDateTime,
   fmtDistance,
   fmtDuration,
@@ -64,9 +67,82 @@ interface Props {
   /** Bu kaydın güzergâhındaki kayıt sayısı (tekrarlanmıyorsa 0). */
   routeCount: number;
   onOpenRoute(): void;
+  /** Bu kayıtla zamanı çakışan kayıtlar. */
+  overlaps: { path: string; ms: number; name: string; color: string }[];
+  onCompareWith(path: string): void;
+  places: NamedPlace[];
+  onNamePlace(lon: number, lat: number, place: NamedPlace | null): void;
+  onFocusPoint(lonLat: [number, number]): void;
 }
 
-function StatCards({ st, stops }: { st: Stats; stops?: Stop[] }) {
+const STOPS_PAGE = 100;
+
+/** Duraklamaların listesi: tıklayınca harita oraya gider; yerlere ad verilebilir. */
+function StopList({
+  stops,
+  tz,
+  multiDay,
+  places,
+  onNamePlace,
+  onFocusPoint,
+}: {
+  stops: Stop[];
+  tz: string | undefined;
+  multiDay: boolean;
+  places: NamedPlace[];
+  onNamePlace(lon: number, lat: number, place: NamedPlace | null): void;
+  onFocusPoint(lonLat: [number, number]): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [limit, setLimit] = useState(STOPS_PAGE);
+  const total = stops.reduce((a, x) => a + x.durationMs, 0);
+  return (
+    <div className="stop-list">
+      <button className="stat stat-btn" onClick={() => setOpen((v) => !v)} aria-expanded={open} title="Duraklamaları listele">
+        <span>
+          Duraklama ({fmtNumber(stops.length)}) {open ? "▾" : "▸"}
+        </span>
+        <strong>{fmtDuration(total)}</strong>
+      </button>
+      {open && (
+        <ul>
+          {stops.slice(0, limit).map((st) => {
+            const place = namedPlaceAt(st.lon, st.lat, places);
+            return (
+              <li key={st.start}>
+                <button className="link" onClick={() => onFocusPoint([st.lon, st.lat])} title="Haritada göster">
+                  <span className="stop-time">
+                    {multiDay && `${fmtDate(st.start, tz).slice(0, 5)} `}
+                    {fmtTime(st.start, tz).slice(0, 5)}
+                  </span>
+                  <span>{fmtDuration(st.durationMs)}</span>
+                  {place && <strong className="stop-name">{place.name}</strong>}
+                </button>
+                <button
+                  className="icon-btn tiny"
+                  onClick={() => onNamePlace(st.lon, st.lat, place)}
+                  title={place ? `“${place.name}” adını değiştir…` : "Bu yere ad ver…"}
+                  aria-label={place ? "Adı değiştir" : "Bu yere ad ver"}
+                >
+                  ✎
+                </button>
+              </li>
+            );
+          })}
+          {stops.length > limit && (
+            <li>
+              <button className="link muted" onClick={() => setLimit((l) => l + STOPS_PAGE)}>
+                … {fmtNumber(stops.length - limit)} duraklama daha
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function StatCards({ st, children }: { st: Stats; children?: React.ReactNode }) {
   const cards: [string, string][] = [
     ["Mesafe", fmtDistance(st.distanceM)],
     ["Toplam süre", fmtDuration(st.durationMs)],
@@ -83,10 +159,6 @@ function StatCards({ st, stops }: { st: Stats; stops?: Stop[] }) {
   if (st.avgCad != null) cards.push(["Ort. kadans", fmtUnit(st.avgCad, "dev/dk")]);
   if (st.avgPower != null) cards.push(["Ort. güç", fmtUnit(st.avgPower, "W")], ["Maks. güç", fmtUnit(st.maxPower, "W")]);
   if (st.avgTemp != null) cards.push(["Ort. sıcaklık", fmtUnit(st.avgTemp, "°C", 1)]);
-  if (stops?.length) {
-    const total = stops.reduce((a, x) => a + x.durationMs, 0);
-    cards.push([`Duraklama (${stops.length})`, fmtDuration(total)]);
-  }
   return (
     <div className="stat-grid">
       {cards.map(([k, v]) => (
@@ -95,6 +167,7 @@ function StatCards({ st, stops }: { st: Stats; stops?: Stop[] }) {
           <strong>{v}</strong>
         </div>
       ))}
+      {children}
     </div>
   );
 }
@@ -196,6 +269,21 @@ export function DetailPanel(p: Props) {
             {collapsed > 0 && ` · duraklamalarda ${fmtNumber(collapsed)} nokta sadeleştirildi`}
           </div>
           {placeLabel(s) && <div className="muted place-line">{placeLabel(s)}</div>}
+          {p.overlaps.length > 0 && (
+            <div className="overlap-line">
+              <span>Bu kayıtla çakışan:</span>
+              {p.overlaps.slice(0, 3).map((o) => (
+                <span key={o.path} className="overlap-item">
+                  <span className="swatch" style={{ background: o.color }} />
+                  {o.name} ({fmtDuration(o.ms)})
+                  <button className="btn tiny" onClick={() => p.onCompareWith(o.path)} title="İki kaydı karşılaştır">
+                    Karşılaştır
+                  </button>
+                </span>
+              ))}
+              {p.overlaps.length > 3 && <span className="muted">+{p.overlaps.length - 3}</span>}
+            </div>
+          )}
         </div>
         {p.routeCount > 1 && (
           <button className="btn small" onClick={p.onOpenRoute} title="Aynı güzergâhtaki kayıtları karşılaştır">
@@ -333,7 +421,18 @@ export function DetailPanel(p: Props) {
       )}
 
       <div className="detail-body">
-        <StatCards st={st} stops={s.stops} />
+        <StatCards st={st}>
+          {s.stops.length > 0 && (
+            <StopList
+              stops={s.stops}
+              tz={tz}
+              multiDay={days.length > 1}
+              places={p.places}
+              onNamePlace={p.onNamePlace}
+              onFocusPoint={p.onFocusPoint}
+            />
+          )}
+        </StatCards>
         <div className="chart-wrap">
           <div className="readout" aria-live="off">
             {d && i != null && i < d.dist.length ? (
