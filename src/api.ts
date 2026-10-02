@@ -138,7 +138,7 @@ export const trimFile = (path: string, start: number, end: number) =>
   invoke<LoadResult>("trim_file", { path, start, end });
 export const splitFile = (path: string, at: number) => invoke<LoadResult[]>("split_file", { path, at });
 export const mergeFiles = (paths: string[], name: string) => invoke<LoadResult>("merge_files", { paths, name });
-export type ExportFormat = "gpx" | "kml" | "tcx";
+export type ExportFormat = "gpx" | "kml" | "tcx" | "fit";
 export const exportAs = (src: string, dest: string, format: ExportFormat) =>
   invoke<void>("export_as", { src, dest, format });
 export const getMeta = () => invoke<Record<string, FileMeta>>("get_meta");

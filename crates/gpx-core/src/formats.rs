@@ -515,3 +515,323 @@ pub fn write_tcx(gpx: &Gpx) -> String {
     out.push_str("</Lap>\n</Activity>\n</Activities>\n</TrainingCenterDatabase>\n");
     out
 }
+
+// ---------- FIT yazma ----------
+
+/// FIT zaman damgası Unix zamanından bu kadar saniye geridedir (1989-12-31).
+const FIT_EPOCH_S: i64 = 631_065_600;
+
+/// FIT dosyalarında kullanılan CRC-16.
+fn fit_crc(data: &[u8]) -> u16 {
+    const T: [u16; 16] = [
+        0x0000, 0xCC01, 0xD801, 0x1400, 0xF001, 0x3C00, 0x2800, 0xE401, 0xA001, 0x6C00, 0x7800,
+        0xB401, 0x5000, 0x9C01, 0x8801, 0x4400,
+    ];
+    let mut crc: u16 = 0;
+    for &b in data {
+        let mut tmp = T[(crc & 0xF) as usize];
+        crc = (crc >> 4) & 0x0FFF;
+        crc = crc ^ tmp ^ T[(b & 0xF) as usize];
+        tmp = T[(crc & 0xF) as usize];
+        crc = (crc >> 4) & 0x0FFF;
+        crc = crc ^ tmp ^ T[((b >> 4) & 0xF) as usize];
+    }
+    crc
+}
+
+/// FIT taban türleri ve geçersiz değerleri.
+#[derive(Clone, Copy)]
+enum FitType {
+    Enum,
+    S8,
+    U8,
+    U16,
+    S32,
+    U32,
+}
+
+impl FitType {
+    fn code(self) -> u8 {
+        match self {
+            FitType::Enum => 0x00,
+            FitType::S8 => 0x01,
+            FitType::U8 => 0x02,
+            FitType::U16 => 0x84,
+            FitType::S32 => 0x85,
+            FitType::U32 => 0x86,
+        }
+    }
+    fn size(self) -> u8 {
+        match self {
+            FitType::Enum | FitType::S8 | FitType::U8 => 1,
+            FitType::U16 => 2,
+            FitType::S32 | FitType::U32 => 4,
+        }
+    }
+    /// Değeri yazar; `None` ya da aralık dışı değer "geçersiz" olarak yazılır.
+    fn put(self, out: &mut Vec<u8>, v: Option<f64>) {
+        let v = v.filter(|x| x.is_finite()).map(f64::round);
+        match self {
+            FitType::Enum | FitType::U8 => out.push(
+                v.filter(|x| (0.0..255.0).contains(x))
+                    .map_or(0xFF, |x| x as u8),
+            ),
+            FitType::S8 => out.push(
+                v.filter(|x| (-127.0..=126.0).contains(x))
+                    .map_or(0x7F, |x| x as i8 as u8),
+            ),
+            FitType::U16 => out.extend(
+                v.filter(|x| (0.0..65535.0).contains(x))
+                    .map_or(0xFFFF, |x| x as u16)
+                    .to_le_bytes(),
+            ),
+            FitType::S32 => out.extend(
+                v.filter(|x| (-2_147_483_647.0..2_147_483_647.0).contains(x))
+                    .map_or(0x7FFF_FFFF, |x| x as i32)
+                    .to_le_bytes(),
+            ),
+            FitType::U32 => out.extend(
+                v.filter(|x| (0.0..4_294_967_295.0).contains(x))
+                    .map_or(0xFFFF_FFFF, |x| x as u32)
+                    .to_le_bytes(),
+            ),
+        }
+    }
+}
+
+/// Bir FIT mesaj türü: yerel numara, küresel numara ve alanlar (numara, tür).
+struct FitMesg {
+    local: u8,
+    global: u16,
+    fields: &'static [(u8, FitType)],
+}
+
+impl FitMesg {
+    fn define(&self, out: &mut Vec<u8>) {
+        out.push(0x40 | self.local);
+        out.push(0); // ayrılmış
+        out.push(0); // küçük uçlu
+        out.extend(self.global.to_le_bytes());
+        out.push(self.fields.len() as u8);
+        for &(num, t) in self.fields {
+            out.extend([num, t.size(), t.code()]);
+        }
+    }
+    fn write(&self, out: &mut Vec<u8>, values: &[Option<f64>]) {
+        debug_assert_eq!(values.len(), self.fields.len());
+        out.push(self.local);
+        for (&(_, t), v) in self.fields.iter().zip(values) {
+            t.put(out, *v);
+        }
+    }
+}
+
+use FitType::*;
+const FIT_FILE_ID: FitMesg = FitMesg {
+    local: 0,
+    global: 0,
+    // type, manufacturer, product, serial_number, time_created
+    fields: &[(0, Enum), (1, U16), (2, U16), (3, U32), (4, U32)],
+};
+const FIT_EVENT: FitMesg = FitMesg {
+    local: 1,
+    global: 21,
+    // timestamp, event, event_type
+    fields: &[(253, U32), (0, Enum), (1, Enum)],
+};
+const FIT_RECORD: FitMesg = FitMesg {
+    local: 2,
+    global: 20,
+    // timestamp, lat, lon, distance (cm), enhanced_altitude (5/m, +500),
+    // heart_rate, cadence, power, temperature
+    fields: &[
+        (253, U32),
+        (0, S32),
+        (1, S32),
+        (5, U32),
+        (78, U32),
+        (3, U8),
+        (4, U8),
+        (7, U16),
+        (13, S8),
+    ],
+};
+const FIT_LAP: FitMesg = FitMesg {
+    local: 3,
+    global: 19,
+    // timestamp, start_time, total_elapsed_time (ms), total_timer_time (ms),
+    // total_distance (cm), event, event_type
+    fields: &[
+        (253, U32),
+        (2, U32),
+        (7, U32),
+        (8, U32),
+        (9, U32),
+        (0, Enum),
+        (1, Enum),
+    ],
+};
+const FIT_SESSION: FitMesg = FitMesg {
+    local: 4,
+    global: 18,
+    // timestamp, start_time, total_elapsed_time, total_timer_time,
+    // total_distance, sport, sub_sport, first_lap_index, num_laps, event, event_type
+    fields: &[
+        (253, U32),
+        (2, U32),
+        (7, U32),
+        (8, U32),
+        (9, U32),
+        (5, Enum),
+        (6, Enum),
+        (25, U16),
+        (26, U16),
+        (0, Enum),
+        (1, Enum),
+    ],
+};
+const FIT_ACTIVITY: FitMesg = FitMesg {
+    local: 5,
+    global: 34,
+    // timestamp, total_timer_time (ms), num_sessions, type, event, event_type
+    fields: &[
+        (253, U32),
+        (0, U32),
+        (1, U16),
+        (2, Enum),
+        (3, Enum),
+        (4, Enum),
+    ],
+};
+
+/// FIT spor numarası (genel, koşu, bisiklet, yürüyüş).
+fn fit_sport(activity: crate::analysis::Activity) -> u8 {
+    use crate::analysis::Activity;
+    match activity {
+        Activity::Run => 1,
+        Activity::Bike => 2,
+        Activity::Walk => 11,
+        Activity::Car | Activity::Unknown => 0,
+    }
+}
+
+/// Kaydı FIT etkinlik dosyası olarak yazar (Garmin Connect, Strava vb.).
+/// Zamanı olmayan noktalara, önceki noktadan birer saniye sonrası verilir.
+pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
+    let segs = primary(gpx);
+    let first_time = segs
+        .iter()
+        .flat_map(|s| s.iter())
+        .find_map(|p| p.time)
+        .or(gpx.time)
+        .unwrap_or(FIT_EPOCH_S * 1000 + 1000);
+    let fit_ts = |ms: i64| ((ms / 1000) - FIT_EPOCH_S).max(0) as f64;
+
+    let mut body = Vec::new();
+    let start = fit_ts(first_time);
+    FIT_FILE_ID.define(&mut body);
+    // Tür 4: etkinlik; üretici 255: geliştirme.
+    FIT_FILE_ID.write(
+        &mut body,
+        &[Some(4.0), Some(255.0), Some(0.0), Some(1.0), Some(start)],
+    );
+    FIT_EVENT.define(&mut body);
+    // Zamanlayıcı (0) başladı (0).
+    FIT_EVENT.write(&mut body, &[Some(start), Some(0.0), Some(0.0)]);
+    FIT_RECORD.define(&mut body);
+
+    let mut dist = 0.0;
+    let mut last_ms = first_time;
+    let mut moving_ms: i64 = 0;
+    for seg in &segs {
+        let mut prev: Option<&Point> = None;
+        for p in seg.iter() {
+            let ms = p.time.unwrap_or(last_ms + 1000).max(last_ms);
+            // Segmentler arası bekleme ve kayıt boşlukları (uçuş, sinyal
+            // kaybı) mesafeye ve zamanlayıcıya katılmaz.
+            if let Some(q) = prev.filter(|q| !crate::is_gap(q, p)) {
+                dist += crate::stats::haversine_m(q, p);
+                moving_ms += ms - last_ms;
+            }
+            last_ms = ms;
+            prev = Some(p);
+            FIT_RECORD.write(
+                &mut body,
+                &[
+                    Some(fit_ts(ms)),
+                    Some(p.lat * 2_147_483_648.0 / 180.0),
+                    Some(p.lon * 2_147_483_648.0 / 180.0),
+                    Some(dist * 100.0),
+                    p.ele.map(|e| (e as f64 + 500.0) * 5.0),
+                    p.hr.map(f64::from),
+                    p.cad.map(f64::from),
+                    p.power.map(f64::from),
+                    p.temp.map(f64::from),
+                ],
+            );
+        }
+    }
+
+    let end = fit_ts(last_ms);
+    let elapsed = (end - start) * 1000.0;
+    let timer = moving_ms as f64;
+    // Zamanlayıcı (0) durdu (4: tümü).
+    FIT_EVENT.write(&mut body, &[Some(end), Some(0.0), Some(4.0)]);
+    FIT_LAP.define(&mut body);
+    // Olay 9: tur, tür 1: durdu.
+    FIT_LAP.write(
+        &mut body,
+        &[
+            Some(end),
+            Some(start),
+            Some(elapsed),
+            Some(timer),
+            Some(dist * 100.0),
+            Some(9.0),
+            Some(1.0),
+        ],
+    );
+    FIT_SESSION.define(&mut body);
+    FIT_SESSION.write(
+        &mut body,
+        &[
+            Some(end),
+            Some(start),
+            Some(elapsed),
+            Some(timer),
+            Some(dist * 100.0),
+            Some(fit_sport(activity) as f64),
+            Some(0.0),
+            Some(0.0),
+            Some(1.0),
+            Some(8.0),
+            Some(1.0),
+        ],
+    );
+    FIT_ACTIVITY.define(&mut body);
+    // Tür 0: elle; olay 26: etkinlik; tür 1: durdu.
+    FIT_ACTIVITY.write(
+        &mut body,
+        &[
+            Some(end),
+            Some(timer),
+            Some(1.0),
+            Some(0.0),
+            Some(26.0),
+            Some(1.0),
+        ],
+    );
+
+    let mut out = Vec::with_capacity(body.len() + 16);
+    out.push(14); // başlık uzunluğu
+    out.push(0x20); // protokol 2.0
+    out.extend(2132u16.to_le_bytes()); // profil 21.32
+    out.extend((body.len() as u32).to_le_bytes());
+    out.extend(b".FIT");
+    let hcrc = fit_crc(&out);
+    out.extend(hcrc.to_le_bytes());
+    out.extend(body);
+    let crc = fit_crc(&out);
+    out.extend(crc.to_le_bytes());
+    out
+}

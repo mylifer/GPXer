@@ -744,3 +744,30 @@ fn kml_and_tcx_edge_cases() {
         6
     );
 }
+
+#[test]
+fn fit_round_trip() {
+    let src = std::fs::read("testdata/garmin-fenix-5-bike.fit").unwrap();
+    let gpx = formats::parse_fit(&src).unwrap();
+    let bytes = formats::write_fit(&gpx, Activity::Bike);
+    // Başlık ve CRC doğru, okuyucu (fitparser) kabul ediyor.
+    let back = formats::parse_fit(&bytes).unwrap();
+    let pts = |g: &parse::Gpx| -> Vec<Point> {
+        g.tracks
+            .iter()
+            .flat_map(|t| t.segments.iter().flatten())
+            .copied()
+            .collect()
+    };
+    let (a, b) = (pts(&gpx), pts(&back));
+    assert_eq!(a.len(), b.len());
+    for (p, q) in a.iter().zip(&b) {
+        assert!((p.lat - q.lat).abs() < 1e-6 && (p.lon - q.lon).abs() < 1e-6);
+        assert_eq!(p.time.map(|t| t / 1000), q.time.map(|t| t / 1000));
+        assert_eq!(p.hr, q.hr);
+        match (p.ele, q.ele) {
+            (Some(x), Some(y)) => assert!((x - y).abs() < 0.3),
+            (x, y) => assert_eq!(x.is_some(), y.is_some()),
+        }
+    }
+}

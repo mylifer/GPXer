@@ -193,7 +193,7 @@ export function DetailPanel(p: Props) {
         <button className="btn small" onClick={p.onZoom}>
           Yakınlaştır
         </button>
-        <button className="btn small" onClick={p.onExportGpx} title="GPX, KML ya da TCX olarak kaydet (Ctrl/⌘+S)">
+        <button className="btn small" onClick={p.onExportGpx} title="GPX, KML, TCX ya da FIT olarak kaydet (Ctrl/⌘+S)">
           Kaydet…
         </button>
         <button className="icon-btn" onClick={p.onClose} title="Kapat (Esc)">

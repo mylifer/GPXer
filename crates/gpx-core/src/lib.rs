@@ -168,7 +168,7 @@ const GAP_FLIGHT_SPEED_MS: f64 = 300.0 / 3.6;
 /// Zaman bilgisi yoksa yalnızca mesafeye bakılır.
 const GAP_MIN_M_UNTIMED: f64 = 10_000.0;
 
-fn is_gap(a: &Point, b: &Point) -> bool {
+pub(crate) fn is_gap(a: &Point, b: &Point) -> bool {
     let d = stats::haversine_m(a, b);
     match (a.time, b.time) {
         (Some(ta), Some(tb)) => {

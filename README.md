@@ -80,8 +80,9 @@ ile yazılmıştır.
 
 **Dışa aktarma ve ayarlar**
 - Özet tablosu CSV olarak (Türkçe Excel'in doğrudan açacağı biçimde), seçili
-  kayıt GPX, KML (Google Earth) ya da TCX olarak kaydedilebilir. FIT, TCX ve
-  KML dosyaları kütüphaneye GPX'e çevrilerek alınır.
+  kayıt GPX, KML (Google Earth), TCX ya da FIT (Garmin Connect, Strava) olarak
+  kaydedilebilir. FIT, TCX ve KML dosyaları kütüphaneye GPX'e çevrilerek
+  alınır.
 - Ayarlar: etkinlik türüne göre hazır eşikler, duruyor sayılma hızı,
   yükseklik gürültü eşiği; saatlerin bilgisayarın ya da kaydın yapıldığı yerin
   saat dilimine göre gösterilmesi; izlenen klasörler.
@@ -168,7 +169,7 @@ cargo run --release -p gpx-core --example dump -- ozet.json klasor/*.gpx
 ## Proje yapısı
 
 ```
-crates/gpx-core/   GPX/FIT/TCX/KML okuma, GPX/KML/TCX yazma, istatistik, sıçrama temizleme,
+crates/gpx-core/   GPX/FIT/TCX/KML okuma ve yazma, istatistik, sıçrama temizleme,
                    duraklar, tür tahmini, sadeleştirme, kırpma/bölme/birleştirme
 src-tauri/         Masaüstü uygulaması: komutlar, kütüphane ve önbellek, klasör izleme, menü
 src/               React arayüzü (harita, liste, grafik, özet, ayarlar)

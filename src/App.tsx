@@ -753,10 +753,11 @@ export default function App() {
         { name: "GPX", extensions: ["gpx"] },
         { name: "KML (Google Earth)", extensions: ["kml"] },
         { name: "TCX (Garmin)", extensions: ["tcx"] },
+        { name: "FIT (Garmin, Strava)", extensions: ["fit"] },
       ]);
       if (!path) return;
       const ext = path.split(".").pop()?.toLowerCase();
-      const format: ExportFormat = ext === "kml" || ext === "tcx" ? ext : "gpx";
+      const format: ExportFormat = ext === "kml" || ext === "tcx" || ext === "fit" ? ext : "gpx";
       await exportAs(f.summary.path, path, format);
       say(`${format.toUpperCase()} dosyası kaydedildi.`);
     } catch (e) {

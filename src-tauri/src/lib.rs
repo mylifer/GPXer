@@ -427,12 +427,19 @@ async fn export_as(
                 .map_err(|e| e.to_string());
         }
         let (gpx, _) = gpx_core::read_gpx_file(Path::new(&src)).map_err(|e| e.to_string())?;
-        let text = match format.as_str() {
-            "kml" => gpx_core::formats::write_kml(&gpx),
-            "tcx" => gpx_core::formats::write_tcx(&gpx),
+        let bytes = match format.as_str() {
+            "kml" => gpx_core::formats::write_kml(&gpx).into_bytes(),
+            "tcx" => gpx_core::formats::write_tcx(&gpx).into_bytes(),
+            "fit" => {
+                // FIT'te spor türü de yazılır: seçilen ya da tahmin edilen tür.
+                let cfg = app.state::<SettingsStore>().stats();
+                let chosen = app.state::<MetaStore>().activity(&src);
+                let (_, activity) = gpx_core::effective_config(&gpx, &cfg, chosen);
+                gpx_core::formats::write_fit(&gpx, activity)
+            }
             other => return Err(format!("Bilinmeyen biçim: {other}")),
         };
-        std::fs::write(&dest, text).map_err(|e| e.to_string())
+        std::fs::write(&dest, bytes).map_err(|e| e.to_string())
     })
     .await?
 }
