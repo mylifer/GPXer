@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Önbellek biçimi ya da özet hesaplaması değiştiğinde artırılır; eski
 /// önbellek yok sayılır.
-const CACHE_VERSION: u32 = 7;
+const CACHE_VERSION: u32 = 8;
 /// Bellekte tutulan hazırlanmış (temizlenmiş) kayıt sayısı.
 const PREPARED_KEEP: usize = 4;
 /// Çöp kutusundaki dosyalar bu süreden sonra kalıcı olarak silinir.
@@ -154,9 +154,21 @@ pub fn place_at(lon: f64, lat: f64) -> Option<String> {
     })
 }
 
-/// Veri kümesindeki adlar ASCII'ye çevrilmiş (Üsküdar → "UEskuedar").
-/// Türkçe adlarda ü/ö geri getirilir; ş, ç, ğ, ı kaynağında olmadığından kalır.
+/// Veri kümesindeki Türkiye yer adları ASCII'ye çevrilmiş ("Kadikoy",
+/// "UEskuedar"). Bilinen adlar tablodan Türkçe yazımlarıyla gelir; tabloda
+/// olmayanlarda en azından Almanca tarzı ü/ö (ue/oe) geri getirilir.
 fn turkish(name: &str) -> String {
+    static TABLE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        include_str!("tr_places.tsv")
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(|l| l.split_once('\t'))
+            .collect()
+    });
+    if let Some(t) = table.get(name) {
+        return (*t).to_owned();
+    }
     name.replace("UE", "Ü")
         .replace("Ue", "Ü")
         .replace("ue", "ü")
@@ -851,5 +863,20 @@ mod tests {
         assert!(!Arc::ptr_eq(&x, &lib.prepared(&ps, &other).unwrap()));
         assert_eq!(lib.prepared.lock().unwrap().len(), 1);
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod place_tests {
+    use super::*;
+
+    #[test]
+    fn turkish_place_names() {
+        assert_eq!(turkish("Kadikoy"), "Kadıköy");
+        assert_eq!(turkish("UEskuedar"), "Üsküdar");
+        assert_eq!(turkish("Sisli"), "Şişli");
+        assert_eq!(turkish("Ankara"), "Ankara");
+        // Şişli'deki bir nokta.
+        assert_eq!(place_at(28.987, 41.060).as_deref(), Some("Şişli"));
     }
 }

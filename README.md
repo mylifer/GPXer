@@ -65,8 +65,9 @@ ile yazılmıştır.
   kütüphaneye girer.
 - Liste aya ya da yıla göre gruplanır; grupların toplamları görünür.
 - Her kaydın başlangıç ve bitiş yeri ("Kadıköy → Beşiktaş") çevrimdışı
-  bulunur. Yer adları GeoNames verisinden gelir ve Latin harfleriyle yazılıdır;
-  ü/ö düzeltilir, ş/ç/ğ/ı harfleri bazı adlarda eksik görünebilir.
+  bulunur. Yer adları GeoNames verisinden gelir; Türkiye'deki yaklaşık 920
+  yer adının Türkçe yazımı (ş, ç, ğ, ı, ö, ü) uygulamada bir tabloyla
+  düzeltilir, tabloda olmayan küçük yerlerde harfler eksik kalabilir.
 - Etiketler ve notlar; tür ve etikete göre süzme; arama ad, yer, etiket ve
   notta yapılır. Çoklu seçimde toplu etiketleme.
 - `gg.aa.yyyy` biçiminde tarih filtresi (yazarak ya da takvimden), hazır
