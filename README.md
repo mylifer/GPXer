@@ -38,6 +38,12 @@ ile yazılmıştır.
   (tabloya çevrilebilir), rekorlar. Çubuğa tıklayınca liste o döneme filtrelenir.
 - Takvim: yılın her günü o günkü mesafeye göre renklenir; güne tıklayınca liste
   o güne filtrelenir.
+- Çok günlük kayıtlar (aylarca, yıllarca süren telefon kayıtları) gün gün
+  sayılır: takvim, tarih filtresi, özet grafikleri ve toplamlar her günün
+  gerçek mesafesini kullanır. Tarih filtresi açıkken haritada kaydın yalnızca
+  o tarihlere düşen kısmı çizilir; listede "bu aralıkta X km" görünür. Kayıt
+  panelindeki *Gün* seçiciyle (‹ › düğmeleriyle) kaydın tek bir günü seçilir,
+  istatistikleri görülür, haritada gösterilir, kırpılabilir.
 - Tekrarlanan güzergâhlar: aynı yoldan yapılan kayıtlar kendiliğinden
   gruplanır; süreler zaman içinde, en iyi kayıt ve liste filtresiyle görülür.
 - İki kaydı karşılaştırma: iki kayıt seçip *Karşılaştır*; hız/nabız vb. üst

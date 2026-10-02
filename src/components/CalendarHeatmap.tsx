@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FileEntry } from "../types";
 import { SEQ_DARK, SEQ_LIGHT } from "../types";
-import { MONTHS, dayKey, fmtDistance, fmtDuration, fmtNumber, isoOf, tzOf } from "../format";
+import { MONTHS, fmtDistance, fmtDuration, fmtNumber, isoOf } from "../format";
+import { dayBuckets, dayIn } from "../days";
 
 interface Day {
   count: number;
@@ -15,6 +16,9 @@ const WEEKDAY_LABELS = ["Pt", "", "Ça", "", "Cu", "", "Pz"];
 
 interface Props {
   files: FileEntry[];
+  /** Tarih filtresi: yalnızca aralıktaki günler sayılır. */
+  from: string;
+  to: string;
   onDay(iso: string): void;
 }
 
@@ -35,21 +39,22 @@ function usePrefersDark(): boolean {
 }
 
 /** Yıllık takvim: her gün bir kare, koyuluğu o günkü mesafe. */
-export function CalendarHeatmap({ files, onDay }: Props) {
+export function CalendarHeatmap({ files, from, to, onDay }: Props) {
   const days = useMemo(() => {
     const m = new Map<string, Day>();
+    // Birden çok güne yayılan kayıt, verisi olan her güne kendi payıyla yazılır.
     for (const f of files) {
-      const s = f.summary;
-      if (s.stats.startTime == null) continue;
-      const k = dayKey(s.stats.startTime, tzOf(s));
-      const d = m.get(k) ?? { count: 0, distance: 0, moving: 0 };
-      d.count++;
-      d.distance += s.stats.distanceM;
-      d.moving += s.stats.movingMs ?? 0;
-      m.set(k, d);
+      for (const b of dayBuckets(f.summary)) {
+        if (!dayIn(b.day, from, to)) continue;
+        const d = m.get(b.day) ?? { count: 0, distance: 0, moving: 0 };
+        d.count++;
+        d.distance += b.distanceM;
+        d.moving += b.movingMs;
+        m.set(b.day, d);
+      }
     }
     return m;
-  }, [files]);
+  }, [files, from, to]);
 
   const years = useMemo(() => [...new Set([...days.keys()].map((k) => Number(k.slice(0, 4))))].sort((a, b) => b - a), [days]);
   const [year, setYear] = useState<number | null>(null);
@@ -88,17 +93,18 @@ export function CalendarHeatmap({ files, onDay }: Props) {
   });
 
   const yearTotals = useMemo(() => {
-    let count = 0,
-      distance = 0,
+    let distance = 0,
       active = 0;
     for (const [k, d] of days) {
       if (!k.startsWith(String(y))) continue;
-      count += d.count;
       distance += d.distance;
       active++;
     }
+    // Kayıt sayısı: yıla dokunan her kayıt bir kez.
+    const ys = String(y);
+    const count = files.filter((f) => dayBuckets(f.summary).some((b) => b.day.startsWith(ys) && dayIn(b.day, from, to))).length;
     return { count, distance, active };
-  }, [days, y]);
+  }, [days, y, files, from, to]);
 
   const hd = hover ? days.get(hover.iso) : undefined;
 
@@ -135,6 +141,7 @@ export function CalendarHeatmap({ files, onDay }: Props) {
             return (
               <rect
                 key={c.iso}
+                data-day={c.iso}
                 x={left + c.col * (CELL + GAP)}
                 y={top + c.row * (CELL + GAP)}
                 width={CELL}

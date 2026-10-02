@@ -1,0 +1,215 @@
+/**
+ * Günlere göre kayıt: birden çok güne (aylarca) yayılan kayıtların mesafesi
+ * ve hareket süresi gerçekten kaydedildikleri günlere dağıtılır. Kaynak, özetteki
+ * saatlik dökümdür (`hours`); yoksa (eski önbellek) kaydın tamamı başladığı güne
+ * yazılır. Sonuçlar özet nesnesi ve saat dilimi kipine göre önbelleğe alınır.
+ */
+
+import type { FileSummary } from "./api";
+import { dayKey, tzOf } from "./format";
+
+export interface DayBucket {
+  /** yyyy-aa-gg (Ayarlar'daki saat dilimi kipine göre) */
+  day: string;
+  distanceM: number;
+  movingMs: number;
+}
+
+const tzKey = (s: FileSummary) => tzOf(s) ?? "";
+
+/** Hızlı gün anahtarı: saat dilimi farkları 15 dakikanın katı olduğundan aynı
+ * çeyrek saat içindeki zamanlar aynı güne düşer; Intl çağrısı çeyrek başına bir kez. */
+const quarterCache = new Map<string, Map<number, string>>();
+export function fastDayKey(t: number, tz: string | undefined): string {
+  const ck = tz ?? "";
+  let m = quarterCache.get(ck);
+  if (!m) quarterCache.set(ck, (m = new Map()));
+  const q = Math.floor(t / 900_000);
+  let k = m.get(q);
+  if (k === undefined) {
+    k = dayKey(q * 900_000, tz);
+    if (m.size > 500_000) m.clear();
+    m.set(q, k);
+  }
+  return k;
+}
+
+const bucketCache = new WeakMap<FileSummary, { tz: string; days: DayBucket[] }>();
+
+/** Kaydın gün gün dökümü (sıralı). Tarihsiz kayıtta boş. */
+export function dayBuckets(s: FileSummary): DayBucket[] {
+  const tz = tzKey(s);
+  const hit = bucketCache.get(s);
+  if (hit && hit.tz === tz) return hit.days;
+  const zone = tzOf(s);
+  const hours = Array.isArray(s.hours) ? s.hours : [];
+  const start = s.stats.startTime;
+  let days: DayBucket[];
+  if (hours.length === 0) {
+    days = start == null ? [] : [{ day: dayKey(start, zone), distanceM: s.stats.distanceM, movingMs: s.stats.movingMs ?? 0 }];
+  } else {
+    const map = new Map<string, DayBucket>();
+    for (const [h, dist, moving] of hours) {
+      // İlk saat dilimi kaydın başlangıcından önce başlayabilir.
+      const k = fastDayKey(start != null ? Math.max(h, start) : h, zone);
+      const b = map.get(k);
+      if (b) {
+        b.distanceM += dist;
+        b.movingMs += moving;
+      } else map.set(k, { day: k, distanceM: dist, movingMs: moving });
+    }
+    days = [...map.values()].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+  }
+  bucketCache.set(s, { tz, days });
+  return days;
+}
+
+/** Kayıt birden çok güne yayılıyor mu? */
+export const isMultiDay = (s: FileSummary) => dayBuckets(s).length > 1;
+
+/** Gün yyyy-aa-gg aralıkta mı ("" = sınırsız). */
+export const dayIn = (day: string, from: string, to: string) => (!from || day >= from) && (!to || day <= to);
+
+/** Kaydın herhangi bir günü aralığa düşüyor mu? */
+export function touchesRange(s: FileSummary, from: string, to: string): boolean {
+  const days = dayBuckets(s);
+  if (days.length === 0) return false;
+  // Sıralı: ilk ve son gün aralığın dışında kalıyorsa ve aralık arada değilse düşmez.
+  if (from && days[days.length - 1].day < from) return false;
+  if (to && days[0].day > to) return false;
+  return days.some((d) => dayIn(d.day, from, to));
+}
+
+export interface RangePart {
+  distanceM: number;
+  movingMs: number;
+  days: number;
+}
+
+/** Kaydın aralığa düşen günlerinin toplamı. */
+export function rangePart(s: FileSummary, from: string, to: string): RangePart {
+  let distanceM = 0,
+    movingMs = 0,
+    days = 0;
+  for (const d of dayBuckets(s)) {
+    if (!dayIn(d.day, from, to)) continue;
+    distanceM += d.distanceM;
+    movingMs += d.movingMs;
+    days++;
+  }
+  return { distanceM, movingMs, days };
+}
+
+/** Kaydın tamamı aralığın içinde mi (kırpmaya gerek yok). */
+export function fullyInRange(s: FileSummary, from: string, to: string): boolean {
+  const days = dayBuckets(s);
+  if (days.length === 0) return true;
+  return dayIn(days[0].day, from, to) && dayIn(days[days.length - 1].day, from, to);
+}
+
+export interface ClippedGeometry {
+  lines: [number, number][][];
+  gaps: FileSummary["gaps"];
+  bbox: [number, number, number, number] | null;
+}
+
+const clipCache = new WeakMap<FileSummary, { key: string; geo: ClippedGeometry }>();
+
+/** Haritada çizilecek kısım: zamanı aralık dışındaki noktalar atılır (zamansız
+ * noktalar kalır), çizgi aralık sınırlarında bölünür. Boşluklar da her iki ucu
+ * aralıkta kalıyorsa çizilir. */
+export function clipToRange(s: FileSummary, from: string, to: string): ClippedGeometry {
+  const whole: ClippedGeometry = { lines: s.lines, gaps: s.gaps ?? [], bbox: s.stats.bbox };
+  if ((!from && !to) || fullyInRange(s, from, to)) return whole;
+  const key = `${tzKey(s)}|${from}|${to}`;
+  const hit = clipCache.get(s);
+  if (hit && hit.key === key) return hit.geo;
+  const zone = tzOf(s);
+  const inT = (t: number | null | undefined) => t == null || dayIn(fastDayKey(t, zone), from, to);
+  const lines: [number, number][][] = [];
+  let bb = null as [number, number, number, number] | null;
+  for (let li = 0; li < s.lines.length; li++) {
+    const line = s.lines[li];
+    const times = s.times[li];
+    let cur: [number, number][] = [];
+    for (let i = 0; i < line.length; i++) {
+      if (inT(times?.[i])) {
+        const p = line[i];
+        cur.push(p);
+        if (!bb) bb = [p[0], p[1], p[0], p[1]];
+        else {
+          if (p[0] < bb[0]) bb[0] = p[0];
+          if (p[1] < bb[1]) bb[1] = p[1];
+          if (p[0] > bb[2]) bb[2] = p[0];
+          if (p[1] > bb[3]) bb[3] = p[1];
+        }
+      } else if (cur.length) {
+        if (cur.length > 1) lines.push(cur);
+        cur = [];
+      }
+    }
+    if (cur.length > 1) lines.push(cur);
+  }
+  const gaps = (s.gaps ?? []).filter((g) => inT(g.start) && inT(g.end));
+  const geo: ClippedGeometry = { lines, gaps, bbox: bb };
+  clipCache.set(s, { key, geo });
+  return geo;
+}
+
+export interface DetailDay {
+  day: string;
+  /** Ayrıntı örneklerinde ilk ve son sıra. */
+  start: number;
+  end: number;
+  distanceM: number;
+}
+
+const detailDayCache = new WeakMap<object, { key: string; days: DetailDay[] }>();
+
+/** Ayrıntı (grafik) örneklerinin gün gün sıra aralıkları; mesafe özetin günlük
+ * dökümünden (boşluklar hariç), yoksa örneklerden. */
+export function detailDays(
+  s: FileSummary,
+  d: { time: (number | null)[]; dist: number[] },
+): DetailDay[] {
+  const key = `${tzKey(s)}|${s.path}`;
+  const hit = detailDayCache.get(d);
+  if (hit && hit.key === key) return hit.days;
+  const zone = tzOf(s);
+  const byDay = new Map<string, DetailDay>();
+  for (let i = 0; i < d.time.length; i++) {
+    const t = d.time[i];
+    if (t == null) continue;
+    const k = fastDayKey(t, zone);
+    const x = byDay.get(k);
+    if (x) {
+      if (i < x.start) x.start = i;
+      if (i > x.end) x.end = i;
+    } else byDay.set(k, { day: k, start: i, end: i, distanceM: 0 });
+  }
+  const dist = new Map(dayBuckets(s).map((b) => [b.day, b.distanceM]));
+  const days = [...byDay.values()].sort((a, b) => a.start - b.start);
+  for (const x of days) x.distanceM = dist.get(x.day) ?? d.dist[x.end] - d.dist[x.start];
+  detailDayCache.set(d, { key, days });
+  return days;
+}
+
+export interface Share {
+  distanceM: number;
+  movingMs: number;
+  /** Tırmanışın günlük dökümü yok: mesafe oranında paylaştırılır. */
+  gainM: number;
+  /** Kaydın yalnızca bir kısmı aralıkta. */
+  partial: boolean;
+}
+
+/** Tarih filtresi açıkken kaydın toplamlara katılan payı; filtre yoksa ya da
+ * kaydın tamamı aralıktaysa kaydın kendi değerleri. */
+export function rangeShare(s: FileSummary, from: string, to: string): Share {
+  const st = s.stats;
+  if ((!from && !to) || st.startTime == null || fullyInRange(s, from, to))
+    return { distanceM: st.distanceM, movingMs: st.movingMs ?? 0, gainM: st.elevationGainM ?? 0, partial: false };
+  const r = rangePart(s, from, to);
+  const frac = st.distanceM > 0 ? r.distanceM / st.distanceM : 0;
+  return { distanceM: r.distanceM, movingMs: r.movingMs, gainM: (st.elevationGainM ?? 0) * frac, partial: true };
+}

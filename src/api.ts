@@ -68,6 +68,9 @@ export interface FileSummary {
   removedPoints: number;
   /** Uzun duraklamalarda tek noktaya indirildiği için çıkarılan nokta sayısı. */
   collapsedPoints: number;
+  /** Saatlik döküm: [saat başı (Unix ms, UTC), mesafe m, hareket ms]; yalnızca
+   * verisi olan saatler, boşluklar hariç, sıralı. Eski önbellekte olmayabilir. */
+  hours?: [number, number, number][];
 }
 
 export type Activity = "walk" | "run" | "bike" | "car" | "unknown";

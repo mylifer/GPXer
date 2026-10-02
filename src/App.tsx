@@ -54,6 +54,7 @@ import { linesHitBox } from "./geo";
 import { METRICS, SEQ_DARK, SEQ_LIGHT, defaultColor, placeLabel, rampColor, type FileEntry } from "./types";
 import { loadPrefs, savePrefs, type Filters, type Prefs } from "./prefs";
 import { HelpDialog } from "./components/HelpDialog";
+import { dayBuckets, detailDays, rangeShare, touchesRange } from "./days";
 import { dayKey, fmtDate, fmtNumber, fmtUnit, monthLabel, setTzMode, tzOf, type TzMode } from "./format";
 import { csvFor } from "./csv";
 
@@ -314,12 +315,9 @@ export default function App() {
       if (fl.route && (!activeRoute || routeInfo.byPath.get(s.path) !== activeRoute)) return false;
       if (fl.area && !linesHitBox(s.lines, fl.area, s.stats.bbox)) return false;
       if (!dateOn) return true;
-      const t = s.stats.startTime;
-      if (t == null) return fl.includeUndated;
-      const day = dayKey(t, tzOf(s));
-      if (fl.from && day < fl.from) return false;
-      if (fl.to && day > fl.to) return false;
-      return true;
+      if (s.stats.startTime == null) return fl.includeUndated;
+      // Birden çok güne yayılan kayıt, günlerinden biri aralıktaysa uyar.
+      return touchesRange(s, fl.from, fl.to);
     });
     // Tarihsiz kayıtlar tarih sıralamasında her zaman en sonda.
     const byDate = (a: FileEntry, b: FileEntry, dir: number) => {
@@ -358,11 +356,12 @@ export default function App() {
         map.set(key, g);
       }
       g.items.push(f);
-      g.distanceM += f.summary.stats.distanceM;
-      g.movingMs += f.summary.stats.movingMs ?? 0;
+      const part = rangeShare(f.summary, prefs.filters.from, prefs.filters.to);
+      g.distanceM += part.distanceM;
+      g.movingMs += part.movingMs;
     }
     return [...map.values()];
-  }, [shown, prefs.groupBy, prefs.tzMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shown, prefs.groupBy, prefs.tzMode, prefs.filters.from, prefs.filters.to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const collapsed = useMemo(() => new Set(prefs.collapsed), [prefs.collapsed]);
 
@@ -376,13 +375,16 @@ export default function App() {
   const years = useMemo(() => {
     const ys = new Set<number>();
     for (const f of files) {
-      const t = f.summary.stats.startTime;
-      if (t != null) ys.add(Number(dayKey(t, tzOf(f.summary)).slice(0, 4)));
+      for (const d of dayBuckets(f.summary)) ys.add(Number(d.day.slice(0, 4)));
     }
     return [...ys].sort((a, b) => b - a);
   }, [files, prefs.tzMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onMap = useMemo(() => shown.filter((f) => f.visible), [shown]);
+  const dateWindow = useMemo(
+    () => (prefs.filters.from || prefs.filters.to ? { from: prefs.filters.from, to: prefs.filters.to } : null),
+    [prefs.filters.from, prefs.filters.to],
+  );
   const onMapRef = useRef(onMap);
   onMapRef.current = onMap;
   const selectedEntry = useMemo(
@@ -1147,6 +1149,30 @@ export default function App() {
     mapRef.current?.fitPoints(pts);
   }, [detail, range]);
 
+  /** Gün seçimi: aralığı o günün örneklerine ayarlar ve haritada gösterir. */
+  const pickDay = useCallback(
+    (r: [number, number] | null) => {
+      setRange(r);
+      if (!detail || !r) return;
+      const pts: [number, number][] = [];
+      for (let i = r[0]; i <= r[1]; i++) pts.push([detail.lon[i], detail.lat[i]]);
+      mapRef.current?.fitPoints(pts);
+    },
+    [detail],
+  );
+
+  // Tarih filtresi tek güne ayarlıysa (ör. takvimde güne tıklama) çok günlü
+  // kaydın o günü kendiliğinden seçilir.
+  const oneDay = prefs.filters.from && prefs.filters.from === prefs.filters.to ? prefs.filters.from : "";
+  const selSummary = selectedEntry?.summary ?? null;
+  useEffect(() => {
+    if (!oneDay || !detail || !selSummary) return;
+    const days = detailDays(selSummary, detail);
+    if (days.length < 2) return;
+    const d = days.find((x) => x.day === oneDay);
+    if (d) pickDay([d.start, d.end]);
+  }, [oneDay, detail]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const metricLegend = useMemo(() => {
     if (!detail || prefs.trackColorBy === "none") return null;
     const d = metricDomain(detail[prefs.trackColorBy] as (number | null)[]);
@@ -1269,6 +1295,7 @@ export default function App() {
             showGaps={prefs.showGaps}
             highlight={compare}
             cursors={cursors}
+            dateWindow={dateWindow}
           />
           <div className="map-toolbar">
             <button
@@ -1532,6 +1559,7 @@ export default function App() {
             onHover={onHoverIdx}
             range={range}
             onRange={setRange}
+            onPickDay={pickDay}
             rangeStats={rangeSt}
             onZoomRange={zoomRange}
             onTrim={trim}
@@ -1580,6 +1608,8 @@ export default function App() {
       {dialog === "summary" && (
         <SummaryPanel
           files={shown}
+          from={prefs.filters.from}
+          to={prefs.filters.to}
           routes={routeInfo.routes}
           onRoute={(r) => {
             setDialog(null);

@@ -15,8 +15,10 @@ import {
   fmtSpeed,
   fmtTimestamp,
   fmtUnit,
+  isoToTr,
   tzOf,
 } from "../format";
+import { detailDays } from "../days";
 import { ProfileChart, canUseTime, hasMetric, metricValues } from "./ProfileChart";
 
 const ALL_METRICS: Metric[] = ["ele", "speed", "hr", "cad", "power", "temp"];
@@ -40,6 +42,8 @@ interface Props {
   onHover(index: number | null): void;
   range: [number, number] | null;
   onRange(r: [number, number] | null): void;
+  /** Gün seçimi: aralığı seçer ve haritada o güne yakınlaştırır. */
+  onPickDay(r: [number, number] | null): void;
   rangeStats: Stats | null;
   onZoomRange(): void;
   onTrim(): void;
@@ -147,6 +151,14 @@ export function DetailPanel(p: Props) {
     return available.length ? available.slice(0, 1) : ELE_ONLY;
   }, [p.metrics, available]);
 
+  // Birden çok güne yayılan kayıtta gün gün gezinme.
+  const days = useMemo(() => (d ? detailDays(s, d) : []), [s, d]);
+  const dayIdx = p.range ? days.findIndex((x) => x.start === p.range![0] && x.end === p.range![1]) : -1;
+  const goDay = (i: number) => {
+    const x = days[i];
+    p.onPickDay(x ? [x.start, x.end] : null);
+  };
+
   const toggleMetric = (m: Metric) => {
     const next = p.metrics.includes(m) ? p.metrics.filter((x) => x !== m) : [...p.metrics, m];
     p.onMetrics(ALL_METRICS.filter((x) => next.includes(x)));
@@ -210,6 +222,40 @@ export function DetailPanel(p: Props) {
             </label>
           ))}
         </div>
+        {days.length > 1 && (
+          <div className="day-pick" role="group" aria-label="Gün">
+            <button
+              className="btn small"
+              onClick={() => goDay(dayIdx < 0 ? days.length - 1 : dayIdx - 1)}
+              disabled={dayIdx === 0}
+              title="Önceki gün"
+              aria-label="Önceki gün"
+            >
+              ‹
+            </button>
+            <select
+              value={dayIdx < 0 ? "" : String(dayIdx)}
+              onChange={(e) => goDay(e.target.value === "" ? -1 : Number(e.target.value))}
+              title="Kaydın bir gününü seç (grafikte ve haritada o gün seçilir)"
+            >
+              <option value="">Tüm kayıt · {fmtNumber(days.length)} gün</option>
+              {days.map((x, k) => (
+                <option key={x.day} value={k}>
+                  {isoToTr(x.day)} · {fmtDistance(x.distanceM)}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn small"
+              onClick={() => goDay(dayIdx < 0 ? 0 : dayIdx + 1)}
+              disabled={dayIdx === days.length - 1}
+              title="Sonraki gün"
+              aria-label="Sonraki gün"
+            >
+              ›
+            </button>
+          </div>
+        )}
         <div className="segmented small" role="group" aria-label="Yatay eksen">
           <button className={p.xAxis === "dist" || !timeOk ? "active" : ""} onClick={() => p.onXAxis("dist")}>
             Mesafe
@@ -259,7 +305,7 @@ export function DetailPanel(p: Props) {
 
       {p.range && (
         <div className="range-bar">
-          <strong>Seçili aralık</strong>
+          <strong>{dayIdx >= 0 ? isoToTr(days[dayIdx].day) : "Seçili aralık"}</strong>
           {p.rangeStats ? (
             <span className="range-stats">
               {fmtDistance(p.rangeStats.distanceM)} · {fmtDuration(p.rangeStats.durationMs)} ·{" "}

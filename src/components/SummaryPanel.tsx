@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import type { FileEntry } from "../types";
 import {
   MONTHS,
-  dayKey,
   fmtDate,
   fmtDistance,
   fmtDuration,
@@ -13,6 +12,7 @@ import {
   tzOf,
 } from "../format";
 import { periodRange } from "./DateRange";
+import { dayBuckets, dayIn, rangeShare } from "../days";
 import { Modal } from "./Modal";
 import { CalendarHeatmap } from "./CalendarHeatmap";
 import { ACTIVITIES, placeLabel } from "../types";
@@ -47,6 +47,9 @@ function niceMax(v: number): number {
 
 interface Props {
   files: FileEntry[];
+  /** Kenar çubuğundaki tarih filtresi ("" = sınırsız). */
+  from: string;
+  to: string;
   routes: Route[];
   onPeriod(from: string, to: string): void;
   onOpen(path: string): void;
@@ -55,7 +58,7 @@ interface Props {
   onClose(): void;
 }
 
-export function SummaryPanel({ files, routes, onPeriod, onOpen, onRoute, onActivity, onClose }: Props) {
+export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRoute, onActivity, onClose }: Props) {
   const [period, setPeriod] = useState<Period>("month");
   const [measure, setMeasure] = useState<Measure>("distance");
   const [hover, setHover] = useState<number | null>(null);
@@ -65,19 +68,30 @@ export function SummaryPanel({ files, routes, onPeriod, onOpen, onRoute, onActiv
 
   const buckets = useMemo<Bucket[]>(() => {
     const map = new Map<string, Bucket>();
+    const len = period === "month" ? 7 : 4;
     for (const f of dated) {
       const s = f.summary;
-      const day = dayKey(s.stats.startTime!, tzOf(s));
-      const key = period === "month" ? day.slice(0, 7) : day.slice(0, 4);
-      let b = map.get(key);
-      if (!b) {
-        b = { key, label: "", short: "", distance: 0, moving: 0, gain: 0, count: 0 };
-        map.set(key, b);
-      }
-      b.distance += s.stats.distanceM;
-      b.moving += s.stats.movingMs ?? 0;
-      b.gain += s.stats.elevationGainM ?? 0;
-      b.count += 1;
+      // Birden çok güne yayılan kayıt: mesafe ve süre verisi olan günlere göre
+      // dönemlere dağılır; tırmanışın günlük dökümü olmadığından mesafe oranında.
+      const days = dayBuckets(s);
+      const total = s.stats.distanceM;
+      const gain = s.stats.elevationGainM ?? 0;
+      let last = "";
+      days.forEach((d, i) => {
+        if (!dayIn(d.day, from, to)) return;
+        const key = d.day.slice(0, len);
+        let b = map.get(key);
+        if (!b) {
+          b = { key, label: "", short: "", distance: 0, moving: 0, gain: 0, count: 0 };
+          map.set(key, b);
+        }
+        b.distance += d.distanceM;
+        b.moving += d.movingMs;
+        b.gain += total > 0 ? (gain * d.distanceM) / total : i === 0 ? gain : 0;
+        // Kayıt, dokunduğu her dönemde bir kez sayılır (günler sıralı).
+        if (key !== last) b.count += 1;
+        last = key;
+      });
     }
     if (map.size === 0) return [];
     // Boş dönemler de eksende yer alsın ki aralar görünsün.
@@ -110,22 +124,24 @@ export function SummaryPanel({ files, routes, onPeriod, onOpen, onRoute, onActiv
       }
     }
     return out;
-  }, [dated, period]);
+  }, [dated, period, from, to]);
 
   const totals = useMemo(() => {
     let distance = 0,
       moving = 0,
       gain = 0;
     const days = new Set<string>();
+    let partial = 0;
     for (const f of files) {
-      const s = f.summary.stats;
-      distance += s.distanceM;
-      moving += s.movingMs ?? 0;
-      gain += s.elevationGainM ?? 0;
-      if (s.startTime != null) days.add(dayKey(s.startTime, tzOf(f.summary)));
+      const part = rangeShare(f.summary, from, to);
+      distance += part.distanceM;
+      moving += part.movingMs;
+      gain += part.gainM;
+      if (part.partial) partial++;
+      for (const d of dayBuckets(f.summary)) if (dayIn(d.day, from, to)) days.add(d.day);
     }
-    return { distance, moving, gain, days: days.size, count: files.length };
-  }, [files]);
+    return { distance, moving, gain, days: days.size, count: files.length, partial };
+  }, [files, from, to]);
 
   const records = useMemo(() => {
     const best = (score: (f: FileEntry) => number | null) => {
@@ -204,13 +220,18 @@ export function SummaryPanel({ files, routes, onPeriod, onOpen, onRoute, onActiv
             <strong>{fmtDistance(totals.count ? totals.distance / totals.count : 0)}</strong>
           </div>
         </div>
-        <p className="muted small-note">Kenar çubuğundaki filtreye uyan {fmtNumber(files.length)} kayıt.</p>
+        <p className="muted small-note">
+          Kenar çubuğundaki filtreye uyan {fmtNumber(files.length)} kayıt.
+          {totals.partial > 0 &&
+            ` Tarih aralığının dışına taşan ${fmtNumber(totals.partial)} kaydın yalnızca aralıktaki günleri sayıldı (tırmanış mesafe oranında).`}
+          {" "}Birden çok güne yayılan kayıtlar, verisi olan her güne ve döneme dağıtılır.
+        </p>
 
         <div className="type-tiles">
           {ACTIVITIES.map((a) => {
             const list = files.filter((f) => f.summary.activity === a.id);
             if (!list.length) return null;
-            const dist = list.reduce((x, f) => x + f.summary.stats.distanceM, 0);
+            const dist = list.reduce((x, f) => x + rangeShare(f.summary, from, to).distanceM, 0);
             return (
               <button key={a.id} className="type-tile" onClick={() => onActivity(a.id)} title="Listeyi bu türe göre filtrele">
                 <span>
@@ -224,7 +245,7 @@ export function SummaryPanel({ files, routes, onPeriod, onOpen, onRoute, onActiv
         </div>
 
         <h3 className="chart-title">Takvim</h3>
-        <CalendarHeatmap files={files} onDay={(iso) => onPeriod(iso, iso)} />
+        <CalendarHeatmap files={files} from={from} to={to} onDay={(iso) => onPeriod(iso, iso)} />
 
         <div className="filter-row summary-controls">
           <div className="segmented small">

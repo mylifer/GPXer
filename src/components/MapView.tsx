@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
 import {
   type GeoJSONSource,
@@ -15,6 +15,7 @@ import { METRICS, SEQ_DARK, SEQ_LIGHT, type FileEntry } from "../types";
 import type { TrackColorBy } from "../prefs";
 import { fmtDate, fmtDistance, fmtDuration, fmtKmh, fmtNumber, fmtTime, fmtTimestamp, fmtUnit, tzOf } from "../format";
 import { metersBetween, type BBox } from "../geo";
+import { clipToRange, dayIn, fastDayKey } from "../days";
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -70,6 +71,8 @@ interface Props {
   highlight: string[] | null;
   /** Ek imleçler (karşılaştırma). */
   cursors: { lon: number; lat: number; color: string }[];
+  /** Tarih filtresi (yoksa null): kayıtların yalnızca bu günlere düşen kısmı çizilir. */
+  dateWindow: DateWindow | null;
 }
 
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -191,21 +194,30 @@ async function addVectorBase(map: maplibregl.Map, id: BaseLayer, url: string): P
   return true;
 }
 
-function tracksGeoJSON(files: FileEntry[]): GeoJSON.FeatureCollection {
+/** Tarih filtresi: aralığın dışına taşan kayıtların yalnızca aralıktaki kısmı çizilir. */
+export interface DateWindow {
+  from: string;
+  to: string;
+}
+
+const geoOf = (f: FileEntry, win: DateWindow | null) =>
+  win ? clipToRange(f.summary, win.from, win.to) : { lines: f.summary.lines, gaps: f.summary.gaps ?? [], bbox: f.summary.stats.bbox };
+
+function tracksGeoJSON(files: FileEntry[], win: DateWindow | null): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
     features: files.map((f) => ({
       type: "Feature",
       properties: { path: f.summary.path, color: f.color },
-      geometry: { type: "MultiLineString", coordinates: f.summary.lines },
+      geometry: { type: "MultiLineString", coordinates: geoOf(f, win).lines },
     })),
   };
 }
 
-function gapsGeoJSON(files: FileEntry[]): GeoJSON.FeatureCollection {
+function gapsGeoJSON(files: FileEntry[], win: DateWindow | null): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   for (const f of files) {
-    for (const g of f.summary.gaps ?? []) {
+    for (const g of geoOf(f, win).gaps) {
       features.push({
         type: "Feature",
         properties: {
@@ -247,10 +259,10 @@ function waypointsGeoJSON(files: FileEntry[]): GeoJSON.FeatureCollection {
 
 /** Isı haritası için izleri eşit aralıklı noktalara böler; böylece virajlı
  * yerler (sadeleştirmede daha çok nokta kalır) olduğundan yoğun görünmez. */
-function heatGeoJSON(files: FileEntry[], stepM = 40): GeoJSON.FeatureCollection {
+function heatGeoJSON(files: FileEntry[], win: DateWindow | null, stepM = 40): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   for (const f of files) {
-    for (const line of f.summary.lines) {
+    for (const line of geoOf(f, win).lines) {
       let carry = 0;
       for (let j = 0; j + 1 < line.length; j++) {
         const [x0, y0] = line[j];
@@ -274,10 +286,10 @@ function heatGeoJSON(files: FileEntry[], stepM = 40): GeoJSON.FeatureCollection 
   return { type: "FeatureCollection", features };
 }
 
-export function boundsOf(files: FileEntry[]): LngLatBoundsLike | null {
+export function boundsOf(files: FileEntry[], win: DateWindow | null = null): LngLatBoundsLike | null {
   let b: [number, number, number, number] | null = null;
   for (const f of files) {
-    const x = f.summary.stats.bbox;
+    const x = geoOf(f, win).bbox;
     if (!x) continue;
     b = b ? [Math.min(b[0], x[0]), Math.min(b[1], x[1]), Math.max(b[2], x[2]), Math.max(b[3], x[3])] : [...x];
   }
@@ -346,10 +358,12 @@ function nearestDetail(d: Detail, lon: number, lat: number): number {
 }
 
 /** Seçili kaydın duraklamaları. */
-function stopsGeoJSON(entry: FileEntry | undefined): GeoJSON.FeatureCollection {
+function stopsGeoJSON(entry: FileEntry | undefined, win: DateWindow | null): GeoJSON.FeatureCollection {
+  const zone = entry ? tzOf(entry.summary) : undefined;
+  const stops = (entry?.summary.stops ?? []).filter((st) => !win || dayIn(fastDayKey(st.start, zone), win.from, win.to));
   return {
     type: "FeatureCollection",
-    features: (entry?.summary.stops ?? []).map((st) => ({
+    features: stops.map((st) => ({
       type: "Feature",
       properties: { kind: "stop", start: st.start, dur: st.durationMs, tz: entry?.summary.timeZone ?? "" },
       geometry: { type: "Point", coordinates: [st.lon, st.lat] },
@@ -428,19 +442,37 @@ const gapKey = (p: [number, number]) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`;
 
 /** Özetteki boşlukların uç noktaları: "başlangıç|bitiş" anahtarları. Özette
  * boşluk bilgisi yoksa (eski önbellek) null: o zaman kural ile tahmin edilir. */
-function gapEnds(summary: FileSummary | null | undefined): Set<string> | null {
+interface GapEnds {
+  keys: Set<string>;
+  /** Zamanlı boşlukların [başlangıç, bitiş] aralıkları: seyreltilmiş ayrıntıda
+   * boşluğun uç noktaları örneklere denk gelmeyebilir. */
+  spans: [number, number][];
+}
+
+function gapEnds(summary: FileSummary | null | undefined): GapEnds | null {
   if (!summary || !Array.isArray(summary.gaps)) return null;
-  return new Set(summary.gaps.map((g) => `${gapKey(g.from)}|${gapKey(g.to)}`));
+  return {
+    keys: new Set(summary.gaps.map((g) => `${gapKey(g.from)}|${gapKey(g.to)}`)),
+    spans: summary.gaps
+      .filter((g) => g.start != null && g.end != null)
+      .map((g) => [g.start!, g.end!] as [number, number]),
+  };
 }
 
 /** Ardışık iki ayrıntı örneği bir kayıt boşluğunun (uçuş, sinyal kaybı) iki
  *  yakasında mı? Özetteki boşluklar biliniyorsa yalnızca onlar kullanılır
  *  (seyreltilmiş uzun kayıtlarda kural, örnekler arası uzun adımları yanlışlıkla
  *  boşluk sayabilir); bilinmiyorsa gpx-core'daki is_gap kuralı uygulanır. */
-function isGapStep(d: Detail, i: number, ends: Set<string> | null): boolean {
+function isGapStep(d: Detail, i: number, ends: GapEnds | null): boolean {
   const a: [number, number] = [d.lon[i], d.lat[i]];
   const b: [number, number] = [d.lon[i + 1], d.lat[i + 1]];
-  if (ends) return ends.size > 0 && ends.has(`${gapKey(a)}|${gapKey(b)}`);
+  if (ends) {
+    if (ends.keys.size === 0) return false;
+    if (ends.keys.has(`${gapKey(a)}|${gapKey(b)}`)) return true;
+    const ta = d.time[i];
+    const tb = d.time[i + 1];
+    return ta != null && tb != null && ends.spans.some(([s, e]) => s >= ta && e <= tb);
+  }
   const dist = metersBetween(a, b);
   const ta = d.time[i];
   const tb = d.time[i + 1];
@@ -493,14 +525,21 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     highlight,
     cursors,
     selectedSummary,
+    dateWindow,
   } = props;
+  const winFrom = dateWindow?.from ?? "";
+  const winTo = dateWindow?.to ?? "";
+  // Nesne her çizimde yeni olabilir: efektler dizgelere bağlı.
+  const win = useMemo<DateWindow | null>(() => (winFrom || winTo ? { from: winFrom, to: winTo } : null), [winFrom, winTo]);
   const selGaps = selectedSummary?.gaps;
   const box = useRef<HTMLDivElement>(null);
+  const winRef = useRef(win);
+  winRef.current = win;
 
   useImperativeHandle(ref, () => ({
     fitFiles(list) {
       const map = mapRef.current;
-      const b = boundsOf(list);
+      const b = boundsOf(list, winRef.current);
       if (!map || !b) return;
       map.fitBounds(b, { padding: 60, maxZoom: 16, duration: 600 });
     },
@@ -905,11 +944,11 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
 
   useEffect(() => {
     whenReady((map) => {
-      setData(map, "tracks", tracksGeoJSON(files));
-      setData(map, "gaps", gapsGeoJSON(files));
+      setData(map, "tracks", tracksGeoJSON(files, win));
+      setData(map, "gaps", gapsGeoJSON(files, win));
       setData(map, "waypoints", waypointsGeoJSON(files));
     });
-  }, [files]);
+  }, [files, win]);
 
   // İz listesi ya da seçim değişince eski bilgi kutusu ekranda kalmasın (sonraki
   // fare hareketinde yeniden açılır); kaybolan izi gösteren seçim penceresi kapanır.
@@ -928,8 +967,8 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
   }, [files, selected]);
 
   useEffect(() => {
-    whenReady((map) => setData(map, "heat", heatmap ? heatGeoJSON(files) : EMPTY));
-  }, [files, heatmap]);
+    whenReady((map) => setData(map, "heat", heatmap ? heatGeoJSON(files, win) : EMPTY));
+  }, [files, heatmap, win]);
 
   const dark = baseLayer === "dark" || baseLayer === "satellite";
 
@@ -978,8 +1017,8 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
 
   // Seçili kaydın duraklamaları ve sık durulan yerler.
   useEffect(() => {
-    whenReady((map) => setData(map, "stops", stopsGeoJSON(files.find((f) => f.summary.path === selected))));
-  }, [files, selected]);
+    whenReady((map) => setData(map, "stops", stopsGeoJSON(files.find((f) => f.summary.path === selected), win)));
+  }, [files, selected, win]);
   useEffect(() => {
     whenReady((map) => {
       map.setLayoutProperty("hotspots", "visibility", stopsLayer ? "visible" : "none");

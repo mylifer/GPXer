@@ -3,7 +3,8 @@ import type { FileEntry } from "../types";
 import { ACTIVITIES, activityOf, placeLabel } from "../types";
 import type { FileMeta } from "../api";
 import { filtersActive, resetFilters, type Filters, type GroupBy, type SortKey } from "../prefs";
-import { fmtDate, fmtDistance, fmtDuration, fmtElevation, fmtNumber, tzOf, type TzMode } from "../format";
+import { fmtDate, fmtDistance, fmtDuration, fmtElevation, fmtNumber, isoToTr, tzOf, type TzMode } from "../format";
+import { dayBuckets, rangeShare } from "../days";
 import { DateRange } from "./DateRange";
 
 export interface Group {
@@ -78,6 +79,8 @@ const Row = memo(function Row({
   selected,
   inMulti,
   tags,
+  from,
+  to,
   top,
   height,
   onRowClick,
@@ -91,6 +94,9 @@ const Row = memo(function Row({
   tags: string[] | undefined;
   /** Yalnızca memo karşılaştırması için: saat dilimi kipi değişince tarih yeniden yazılsın. */
   tzMode: TzMode;
+  /** Tarih filtresi (aralıktaki payı göstermek için). */
+  from: string;
+  to: string;
   top: number;
   height: number;
   onRowClick(path: string, mods: RowModifiers): void;
@@ -100,6 +106,8 @@ const Row = memo(function Row({
 }) {
   const s = entry.summary;
   const place = placeLabel(s);
+  const days = dayBuckets(s);
+  const share = rangeShare(s, from, to);
   return (
     <li
       className={`file-row${selected ? " selected" : ""}${inMulti ? " multi" : ""}${entry.visible ? "" : " hidden-track"}`}
@@ -126,12 +134,23 @@ const Row = memo(function Row({
           {s.name || s.fileName}
         </div>
         <div className="file-meta">
-          <span>{s.stats.startTime != null ? fmtDate(s.stats.startTime, tzOf(s)) : "Tarihsiz"}</span>
+          <span>
+            {days.length > 1
+              ? `${isoToTr(days[0].day)} – ${isoToTr(days[days.length - 1].day)} · ${fmtNumber(days.length)} gün`
+              : s.stats.startTime != null
+                ? fmtDate(s.stats.startTime, tzOf(s))
+                : "Tarihsiz"}
+          </span>
           <span>{fmtDistance(s.stats.distanceM)}</span>
           {s.stats.movingMs != null && <span>{fmtDuration(s.stats.movingMs)}</span>}
         </div>
-        {(!!place || !!tags?.length) && (
+        {(!!place || !!tags?.length || share.partial) && (
           <div className="file-meta sub">
+            {share.partial && (
+              <span className="in-range" title="Kaydın tarih filtresindeki günlere düşen kısmı">
+                bu aralıkta {fmtDistance(share.distanceM)}
+              </span>
+            )}
             {place && <span className="place">{place}</span>}
             {tags?.map((t) => (
               <span key={t} className="tag mini">
@@ -156,7 +175,8 @@ const Row = memo(function Row({
 });
 
 
-const hasSub = (f: FileEntry, tags: string[] | undefined) => !!placeLabel(f.summary) || !!tags?.length;
+const hasSub = (f: FileEntry, tags: string[] | undefined, from: string, to: string) =>
+  !!placeLabel(f.summary) || !!tags?.length || rangeShare(f.summary, from, to).partial;
 
 /**
  * Sanal liste: yalnızca görünen satırlar (ve biraz fazlası) çizilir. Satır
@@ -183,7 +203,7 @@ function FileList(p: Props) {
     let y = 0;
     const addRows = (list: FileEntry[], groupKey: string | null) => {
       for (const f of list) {
-        const h = hasSub(f, p.meta[f.summary.path]?.tags) ? ROW_SUB_H : ROW_H;
+        const h = hasSub(f, p.meta[f.summary.path]?.tags, p.filters.from, p.filters.to) ? ROW_SUB_H : ROW_H;
         out.push({ kind: "row", key: f.summary.path, top: y, h, entry: f, groupKey });
         y += h;
       }
@@ -197,7 +217,7 @@ function FileList(p: Props) {
       }
     const heads = out.filter((x): x is Extract<Item, { kind: "head" }> => x.kind === "head");
     return { items: out, total: y, heads };
-  }, [p.shown, p.groups, p.groupBy, p.collapsed, p.meta]);
+  }, [p.shown, p.groups, p.groupBy, p.collapsed, p.meta, p.filters.from, p.filters.to]);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -289,6 +309,8 @@ function FileList(p: Props) {
               inMulti={p.multi.has(it.entry.summary.path)}
               tags={p.meta[it.entry.summary.path]?.tags}
               tzMode={p.tzMode}
+              from={p.filters.from}
+              to={p.filters.to}
               top={it.top}
               height={it.h}
               onRowClick={p.onRowClick}
@@ -329,9 +351,10 @@ export const Sidebar = memo(function Sidebar(p: Props) {
     for (const f of p.shown) {
       if (!f.visible) continue;
       visible++;
-      dist += f.summary.stats.distanceM;
-      moving += f.summary.stats.movingMs ?? 0;
-      gain += f.summary.stats.elevationGainM ?? 0;
+      const part = rangeShare(f.summary, p.filters.from, p.filters.to);
+      dist += part.distanceM;
+      moving += part.movingMs;
+      gain += part.gainM;
     }
     return { dist, moving, gain, visible };
   })();
