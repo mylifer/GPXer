@@ -20,9 +20,13 @@ interface Props {
   onSave(s: Settings, tzMode: TzMode): void;
   onPickFolder(): Promise<string | null>;
   onClose(): void;
+  /** Kütüphanedeki kayıt sayısı (boşaltma düğmesi için). */
+  libraryCount: number;
+  /** Kütüphanenin tamamını kaldırır (onay ayrıca sorulur). */
+  onClearLibrary(): void;
 }
 
-export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose }: Props) {
+export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose, libraryCount, onClearLibrary }: Props) {
   const [movingKmh, setMovingKmh] = useState(r1(settings.stats.movingSpeedMs * 3.6));
   const [eleM, setEleM] = useState(settings.stats.elevationThresholdM);
   const [folders, setFolders] = useState(settings.watchedFolders);
@@ -100,7 +104,11 @@ export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose
             <input type="checkbox" checked={clean} onChange={(e) => setClean(e.target.checked)} />
             GPS gürültüsünü temizle
           </label>
-          <small>İzden bir anlığına uzağa fırlayıp geri dönen ya da akla yatkın olmayan hızla atlayan noktalar hesaplara katılmaz. Orijinal dosya değişmez.</small>
+          <small>
+            GPS sıçramaları (izden bir anlığına uzağa fırlayıp geri dönen ya da akla yatkın olmayan hızla atlayan
+            noktalar) haritadan ve hesaplardan çıkarılır. Orijinal dosya değişmez. Değiştirince tüm kayıtlar yeniden
+            hesaplanır.
+          </small>
           <label className="check sub-check">
             <input type="checkbox" checked={stays} disabled={!clean} onChange={(e) => setStays(e.target.checked)} />
             Uzun duraklamalardaki titremeyi tek noktaya indir
@@ -146,6 +154,17 @@ export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose
             }}
           >
             Klasör ekle…
+          </button>
+        </fieldset>
+
+        <fieldset className="danger-zone">
+          <legend>Kütüphane</legend>
+          <small>
+            Kütüphanedeki tüm kayıtları ({libraryCount}) listeden kaldırır. Orijinal dosyalarınız silinmez; hemen
+            ardından “Geri al” ile geri getirebilirsiniz.
+          </small>
+          <button className="btn small danger" onClick={onClearLibrary} disabled={libraryCount === 0}>
+            Kütüphaneyi boşalt…
           </button>
         </fieldset>
 

@@ -18,10 +18,11 @@ ile yazılmıştır.
   dosya rengi değiştirilebilir ve kalıcıdır.
 - Isı haritası: yüzlerce kayıtta en çok geçilen yerler.
 - Harita görüntüsü PNG olarak kaydedilebilir.
-- Duraklamalar: seçili kayıtta 2 dakikadan uzun duraklar haritada işaretlenir;
-  *Duraklar* düğmesi tüm kayıtlarda en çok durulan yerleri gösterir.
-- Alan filtresi: *⬚ Alan* ile haritada bir dikdörtgen çizilir, liste o alandan
-  geçen kayıtlara süzülür ("buradan hangi günler geçtim").
+- Duraklamalar: seçili kayıtta 2 dakikadan uzun duraklamalar haritada
+  işaretlenir; *Duraklamalar* düğmesi tüm kayıtlarda en sık duraklanan yerleri
+  gösterir.
+- Alan filtresi: *⬚ Alan seç* ile haritada bir dikdörtgen çizilir, liste o
+  alandan geçen kayıtlara filtrelenir ("buradan hangi günler geçtim").
 
 **Grafik ve istatistik**
 - Mesafe, toplam/hareket süresi, ortalama/maksimum hız, tempo, tırmanış/iniş,
@@ -34,9 +35,9 @@ ile yazılmıştır.
 - Oynatma: iz, kaydın gerçek zamanına göre 10×–600× hızla canlandırılır,
   harita imleci takip eder.
 - Özet paneli: aylık/yıllık mesafe, süre, tırmanış ve kayıt sayısı grafikleri
-  (tabloya çevrilebilir), rekorlar. Çubuğa tıklayınca liste o döneme süzülür.
+  (tabloya çevrilebilir), rekorlar. Çubuğa tıklayınca liste o döneme filtrelenir.
 - Takvim: yılın her günü o günkü mesafeye göre renklenir; güne tıklayınca liste
-  o güne süzülür.
+  o güne filtrelenir.
 - Tekrarlanan güzergâhlar: aynı yoldan yapılan kayıtlar kendiliğinden
   gruplanır; süreler zaman içinde, en iyi kayıt ve liste filtresiyle görülür.
 - İki kaydı karşılaştırma: iki kayıt seçip *Karşılaştır*; hız/nabız vb. üst
@@ -68,7 +69,7 @@ ile yazılmıştır.
   bulunur. Yer adları GeoNames verisinden gelir; Türkiye'deki yaklaşık 920
   yer adının Türkçe yazımı (ş, ç, ğ, ı, ö, ü) uygulamada bir tabloyla
   düzeltilir, tabloda olmayan küçük yerlerde harfler eksik kalabilir.
-- Etiketler ve notlar; tür ve etikete göre süzme; arama ad, yer, etiket ve
+- Etiketler ve notlar; tür ve etikete göre filtreleme; arama ad, yer, etiket ve
   notta yapılır. Çoklu seçimde toplu etiketleme.
 - `gg.aa.yyyy` biçiminde tarih filtresi (yazarak ya da takvimden), hazır
   aralıklar (bugün, bu hafta, bu ay, son 30 gün, bu yıl…) ve yıl/ay seçimi.
@@ -77,7 +78,9 @@ ile yazılmıştır.
 - Kaldırılan kayıtlar çöp kutusuna gider; hemen "Geri al" ile geri gelir,
   30 gün sonra silinir.
 - Filtreler, gizlenen izler, seçim, harita konumu ve panel boyutu açılışlar
-  arasında hatırlanır.
+  arasında hatırlanır; *Filtreleri sıfırla* hepsini birden kaldırır.
+- Binlerce kayıtlık listeler de akıcıdır (yalnızca görünen satırlar çizilir).
+- Kütüphaneyi boşaltma Ayarlar'dadır ve onay ister.
 
 **Dışa aktarma ve ayarlar**
 - Özet tablosu CSV olarak (Türkçe Excel'in doğrudan açacağı biçimde), seçili
@@ -86,14 +89,18 @@ ile yazılmıştır.
   alınır.
 - Ayarlar: etkinlik türüne göre hazır eşikler, duruyor sayılma hızı,
   yükseklik gürültü eşiği; saatlerin bilgisayarın ya da kaydın yapıldığı yerin
-  saat dilimine göre gösterilmesi; izlenen klasörler.
+  saat dilimine göre gösterilmesi; izlenen klasörler. Hesaplama ayarı
+  değişince kayıtlar yeniden hesaplanırken eski liste görünür kalır ve
+  ilerleme haritada gösterilir.
 
 **Açma yolları ve klavye**
 - Sürükle-bırak, *Dosya Aç…* (Ctrl/⌘+O), *Klasör Aç…* (Ctrl/⌘+Shift+O),
   `.gpx`, `.fit`, `.tcx`, `.kml` dosyalarına çift tıklama.
 - ↑/↓ listede gezinir, Boşluk oynatır/durdurur, Esc seçimi kaldırır,
-  Ctrl/⌘+0 tümünü gösterir, Ctrl/⌘+B kenar çubuğu, Ctrl/⌘+H ısı haritası,
-  Ctrl/⌘+I özet, Ctrl/⌘+E CSV, Ctrl/⌘+S GPX olarak kaydet, Ctrl/⌘+, ayarlar.
+  Ctrl/⌘+0 tüm kayıtlara yakınlaştırır, Ctrl/⌘+B kenar çubuğu,
+  Ctrl/⌘+Shift+H ısı haritası, Ctrl/⌘+I özet, Ctrl/⌘+E CSV, Ctrl/⌘+Shift+E
+  PNG, Ctrl/⌘+S farklı kaydet, Ctrl/⌘+, ayarlar. Tüm kısayollar ve fare
+  hareketleri uygulamada *?* düğmesiyle (ya da ? tuşuyla) görülür.
 
 ## Çok sayıda dosyada performans
 

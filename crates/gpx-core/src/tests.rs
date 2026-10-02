@@ -771,3 +771,107 @@ fn fit_round_trip() {
         }
     }
 }
+
+/// Yazılan FIT dosyasındaki `kind` mesajlarının `field` alanları.
+fn fit_fields(bytes: &[u8], kind: fitparser::profile::MesgNum, field: &str) -> Vec<String> {
+    fitparser::from_bytes(bytes)
+        .unwrap()
+        .iter()
+        .filter(|r| r.kind() == kind)
+        .filter_map(|r| {
+            r.fields()
+                .iter()
+                .find(|f| f.name() == field)
+                .map(|f| f.value().to_string())
+        })
+        .collect()
+}
+
+fn fpt(lat: f64, lon: f64, time: Option<i64>) -> Point {
+    Point {
+        lat,
+        lon,
+        time,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn fit_keeps_segments() {
+    let t0 = 1_700_000_000_000;
+    let seg = |lat: f64, t: i64| -> Vec<Point> {
+        (0..5)
+            .map(|i| fpt(lat + i as f64 * 0.0001, 29.0, Some(t + i * 1000)))
+            .collect()
+    };
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg(41.0, t0), seg(41.001, t0 + 600_000)],
+        }],
+        ..Default::default()
+    };
+    let bytes = formats::write_fit(&gpx, Activity::Walk);
+    use fitparser::profile::MesgNum;
+    // Her segment ayrı tur; arada zamanlayıcı durdu/başladı.
+    assert_eq!(fit_fields(&bytes, MesgNum::Lap, "start_time").len(), 2);
+    assert_eq!(
+        fit_fields(&bytes, MesgNum::Session, "num_laps"),
+        vec!["2".to_owned()]
+    );
+    assert_eq!(
+        fit_fields(&bytes, MesgNum::Event, "event_type"),
+        ["start", "stop_all", "start", "stop_all"]
+    );
+    let back = formats::parse_fit(&bytes).unwrap();
+    let lens: Vec<usize> = back.tracks[0].segments.iter().map(Vec::len).collect();
+    assert_eq!(lens, vec![5, 5]);
+    assert_eq!(back.tracks[0].segments[1][0].time, Some(t0 + 600_000));
+}
+
+#[test]
+fn fit_without_times_uses_now() {
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![vec![fpt(41.0, 29.0, None), fpt(41.0001, 29.0, None)]],
+        }],
+        ..Default::default()
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let back = formats::parse_fit(&formats::write_fit(&gpx, Activity::Walk)).unwrap();
+    let times: Vec<i64> = back.tracks[0].segments[0]
+        .iter()
+        .map(|p| p.time.unwrap())
+        .collect();
+    assert!((times[0] - now).abs() < 5_000, "{} {now}", times[0]);
+    assert_eq!(times[1] - times[0], 1000);
+}
+
+#[test]
+fn fit_clamps_long_durations() {
+    // 60 gün süren, kopukluğu olmayan bir kayıt (49,7 günü aşar).
+    let t0 = 1_700_000_000_000;
+    let day = 86_400_000;
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![vec![
+                fpt(41.0, 29.0, Some(t0)),
+                fpt(41.0, 29.0, Some(t0 + 60 * day)),
+            ]],
+        }],
+        ..Default::default()
+    };
+    let bytes = formats::write_fit(&gpx, Activity::Walk);
+    use fitparser::profile::MesgNum;
+    for field in ["total_elapsed_time", "total_timer_time"] {
+        let v = fit_fields(&bytes, MesgNum::Session, field);
+        assert_eq!(v.len(), 1, "{field}");
+        let secs: f64 = v[0].parse().unwrap();
+        assert!((secs - 4_294_967.294).abs() < 0.01, "{field} {secs}");
+    }
+}

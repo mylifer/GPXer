@@ -1,9 +1,9 @@
-import { memo } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FileEntry } from "../types";
 import { ACTIVITIES, activityOf, placeLabel } from "../types";
 import type { FileMeta } from "../api";
-import type { Filters, GroupBy, SortKey } from "../prefs";
-import { fmtDate, fmtDistance, fmtDuration, fmtElevation, fmtNumber, tzOf } from "../format";
+import { filtersActive, resetFilters, type Filters, type GroupBy, type SortKey } from "../prefs";
+import { fmtDate, fmtDistance, fmtDuration, fmtElevation, fmtNumber, tzOf, type TzMode } from "../format";
 import { DateRange } from "./DateRange";
 
 export interface Group {
@@ -41,7 +41,6 @@ interface Props {
   onRemove(paths: string[]): void;
   onOpenFiles(): void;
   onOpenFolder(): void;
-  onCloseAll(): void;
   onSettings(): void;
   onSummary(): void;
   onMerge(): void;
@@ -56,13 +55,31 @@ interface Props {
   onAreaMode(on: boolean): void;
   onCompare(): void;
   onTagMany(): void;
+  onHelp(): void;
+  /** Saat dilimi kipi: değişince satırlardaki tarihler yeniden yazılır. */
+  tzMode: TzMode;
+  multiHintSeen: boolean;
+  onDismissMultiHint(): void;
 }
+
+/** Sanal liste ölçüleri (px); styles.css'teki .file-row / .group-head yükseklikleriyle aynı. */
+const ROW_H = 48;
+const ROW_SUB_H = 64;
+const HEAD_H = 30;
+/** Görünür alanın üstünde ve altında fazladan çizilen yükseklik. */
+const OVERSCAN_PX = 400;
+
+type Item =
+  | { kind: "head"; key: string; top: number; h: number; group: Group }
+  | { kind: "row"; key: string; top: number; h: number; entry: FileEntry; groupKey: string | null };
 
 const Row = memo(function Row({
   entry,
   selected,
   inMulti,
   tags,
+  top,
+  height,
   onRowClick,
   onZoom,
   onToggle,
@@ -72,6 +89,10 @@ const Row = memo(function Row({
   selected: boolean;
   inMulti: boolean;
   tags: string[] | undefined;
+  /** Yalnızca memo karşılaştırması için: saat dilimi kipi değişince tarih yeniden yazılsın. */
+  tzMode: TzMode;
+  top: number;
+  height: number;
   onRowClick(path: string, mods: RowModifiers): void;
   onZoom(path: string): void;
   onToggle(path: string): void;
@@ -83,9 +104,10 @@ const Row = memo(function Row({
     <li
       className={`file-row${selected ? " selected" : ""}${inMulti ? " multi" : ""}${entry.visible ? "" : " hidden-track"}`}
       data-path={s.path}
+      style={{ top, height }}
       onClick={(e) => onRowClick(s.path, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })}
       onDoubleClick={() => onZoom(s.path)}
-      title={`${s.fileName}\nCtrl/⌘ ile tıklayarak birden fazla seçebilirsiniz.`}
+      title={`${s.fileName}\nÇift tıklayınca haritada yakınlaştırılır. Ctrl/⌘ ile tıklayarak birden çok, Shift ile aralık seçebilirsiniz.`}
     >
       <input
         type="checkbox"
@@ -133,6 +155,171 @@ const Row = memo(function Row({
   );
 });
 
+
+const hasSub = (f: FileEntry, tags: string[] | undefined) => !!placeLabel(f.summary) || !!tags?.length;
+
+/**
+ * Sanal liste: yalnızca görünen satırlar (ve biraz fazlası) çizilir. Satır
+ * yükseklikleri sabittir (alt satırı olan/olmayan), böylece konumlar ölçmeden
+ * hesaplanır. Grup başlığı, ait olduğu grubun satırları kaydırılırken üstte kalır.
+ */
+function FileList(p: Props) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewH, setViewH] = useState(600);
+  /** Kaydırma konumu kare başına bir kez okunur (her kaydırma olayında çizilmesin). */
+  const frame = useRef(0);
+  const onScroll = () => {
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      if (scroller.current) setScrollTop(scroller.current.scrollTop);
+    });
+  };
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+
+  const { items, total, heads } = useMemo(() => {
+    const out: Item[] = [];
+    let y = 0;
+    const addRows = (list: FileEntry[], groupKey: string | null) => {
+      for (const f of list) {
+        const h = hasSub(f, p.meta[f.summary.path]?.tags) ? ROW_SUB_H : ROW_H;
+        out.push({ kind: "row", key: f.summary.path, top: y, h, entry: f, groupKey });
+        y += h;
+      }
+    };
+    if (p.groupBy === "none") addRows(p.shown, null);
+    else
+      for (const g of p.groups) {
+        out.push({ kind: "head", key: `g:${g.key}`, top: y, h: HEAD_H, group: g });
+        y += HEAD_H;
+        if (!p.collapsed.has(g.key)) addRows(g.items, g.key);
+      }
+    const heads = out.filter((x): x is Extract<Item, { kind: "head" }> => x.kind === "head");
+    return { items: out, total: y, heads };
+  }, [p.shown, p.groups, p.groupBy, p.collapsed, p.meta]);
+
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setViewH(el.clientHeight));
+    ro.observe(el);
+    setViewH(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+
+  // Liste kısalınca boşlukta kalınmasın.
+  useEffect(() => {
+    const el = scroller.current;
+    if (el && el.scrollTop !== scrollTop) setScrollTop(el.scrollTop);
+  }, [total]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Seçili satırı (klavye, harita tıklaması) görünür alana getir.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || !p.selected) return;
+    const it = items.find((x) => x.kind === "row" && x.key === p.selected);
+    if (!it) return;
+    const pad = p.groupBy === "none" ? 0 : HEAD_H; // üstte duran grup başlığı
+    if (it.top - pad < el.scrollTop) el.scrollTop = Math.max(0, it.top - pad);
+    else if (it.top + it.h > el.scrollTop + el.clientHeight) el.scrollTop = it.top + it.h - el.clientHeight;
+  }, [p.selected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Görünen aralık: konumlar artan sırada, ikili arama ile.
+  const lo = scrollTop - OVERSCAN_PX;
+  const hi = scrollTop + viewH + OVERSCAN_PX;
+  let a = 0;
+  let b = items.length;
+  while (a < b) {
+    const m = (a + b) >> 1;
+    if (items[m].top + items[m].h < lo) a = m + 1;
+    else b = m;
+  }
+  const visible: Item[] = [];
+  for (let i = a; i < items.length && items[i].top <= hi; i++) visible.push(items[i]);
+
+  // Üstte kalan grup başlığı: kaydırma konumunun içinde bulunduğu grup.
+  let sticky: Group | null = null;
+  if (scrollTop > 0) {
+    let x = 0;
+    let y = heads.length;
+    while (x < y) {
+      const m = (x + y) >> 1;
+      if (heads[m].top <= scrollTop) x = m + 1;
+      else y = m;
+    }
+    if (x > 0) sticky = heads[x - 1].group;
+  }
+
+  const head = (g: Group, cls = "") => {
+    const closed = p.collapsed.has(g.key);
+    return (
+      <button className={`group-head${cls}`} onClick={() => p.onToggleGroup(g.key)} aria-expanded={!closed}>
+        <span className="chev">{closed ? "▸" : "▾"}</span>
+        <span className="group-label">{g.label}</span>
+        <span className="group-meta">
+          {fmtNumber(g.items.length)} · {fmtDistance(g.distanceM)}
+          {g.movingMs > 0 && ` · ${fmtDuration(g.movingMs)}`}
+        </span>
+      </button>
+    );
+  };
+
+  const anyFilter = filtersActive(p.filters);
+
+  return (
+    <div className="file-list" ref={scroller} onScroll={onScroll}>
+      {p.groupBy !== "none" && (
+        // Yer kaplamaz (negatif kenar boşluğu); her zaman DOM'da durur ki kaydırma konumu oynamasın.
+        <div className="sticky-head" style={{ height: HEAD_H, marginBottom: -HEAD_H, visibility: sticky ? undefined : "hidden" }}>
+          {sticky && head(sticky)}
+        </div>
+      )}
+      <ul className="vlist" style={{ height: total }}>
+        {visible.map((it) =>
+          it.kind === "head" ? (
+            <li key={it.key} className="group" style={{ top: it.top, height: it.h }}>
+              {head(it.group)}
+            </li>
+          ) : (
+            <Row
+              key={it.key}
+              entry={it.entry}
+              selected={it.entry.summary.path === p.selected}
+              inMulti={p.multi.has(it.entry.summary.path)}
+              tags={p.meta[it.entry.summary.path]?.tags}
+              tzMode={p.tzMode}
+              top={it.top}
+              height={it.h}
+              onRowClick={p.onRowClick}
+              onZoom={p.onZoom}
+              onToggle={p.onToggle}
+              onRemove={p.onRemove}
+            />
+          ),
+        )}
+      </ul>
+      {p.files.length === 0 && !p.loading && (
+        <div className="empty-hint">
+          GPX, FIT, TCX, KML dosyalarını ya da klasörleri pencereye sürükleyip bırakın veya yukarıdaki düğmeleri kullanın.
+        </div>
+      )}
+      {p.files.length > 0 && p.shown.length === 0 && (
+        <div className="empty-hint">
+          Filtreye uyan kayıt yok.
+          {anyFilter && (
+            <div>
+              <button className="btn small" onClick={() => p.onFilters(resetFilters(p.filters))}>
+                Filtreleri sıfırla
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export const Sidebar = memo(function Sidebar(p: Props) {
   const totals = (() => {
     let dist = 0,
@@ -152,37 +339,34 @@ export const Sidebar = memo(function Sidebar(p: Props) {
   const allVisible = p.shown.length > 0 && p.shown.every((f) => f.visible);
   const set = (patch: Partial<Filters>) => p.onFilters({ ...p.filters, ...patch });
   const filtered = p.shown.length !== p.files.length;
+  const anyFilter = filtersActive(p.filters);
+  const hiddenCount = p.shown.length - totals.visible;
   const multi = [...p.multi];
-
-  const renderRows = (items: FileEntry[]) =>
-    items.map((f) => (
-      <Row
-        key={f.summary.path}
-        entry={f}
-        selected={f.summary.path === p.selected}
-        inMulti={p.multi.has(f.summary.path)}
-        tags={p.meta[f.summary.path]?.tags}
-        onRowClick={p.onRowClick}
-        onZoom={p.onZoom}
-        onToggle={p.onToggle}
-        onRemove={p.onRemove}
-      />
-    ));
+  const showMultiHint = !p.multiHintSeen && !!p.selected && multi.length <= 1 && p.shown.length > 1;
 
   return (
     <aside className="sidebar">
       <div className="sidebar-actions">
-        <button className="btn primary" onClick={p.onOpenFiles}>
+        <button className="btn primary" onClick={p.onOpenFiles} title="GPX, FIT, TCX, KML dosyalarını aç (Ctrl/⌘+O)">
           Dosya Aç
         </button>
-        <button className="btn" onClick={p.onOpenFolder}>
+        <button className="btn" onClick={p.onOpenFolder} title="Bir klasördeki tüm kayıtları aç (Ctrl/⌘+Shift+O)">
           Klasör Aç
         </button>
         <span className="spacer" />
-        <button className="icon-btn" onClick={p.onSummary} title="Özet (Ctrl/⌘+I)" disabled={p.files.length === 0}>
-          ▥
+        <button
+          className="icon-btn labeled"
+          onClick={p.onSummary}
+          title="Özet: dönemlere ve türlere göre toplamlar, takvim, sık güzergâhlar (Ctrl/⌘+I)"
+          aria-label="Özet"
+          disabled={p.files.length === 0}
+        >
+          ▥ <span>Özet</span>
         </button>
-        <button className="icon-btn" onClick={p.onSettings} title="Ayarlar (Ctrl/⌘+,)">
+        <button className="icon-btn" onClick={p.onHelp} title="Kısayollar ve yardım (?)" aria-label="Kısayollar ve yardım">
+          ?
+        </button>
+        <button className="icon-btn" onClick={p.onSettings} title="Ayarlar (Ctrl/⌘+,)" aria-label="Ayarlar">
           ⚙
         </button>
       </div>
@@ -221,7 +405,7 @@ export const Sidebar = memo(function Sidebar(p: Props) {
             </label>
           )}
           <div className="filter-row">
-            <select value={p.filters.activity} onChange={(e) => set({ activity: e.target.value })} title="Etkinlik türü">
+            <select value={p.filters.activity} onChange={(e) => set({ activity: e.target.value })} title="Etkinlik türüne göre filtrele">
               <option value="">Tüm türler</option>
               {ACTIVITIES.map((a) => (
                 <option key={a.id} value={a.id}>
@@ -229,7 +413,12 @@ export const Sidebar = memo(function Sidebar(p: Props) {
                 </option>
               ))}
             </select>
-            <select value={p.filters.tag} onChange={(e) => set({ tag: e.target.value })} title="Etiket" disabled={!p.allTags.length}>
+            <select
+              value={p.filters.tag}
+              onChange={(e) => set({ tag: e.target.value })}
+              title="Etikete göre filtrele"
+              disabled={!p.allTags.length}
+            >
               <option value="">{p.allTags.length ? "Tüm etiketler" : "Etiket yok"}</option>
               {p.allTags.map((t) => (
                 <option key={t} value={t}>
@@ -242,7 +431,7 @@ export const Sidebar = memo(function Sidebar(p: Props) {
               onClick={() => p.onAreaMode(!p.areaMode)}
               title="Haritada sürükleyerek bir alan çizin; yalnızca oradan geçen kayıtlar listelenir"
             >
-              ⬚ Alan
+              ⬚ Alan seç
             </button>
           </div>
           {(p.filters.area || p.filters.route) && (
@@ -265,7 +454,7 @@ export const Sidebar = memo(function Sidebar(p: Props) {
               )}
             </div>
           )}
-          {p.areaMode && <div className="hint">Haritada sürükleyerek bir alan çizin.</div>}
+          {p.areaMode && <div className="hint">Haritada sürükleyerek bir alan çizin (Esc: vazgeç).</div>}
           <div className="filter-row">
             <label className="check">
               <input type="checkbox" checked={allVisible} onChange={() => p.onToggleAll(!allVisible)} />
@@ -283,6 +472,11 @@ export const Sidebar = memo(function Sidebar(p: Props) {
               <option value="none">Gruplama yok</option>
             </select>
           </div>
+          {anyFilter && (
+            <button className="btn small reset-filters" onClick={() => p.onFilters(resetFilters(p.filters))}>
+              Filtreleri sıfırla
+            </button>
+          )}
         </div>
       )}
 
@@ -320,46 +514,33 @@ export const Sidebar = memo(function Sidebar(p: Props) {
         </div>
       )}
 
-      <ul className="file-list">
-        {p.groupBy === "none"
-          ? renderRows(p.shown)
-          : p.groups.map((g) => {
-              const closed = p.collapsed.has(g.key);
-              return (
-                <li key={g.key} className="group">
-                  <button className="group-head" onClick={() => p.onToggleGroup(g.key)} aria-expanded={!closed}>
-                    <span className="chev">{closed ? "▸" : "▾"}</span>
-                    <span className="group-label">{g.label}</span>
-                    <span className="group-meta">
-                      {fmtNumber(g.items.length)} · {fmtDistance(g.distanceM)}
-                      {g.movingMs > 0 && ` · ${fmtDuration(g.movingMs)}`}
-                    </span>
-                  </button>
-                  {!closed && <ul>{renderRows(g.items)}</ul>}
-                </li>
-              );
-            })}
-        {p.files.length === 0 && !p.loading && (
-          <li className="empty-hint">
-            GPX dosyalarını ya da klasörleri pencereye sürükleyip bırakın veya yukarıdaki düğmeleri kullanın.
-          </li>
-        )}
-        {p.files.length > 0 && p.shown.length === 0 && <li className="empty-hint">Filtreye uyan kayıt yok.</li>}
-      </ul>
+      {showMultiHint && (
+        <div className="hint multi-hint">
+          <span>Ctrl/⌘ ile birden çok kayıt seçip karşılaştırabilir ya da birleştirebilirsiniz.</span>
+          <button className="icon-btn tiny" onClick={p.onDismissMultiHint} title="Bir daha gösterme" aria-label="İpucunu kapat">
+            ×
+          </button>
+        </div>
+      )}
+
+      <FileList {...p} />
 
       {p.files.length > 0 && (
         <div className="totals">
           <div className="totals-head">
             <span>
-              <strong>{fmtNumber(totals.visible)}</strong> kayıt
-              {filtered && <span className="muted"> ({fmtNumber(p.files.length)} içinden)</span>}
+              <strong>{fmtNumber(p.shown.length)}</strong> kayıt gösteriliyor
+              {filtered && <span className="muted"> (toplam {fmtNumber(p.files.length)})</span>}
+              {hiddenCount > 0 && (
+                <span className="muted" title="Filtreye uyan ama haritada gizlenen kayıtlar toplamlara katılmaz">
+                  {" "}
+                  · {fmtNumber(hiddenCount)} gizli
+                </span>
+              )}
             </span>
-            <button className="btn small ghost-inline" onClick={p.onCloseAll} title="Kütüphaneyi temizle">
-              Temizle
-            </button>
           </div>
           <div className="totals-grid">
-            <span>Toplam mesafe</span>
+            <span>Toplam mesafe{hiddenCount > 0 ? " (görünenler)" : ""}</span>
             <strong>{fmtDistance(totals.dist)}</strong>
             <span>Hareket süresi</span>
             <strong>{fmtDuration(totals.moving)}</strong>

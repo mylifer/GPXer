@@ -8,7 +8,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Sürümler ana daldan ya da v* etiketlerinden çıkar; ikisi aynı sürümü
+  # yayımlamaya çalışmasın diye aynı sırada bekler. Diğer dallar kendi
+  # sıralarındadır.
+  group: ${{ github.workflow }}-${{ (github.ref_type == 'tag' || github.ref_name == github.event.repository.default_branch) && 'release' || github.ref }}
   # Yarıda kesilen bir sürüm eksik dosyalarla kalmasın diye iptal edilmez.
   cancel-in-progress: false
 
@@ -67,9 +70,15 @@ jobs:
     needs: [test, version]
     if: needs.version.outputs.tag != ''
     runs-on: ubuntu-latest
+    # Aynı sürümün dal ve etiket çalıştırmaları aynı anda taslak açmasın.
+    concurrency:
+      group: release-${{ needs.version.outputs.tag }}
+      cancel-in-progress: false
     permissions:
       contents: write
     outputs:
+      # Sürüm zaten yayımlanmışsa boş kalır: derleme yine yapılır, yükleme
+      # ve yayımlama atlanır.
       id: ${{ steps.draft.outputs.id }}
     steps:
       - id: draft
@@ -79,16 +88,25 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
-          # Yarıda kalmış bir çalıştırmanın taslağı varsa o kullanılır.
-          ID=$(gh api "repos/$GH_REPO/releases?per_page=100" \
-            --jq "[.[] | select(.draft and .tag_name == \"$TAG\")][0].id // empty")
-          if [ -z "$ID" ]; then
-            ID=$(gh api "repos/$GH_REPO/releases" -X POST \
-              -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
-              -f name="GPXer $TAG" \
-              -f body="Kurulu GPXer bu sürümü bulup güncellemeyi önerir." \
-              -F draft=true --jq .id)
+          set -euo pipefail
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$TAG\") | {id, draft}" > existing.json
+          if jq -e 'select(.draft | not)' existing.json > /dev/null; then
+            echo "::notice::$TAG zaten yayımlanmış; yeniden yayımlanmıyor."
+            exit 0
           fi
+          # Yarıda kalmış çalıştırmaların taslakları (başka bir commit'e ait
+          # ya da eski dosyalar içeren) silinip taslak bu commit için
+          # yeniden oluşturulur; etiket ve dosyalar böylece hep eşleşir.
+          for OLD in $(jq -r 'select(.draft) | .id' existing.json); do
+            echo "Eski taslak siliniyor: $OLD"
+            gh api -X DELETE "repos/$GH_REPO/releases/$OLD"
+          done
+          ID=$(gh api "repos/$GH_REPO/releases" -X POST \
+            -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
+            -f name="GPXer $TAG" \
+            -f body="Kurulu GPXer bu sürümü bulup güncellemeyi önerir." \
+            -F draft=true --jq .id)
           echo "Taslak sürüm: $ID"
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
@@ -190,9 +208,11 @@ jobs:
           args: ${{ matrix.args }}
           # Sürüm etiketi varsa dosyalar "release" işinin oluşturduğu taslak
           # sürüme yüklenir; yayımlama "publish" işinde yapılır.
+          # Taslak yoksa (sürüm yok ya da zaten yayımlanmış) etiket de
+          # verilmez; tauri-action yalnızca derler, sürüm oluşturmaz.
           releaseId: ${{ needs.release.outputs.id }}
-          tagName: ${{ needs.version.outputs.tag }}
-          releaseName: GPXer ${{ needs.version.outputs.tag }}
+          tagName: ${{ needs.release.outputs.id != '' && needs.version.outputs.tag || '' }}
+          releaseName: ${{ needs.release.outputs.id != '' && format('GPXer {0}', needs.version.outputs.tag) || '' }}
           releaseBody: Kurulu GPXer bu sürümü bulup güncellemeyi önerir.
           releaseDraft: true
           includeUpdaterJson: true
@@ -207,14 +227,17 @@ jobs:
           if-no-files-found: error
 
   # Her iki derleme de başarılıysa taslak sürüm yayımlanır. İki derleme
-  # latest.json'u aynı anda güncelleyebildiğinden önce eksik platform
-  # imzalı dosyalardan tamamlanır; taslakta "untagged-…" olan indirme
+  # latest.json'u aynı anda güncelleyebildiğinden platformlar bu sürümün
+  # imzalı dosyalarından yeniden yazılır; taslakta "untagged-…" olan indirme
   # adresleri etiket adresine çevrilir.
   publish:
     name: Sürümü yayımla
     needs: [version, release, bundle]
-    if: needs.version.outputs.tag != '' && needs.bundle.result == 'success'
+    if: needs.release.outputs.id != '' && needs.bundle.result == 'success'
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-${{ needs.version.outputs.tag }}
+      cancel-in-progress: false
     permissions:
       contents: write
     env:
@@ -250,7 +273,7 @@ jobs:
             [ -z "$name" ] && { echo "::warning::$key için dosya yok"; return; }
             s=$(sig "$name") || { echo "::warning::$name.sig yok"; return; }
             jq --arg k "$key" --arg u "$BASE/$name" --arg s "$s" \
-              '.platforms[$k] //= {signature: $s, url: $u}' latest.json > tmp.json && mv tmp.json latest.json
+              '.platforms[$k] = {signature: $s, url: $u}' latest.json > tmp.json && mv tmp.json latest.json
           }
           add windows-x86_64 '-setup\.exe$'
           add windows-x86_64-nsis '-setup\.exe$'
@@ -269,7 +292,15 @@ jobs:
           UPLOAD="https://uploads.github.com/repos/$GH_REPO/releases/$RELEASE_ID/assets?name=latest.json"
           curl -sSf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/json" \
             --data-binary @latest.json "$UPLOAD" > /dev/null
+      # latest.json'suz bir sürüm "en son" olursa kurulu uygulamaların
+      # güncelleme denetimi (releases/latest/download/latest.json) bozulur;
+      # imza anahtarı yoksa sürüm "en son" yapılmadan yayımlanır.
       - name: Yayımla
         shell: bash
         run: |
-          gh api -X PATCH "repos/$GH_REPO/releases/$RELEASE_ID" -F draft=false -f make_latest=true --jq .html_url
+          LATEST=true
+          if [ "$HAS_UPDATER_KEY" != 'true' ]; then
+            LATEST=false
+            echo "::warning::Güncelleme imza anahtarı yok; $TAG en son sürüm yapılmadan yayımlanıyor (latest.json yok)."
+          fi
+          gh api -X PATCH "repos/$GH_REPO/releases/$RELEASE_ID" -F draft=false -f make_latest=$LATEST --jq .html_url

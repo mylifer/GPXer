@@ -160,7 +160,7 @@ export function CalendarHeatmap({ files, onDay }: Props) {
                   {fmtNumber(hd.count)} kayıt · {fmtDistance(hd.distance)}
                 </span>
                 <span>{fmtDuration(hd.moving)}</span>
-                <em>Tıklayınca bu güne süzülür</em>
+                <em>Tıklayınca liste bu güne göre filtrelenir</em>
               </>
             ) : (
               <span className="muted">Kayıt yok</span>

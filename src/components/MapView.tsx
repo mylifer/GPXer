@@ -43,6 +43,8 @@ export interface MapHandle {
 interface Props {
   files: FileEntry[];
   selected: string | null;
+  /** Seçili kaydın özeti (iz gizli ya da filtre dışında olsa da). */
+  selectedSummary: FileSummary | null;
   detail: Detail | null;
   hoverIdx: number | null;
   onHoverIdx(i: number | null): void;
@@ -424,17 +426,21 @@ const GAP_MIN_M_UNTIMED = 10_000;
 
 const gapKey = (p: [number, number]) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`;
 
-/** Özetteki boşlukların uç noktaları: "başlangıç|bitiş" anahtarları. */
-function gapEnds(summary: FileSummary | undefined): Set<string> {
-  return new Set((summary?.gaps ?? []).map((g) => `${gapKey(g.from)}|${gapKey(g.to)}`));
+/** Özetteki boşlukların uç noktaları: "başlangıç|bitiş" anahtarları. Özette
+ * boşluk bilgisi yoksa (eski önbellek) null: o zaman kural ile tahmin edilir. */
+function gapEnds(summary: FileSummary | null | undefined): Set<string> | null {
+  if (!summary || !Array.isArray(summary.gaps)) return null;
+  return new Set(summary.gaps.map((g) => `${gapKey(g.from)}|${gapKey(g.to)}`));
 }
 
 /** Ardışık iki ayrıntı örneği bir kayıt boşluğunun (uçuş, sinyal kaybı) iki
- *  yakasında mı? Kural gpx-core'daki is_gap ile aynı; özetteki boşluk uçları da sayılır. */
-function isGapStep(d: Detail, i: number, ends: Set<string>): boolean {
+ *  yakasında mı? Özetteki boşluklar biliniyorsa yalnızca onlar kullanılır
+ *  (seyreltilmiş uzun kayıtlarda kural, örnekler arası uzun adımları yanlışlıkla
+ *  boşluk sayabilir); bilinmiyorsa gpx-core'daki is_gap kuralı uygulanır. */
+function isGapStep(d: Detail, i: number, ends: Set<string> | null): boolean {
   const a: [number, number] = [d.lon[i], d.lat[i]];
   const b: [number, number] = [d.lon[i + 1], d.lat[i + 1]];
-  if (ends.size && ends.has(`${gapKey(a)}|${gapKey(b)}`)) return true;
+  if (ends) return ends.size > 0 && ends.has(`${gapKey(a)}|${gapKey(b)}`);
   const dist = metersBetween(a, b);
   const ta = d.time[i];
   const tb = d.time[i + 1];
@@ -486,7 +492,9 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     showGaps,
     highlight,
     cursors,
+    selectedSummary,
   } = props;
+  const selGaps = selectedSummary?.gaps;
   const box = useRef<HTMLDivElement>(null);
 
   useImperativeHandle(ref, () => ({
@@ -770,20 +778,27 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       // Fare hareketi kare başına bir kez işlenir (yalnızca son olay); sorgular pahalı.
       const handleMove = (e: maplibregl.MapMouseEvent) => {
         const { files: fs, selected: sel, detail: d, heatmap: heatOn } = live.current;
-        if (live.current.areaMode) return;
+        if (live.current.areaMode) {
+          // Alan seçerken iz bilgisi gösterilmez; imleç de bırakılır.
+          hoverPath.current = null;
+          hoverPopup.current?.remove();
+          releaseHover();
+          return;
+        }
         const spot = map.queryRenderedFeatures(hitBox(e.point, 6), { layers: ["stops", "hotspots"] })[0];
         if (spot && !chooser.current?.isOpen()) {
           const pr = spot.properties ?? {};
           const html =
             spot.layer.id === "stops"
               ? `<strong>Duraklama</strong><br>${fmtTime(Number(pr.start), tzOf({ timeZone: pr.tz || null }))} · ${fmtDuration(Number(pr.dur))}`
-              : `<strong>Sık durulan yer</strong><br>${fmtNumber(Number(pr.n))} duraklama · ${fmtNumber(Number(pr.files))} kayıt<br>toplam ${fmtDuration(Number(pr.dur))}`;
+              : `<strong>Sık duraklanan yer</strong><br>${fmtNumber(Number(pr.n))} duraklama · ${fmtNumber(Number(pr.files))} kayıt<br>toplam ${fmtDuration(Number(pr.dur))}`;
           if (!hoverPopup.current) {
             hoverPopup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: "hover-popup" });
           }
           hoverPath.current = null;
           hoverPopup.current.setLngLat(e.lngLat).setHTML(html).addTo(map);
           map.getCanvas().style.cursor = "default";
+          releaseHover();
           return;
         }
         const hits = trackHits(e.point);
@@ -1043,7 +1058,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       const ramp = dark ? SEQ_DARK : SEQ_LIGHT;
       const [lo, hi] = domain;
       const features: GeoJSON.Feature[] = [];
-      const ends = gapEnds(live.current.files.find((f) => f.summary.path === live.current.selected)?.summary);
+      const ends = gapEnds(live.current.selectedSummary);
       for (let i = 0; i + 1 < detail.lat.length; i++) {
         const v = values[i];
         if (v == null || isGapStep(detail, i, ends)) continue;
@@ -1063,13 +1078,13 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       }
       setData(map, "colored", { type: "FeatureCollection", features });
     });
-  }, [detail, trackColorBy, dark]);
+  }, [detail, trackColorBy, dark, selGaps]);
 
   useEffect(() => {
     whenReady((map) => {
       if (!detail || !range) return setData(map, "range", EMPTY);
       // Kayıt boşluklarında çizgi kesilir; boşluğun üstü düz çizgiyle birleştirilmez.
-      const ends = gapEnds(live.current.files.find((f) => f.summary.path === live.current.selected)?.summary);
+      const ends = gapEnds(live.current.selectedSummary);
       const lines: [number, number][][] = [];
       let cur: [number, number][] = [];
       const last = Math.min(range[1], detail.lat.length - 1);
@@ -1083,7 +1098,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       if (cur.length > 1) lines.push(cur);
       setData(map, "range", { type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: lines } });
     });
-  }, [detail, range]);
+  }, [detail, range, selGaps]);
 
   useEffect(() => {
     whenReady((map) => {

@@ -55,6 +55,8 @@ export interface Prefs {
   stopsLayer: boolean;
   /** Seçili kayıtta kayıt boşluklarını kesik çizgiyle göster. */
   showGaps: boolean;
+  /** Çoklu seçim ipucu kapatıldı (ya da çoklu seçim kullanıldı). */
+  multiHintSeen: boolean;
 }
 
 export const DEFAULT_FILTERS: Filters = {
@@ -68,6 +70,13 @@ export const DEFAULT_FILTERS: Filters = {
   tag: "",
   route: null,
 };
+
+/** Listeyi daraltan bir filtre etkin mi (sıralama filtre sayılmaz). */
+export const filtersActive = (f: Filters) =>
+  !!(f.query.trim() || f.from || f.to || f.activity || f.tag || f.area || f.route);
+
+/** Filtreleri kaldırır; sıralama korunur. */
+export const resetFilters = (f: Filters): Filters => ({ ...DEFAULT_FILTERS, sort: f.sort });
 
 const DEFAULTS: Prefs = {
   filters: DEFAULT_FILTERS,
@@ -89,6 +98,7 @@ const DEFAULTS: Prefs = {
   playSpeed: 60,
   stopsLayer: false,
   showGaps: true,
+  multiHintSeen: false,
 };
 
 const KEY = "gpxer.prefs.v1";

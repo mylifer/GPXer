@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Activity, FileMeta, FileSummary } from "../api";
 import { ACTIVITIES, activityOf } from "../types";
 
@@ -13,7 +13,13 @@ interface Props {
 export function MetaEditor({ summary, meta, allTags, onChange }: Props) {
   const [tag, setTag] = useState("");
   const [note, setNote] = useState(meta.note);
-  useEffect(() => setNote(meta.note), [meta.note, summary.path]);
+  // Kayıt ya da kayıtlı not değişince alan güncellenir (çizim sırasında; efektte
+  // yapmak her seçimde fazladan bir güncelleme turu doğuruyordu).
+  const [noteOf, setNoteOf] = useState({ path: summary.path, note: meta.note });
+  if (noteOf.path !== summary.path || noteOf.note !== meta.note) {
+    setNoteOf({ path: summary.path, note: meta.note });
+    setNote(meta.note);
+  }
 
   const addTag = () => {
     const t = tag.trim();

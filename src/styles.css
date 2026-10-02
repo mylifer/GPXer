@@ -215,21 +215,42 @@ label.check {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Sanal listede satırlar eklenip çıkarken tarayıcı kaydırmayı "sabitlemeye" çalışmasın. */
+  overflow-anchor: none;
   margin: 0;
-  padding: 4px 0;
+  padding: 0;
+}
+
+/* Sanal liste: satırlar konumları hesaplanarak yerleştirilir; yükseklikler
+   Sidebar.tsx'teki ROW_H / ROW_SUB_H / HEAD_H ile aynı tutulmalı. */
+.vlist {
+  position: relative;
+  margin: 0;
+  padding: 0;
   list-style: none;
+}
+
+.vlist > li {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .file-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  height: 48px;
   padding: 6px 8px 6px 12px;
+  overflow: hidden;
   cursor: pointer;
   border-left: 3px solid transparent;
-  /* Yüzlerce satırda yalnızca görünenler çizilsin. */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 46px;
 }
 
 .file-row:hover {
@@ -801,14 +822,12 @@ label.check.small {
 }
 
 .group-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 6px 12px;
+  height: 30px;
+  padding: 0 12px;
   border: none;
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
@@ -1650,4 +1669,104 @@ button.link:hover {
 
 label.check.sub-check {
   margin-left: 22px;
+}
+
+/* ---------- Yeniden hesaplama, ipuçları, yardım ---------- */
+
+.reload-overlay {
+  position: absolute;
+  left: 50%;
+  bottom: 48px;
+  z-index: 5;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  font-variant-numeric: tabular-nums;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.reset-filters {
+  align-self: flex-start;
+}
+
+.empty-hint .btn {
+  margin-top: 10px;
+}
+
+.multi-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 12px 0;
+}
+
+.multi-hint span {
+  flex: 1;
+}
+
+.icon-btn.labeled {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+}
+
+.icon-btn.labeled span {
+  font-size: 12px;
+}
+
+.danger-zone .btn.danger {
+  align-self: flex-start;
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.help h3 {
+  margin: 14px 0 6px;
+  font-size: 13px;
+}
+
+.help h3:first-child {
+  margin-top: 0;
+}
+
+.help-table th,
+.help-table td {
+  text-align: left;
+  vertical-align: top;
+}
+
+.help-table th {
+  width: 38%;
+  font-weight: normal;
+}
+
+kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
 }

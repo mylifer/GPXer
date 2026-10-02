@@ -17,9 +17,64 @@ pub struct Settings {
     pub watched_folders: Vec<String>,
 }
 
+/// İzlenen klasör: kullanıcının seçtiği yol ve gerçek (kanonik) yolu. macOS
+/// FSEvents olayları kanonik yolla gelir (/private/var…, bağlantı hedefi).
+#[derive(Clone, Debug)]
+struct WatchedFolder {
+    raw: PathBuf,
+    canonical: Option<PathBuf>,
+}
+
+impl WatchedFolder {
+    fn new(f: &str) -> Self {
+        let raw = PathBuf::from(f);
+        let canonical = raw.canonicalize().ok();
+        WatchedFolder { raw, canonical }
+    }
+}
+
+/// Yolun gerçek hali; yol (henüz/artık) yoksa var olan en yakın üst
+/// klasörün gerçek hali ile kalan kısım.
+fn canonical(path: &Path) -> Option<PathBuf> {
+    if let Ok(c) = path.canonicalize() {
+        return Some(c);
+    }
+    let mut rest = Vec::new();
+    let mut cur = path;
+    while let Some(parent) = cur.parent() {
+        rest.push(cur.file_name()?);
+        if let Ok(c) = parent.canonicalize() {
+            return Some(rest.iter().rev().fold(c, |acc, n| acc.join(n)));
+        }
+        cur = parent;
+    }
+    None
+}
+
+/// Yol klasörlerden birinin içinde mi; iki taraf da hem verildiği gibi hem
+/// kanonik haliyle karşılaştırılır.
+fn inside_any(path: &Path, folders: &[WatchedFolder]) -> bool {
+    let canon = canonical(path);
+    let forms: Vec<&Path> = std::iter::once(path).chain(canon.as_deref()).collect();
+    folders.iter().any(|f| {
+        forms.iter().any(|p| {
+            p.starts_with(&f.raw) || f.canonical.as_ref().is_some_and(|c| p.starts_with(c))
+        })
+    })
+}
+
+fn watched_folders(s: &Settings) -> Vec<WatchedFolder> {
+    s.watched_folders
+        .iter()
+        .map(|f| WatchedFolder::new(f))
+        .collect()
+}
+
 pub struct SettingsStore {
     path: PathBuf,
     pub current: Mutex<Settings>,
+    /// `current.watched_folders`'ın kanonik halleriyle birlikte kopyası.
+    watched: Mutex<Vec<WatchedFolder>>,
     watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
 }
 
@@ -32,6 +87,7 @@ impl SettingsStore {
             .unwrap_or_default();
         SettingsStore {
             path,
+            watched: Mutex::new(watched_folders(&current)),
             current: Mutex::new(current),
             watcher: Mutex::new(None),
         }
@@ -41,23 +97,13 @@ impl SettingsStore {
         self.current.lock().unwrap().stats
     }
 
-    /// Yol izlenen klasörlerden birinin içinde mi.
-    pub fn is_watched(&self, path: &str) -> bool {
-        let p = Path::new(path);
-        self.current
-            .lock()
-            .unwrap()
-            .watched_folders
-            .iter()
-            .any(|f| p.starts_with(f))
-    }
-
     pub fn save(&self, s: Settings) -> std::io::Result<()> {
         let bytes = serde_json::to_vec_pretty(&s).map_err(std::io::Error::other)?;
         // Yarım yazılmış ayar dosyası kalmasın diye önce geçici dosyaya.
         let tmp = self.path.with_extension("tmp");
         std::fs::write(&tmp, bytes)?;
         std::fs::rename(&tmp, &self.path)?;
+        *self.watched.lock().unwrap() = watched_folders(&s);
         *self.current.lock().unwrap() = s;
         Ok(())
     }
@@ -67,6 +113,7 @@ impl SettingsStore {
     /// Kurulamayan klasörlerin hata mesajları döndürülür.
     pub fn restart_watcher(&self, on_files: impl Fn(Vec<String>) + Send + 'static) -> Vec<String> {
         let folders = self.current.lock().unwrap().watched_folders.clone();
+        let watched = self.watched.lock().unwrap().clone();
         let mut slot = self.watcher.lock().unwrap();
         *slot = None;
         if folders.is_empty() {
@@ -79,7 +126,9 @@ impl SettingsStore {
             let mut paths: Vec<String> = events
                 .into_iter()
                 .map(|e| e.path)
-                .filter(|p| p.is_file() && is_track_file(p))
+                // Olay yolları kanonik gelebilir (macOS); izlenen klasör
+                // dışındakiler atlanır.
+                .filter(|p| p.is_file() && is_track_file(p) && inside_any(p, &watched))
                 .map(|p| p.to_string_lossy().into_owned())
                 .collect();
             paths.sort();
@@ -103,5 +152,33 @@ impl SettingsStore {
         }
         *slot = Some(debouncer);
         errors
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn watched_matches_canonical_paths() {
+        let root = std::env::temp_dir().join(format!("gpxer-watch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let real = root.join("gercek");
+        std::fs::create_dir_all(real.join("alt")).unwrap();
+        std::fs::write(real.join("alt").join("a.gpx"), "x").unwrap();
+        // Klasör bağlantı üzerinden seçilmiş; olaylar gerçek yolla gelir.
+        let link = root.join("baglanti");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        #[cfg(not(unix))]
+        let link = real.clone();
+        let folders = vec![WatchedFolder::new(&link.to_string_lossy())];
+        let canon = real.canonicalize().unwrap();
+        assert!(inside_any(&canon.join("alt").join("a.gpx"), &folders));
+        assert!(inside_any(&link.join("alt").join("a.gpx"), &folders));
+        // Henüz olmayan dosya da üst klasörüyle eşleşir.
+        assert!(inside_any(&canon.join("yeni").join("b.gpx"), &folders));
+        assert!(!inside_any(&root.join("dis.gpx"), &folders));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

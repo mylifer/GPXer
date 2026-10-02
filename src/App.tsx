@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentProps,
+} from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, open } from "@tauri-apps/plugin-dialog";
@@ -45,6 +53,7 @@ import { findRoutes, type Route } from "./routes";
 import { linesHitBox } from "./geo";
 import { METRICS, SEQ_DARK, SEQ_LIGHT, defaultColor, placeLabel, rampColor, type FileEntry } from "./types";
 import { loadPrefs, savePrefs, type Filters, type Prefs } from "./prefs";
+import { HelpDialog } from "./components/HelpDialog";
 import { dayKey, fmtDate, fmtNumber, fmtUnit, monthLabel, setTzMode, tzOf, type TzMode } from "./format";
 import { csvFor } from "./csv";
 
@@ -73,7 +82,13 @@ interface OpenOptions {
   noSelect?: boolean;
   /** "Yeni kayıt eklendi" bildirimi gösterilmesin. */
   silent?: boolean;
+  /** Kullanıcı dosyaları kendisi açtı (kütüphaneden çıkarılmışlar da eklenir). */
+  explicit?: boolean;
 }
+
+/** Yeniden yükleme sürerken kullanıcı kendisi bir kayıt seçti (ya da seçimi
+ * kaldırdı): yükleme bitince eski seçim geri getirilmez. */
+const KEEP_SELECTION = Symbol("keep");
 
 /** Oynatmada kayıttaki bu uzunluktan büyük zaman boşlukları (duraklama,
  * sinyal kaybı) beklenmez; kısa bir sıçramayla geçilir. */
@@ -97,13 +112,22 @@ interface IdxStore {
 
 function createIdxStore(): IdxStore {
   let value: number | null = null;
+  let notifying = false;
   const subs = new Set<() => void>();
   return {
     get: () => value,
     set(i) {
       if (i === value) return;
       value = i;
-      subs.forEach((fn) => fn());
+      // Bildirim mikro görevde: efektlerin içinden yapılan sıfırlamalar (seçim
+      // değişince) işlemeyle (commit) iç içe eşzamanlı güncelleme zinciri
+      // oluşturmasın; ↑/↓ basılı tutulunca React'in güncelleme sınırına takılıyordu.
+      if (notifying) return;
+      notifying = true;
+      queueMicrotask(() => {
+        notifying = false;
+        subs.forEach((fn) => fn());
+      });
     },
     subscribe(fn) {
       subs.add(fn);
@@ -128,9 +152,12 @@ export default function App() {
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
+  /** Kaydedilecek seçim: seçim her değiştiğinde App'i yeniden çizmemek için
+   * durumda değil, burada tutulur (hızlı ↑/↓ basışlarında güncelleme zinciri oluşmasın). */
+  const persistedSel = useRef(prefs.selected);
   const up = useCallback((patch: Partial<Prefs>) => {
     setPrefs((p) => {
-      const next = { ...p, ...patch };
+      const next = { ...p, ...patch, selected: persistedSel.current };
       savePrefs(next);
       return next;
     });
@@ -146,7 +173,10 @@ export default function App() {
   /** İmleç (fare ya da oynatma); App'i her karede yeniden çizmemek için state değil. */
   const [cursor] = useState(createIdxStore);
   const [range, setRange] = useState<[number, number] | null>(null);
-  const [rangeSt, setRangeSt] = useState<Stats | null>(null);
+  /** Aralık istatistiği, hesaplandığı aralık ve ayrıntıyla birlikte: başka bir
+   * aralığa aitse gösterilmez (efektte sıfırlamaya gerek kalmaz). */
+  const [rangeRes, setRangeRes] = useState<{ range: [number, number]; detail: Detail; st: Stats } | null>(null);
+  const rangeSt = rangeRes && rangeRes.range === range && rangeRes.detail === detail ? rangeRes.st : null;
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(playing);
   playingRef.current = playing;
@@ -157,7 +187,7 @@ export default function App() {
   const [undo, setUndo] = useState<{ items: TrashItem[]; count: number } | null>(null);
   const [watchOffer, setWatchOffer] = useState<string[] | null>(null);
   const [settings, setSettingsState] = useState<Settings | null>(null);
-  const [dialog, setDialog] = useState<"settings" | "summary" | "merge" | "tag" | null>(null);
+  const [dialog, setDialog] = useState<"settings" | "summary" | "merge" | "tag" | "help" | null>(null);
   const [meta, setMetaState] = useState<Record<string, FileMeta>>({});
   const [areaMode, setAreaMode] = useState(false);
   const [compare, setCompare] = useState<[string, string] | null>(null);
@@ -185,8 +215,13 @@ export default function App() {
   /** Yeniden yükleme (ayar değişikliği) sayacı: eski ayarlarla süren yüklemeler
    * her beklemeden sonra bunu denetler ve sonuçlarını bırakır. */
   const loadGen = useRef(0);
-  /** Yeniden yükleme bitince geri seçilecek kayıt (undefined: bekleyen yok). */
-  const restoreSel = useRef<string | null | undefined>(undefined);
+  /** Yeniden yükleme bitince geri seçilecek kayıt (undefined: bekleyen yok;
+   * KEEP_SELECTION: kullanıcı bu arada kendisi seçti, dokunulmaz). */
+  const restoreSel = useRef<string | null | undefined | typeof KEEP_SELECTION>(undefined);
+  /** Yeniden yükleme sürerken yeni özetler burada birikir; liste ve harita
+   * eski kayıtları gösterir, yükleme bitince bir kerede değiştirilir. */
+  const reloadBuf = useRef<FileEntry[] | null>(null);
+  const [reloading, setReloading] = useState(false);
   const initialLoad = useRef(true);
   /** Açılışta kayıtlı bir harita konumu var mıydı (harita kendi ilk konumunu da kaydeder). */
   const hadView = useRef(prefs.mapView != null);
@@ -198,7 +233,25 @@ export default function App() {
       /* önemli değil */
     }
   }, [baseLayer]);
-  useEffect(() => up({ selected }), [selected, up]);
+  useEffect(() => {
+    // Yeniden yükleme sürerken geçici boş seçim kaydedilmez; kayıtlı seçim geri getirilene kadar korunur.
+    const r = restoreSel.current;
+    if (r !== undefined && r !== KEEP_SELECTION) return;
+    persistedSel.current = selected;
+    savePrefs({ ...prefsRef.current, selected });
+  }, [selected]);
+
+  /** Kullanıcının yaptığı seçim: süren bir yeniden yükleme bunu ezmesin. */
+  const pick = useCallback((path: string | null) => {
+    if (restoreSel.current !== undefined) restoreSel.current = KEEP_SELECTION;
+    setSelected(path);
+  }, []);
+
+  /** Dosya listesini değiştirir; yeniden yükleme sürüyorsa biriken yeni listeye de uygular. */
+  const patchFiles = useCallback((fn: (list: FileEntry[]) => FileEntry[]) => {
+    setFiles(fn);
+    if (reloadBuf.current) reloadBuf.current = fn(reloadBuf.current);
+  }, []);
 
   const say = useCallback((msg: string) => {
     setInfo(msg);
@@ -330,6 +383,8 @@ export default function App() {
   }, [files, prefs.tzMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onMap = useMemo(() => shown.filter((f) => f.visible), [shown]);
+  const onMapRef = useRef(onMap);
+  onMapRef.current = onMap;
   const selectedEntry = useMemo(
     () => (selected ? (colored.find((f) => f.summary.path === selected) ?? null) : null),
     [colored, selected],
@@ -349,12 +404,19 @@ export default function App() {
 
   // ---------- Seçili kayıt ----------
 
-  useEffect(() => {
+  // Seçim değişince bağlı durum çizim sırasında sıfırlanır (efektte sıfırlamak her
+  // seçimde fazladan bir eşzamanlı güncelleme zinciri doğuruyordu; ↑/↓ basılı
+  // tutulunca React'in güncelleme sınırına takılıyordu).
+  const [detailOf, setDetailOf] = useState(selected);
+  if (detailOf !== selected) {
+    setDetailOf(selected);
     setDetail(null);
     setDetailError(null);
-    cursor.set(null);
     setRange(null);
     setPlaying(false);
+  }
+  useEffect(() => {
+    cursor.set(null);
     if (!selected) return;
     let cancelled = false;
     loadDetail(selected)
@@ -381,13 +443,12 @@ export default function App() {
 
   // Seçili aralığın tam çözünürlüklü istatistiği.
   useEffect(() => {
-    setRangeSt(null);
     if (!range || !detail || !selected) return;
     const [a, b] = [detail.idx[range[0]], detail.idx[range[1]]];
     let cancelled = false;
     const t = setTimeout(() => {
       rangeStats(selected, a, b)
-        .then((s) => !cancelled && setRangeSt(s))
+        .then((st) => !cancelled && setRangeRes({ range, detail, st }))
         .catch(() => {});
     }, 120);
     return () => {
@@ -483,25 +544,27 @@ export default function App() {
       };
       const expanded = await expandPaths(paths);
       if (stale()) return [];
-      const known = new Set(filesRef.current.map((f) => f.summary.path));
+      /** Yeniden yüklemede yeni liste ayrı birikir; aksi halde doğrudan listeye eklenir. */
+      const current = () => reloadBuf.current ?? filesRef.current;
+      const known = new Set(current().map((f) => f.summary.path));
       const todo = expanded.filter((p) => !known.has(p));
       if (todo.length === 0) {
         // Zaten açık tek bir dosya tekrar açıldıysa onu seç.
-        if (expanded.length === 1 && !opts.noSelect) setSelected(expanded[0]);
+        if (expanded.length === 1 && !opts.noSelect) pick(expanded[0]);
         return [];
       }
-      const wasEmpty = filesRef.current.length === 0;
+      const wasEmpty = current().length === 0;
       const added: FileEntry[] = [];
       const newErrors: LoadError[] = [];
       const newDuplicates: Duplicate[] = [];
       let selectExisting: string | null = null;
       const existingOf = (path: string) => {
-        const f = [...filesRef.current, ...added].find((x) => x.summary.path === path);
+        const f = [...current(), ...added].find((x) => x.summary.path === path);
         return f ? f.summary.name || f.summary.fileName : baseName(path);
       };
       setLoading({ done: 0, total: todo.length });
       for (let i = 0; i < todo.length; i += CHUNK) {
-        const results = await loadFiles(todo.slice(i, i + CHUNK));
+        const results = await loadFiles(todo.slice(i, i + CHUNK), !!opts.explicit);
         // Eski ayarlarla hesaplandı: listeye eklenmez.
         if (stale()) return [];
         const batch: FileEntry[] = [];
@@ -520,16 +583,20 @@ export default function App() {
           }
         }
         added.push(...batch);
-        filesRef.current = [...filesRef.current, ...batch];
-        setFiles((prev) => [...prev, ...batch]);
+        if (reloadBuf.current) {
+          reloadBuf.current = [...reloadBuf.current, ...batch];
+        } else {
+          filesRef.current = [...filesRef.current, ...batch];
+          setFiles((prev) => [...prev, ...batch]);
+        }
         setLoading({ done: Math.min(todo.length, i + CHUNK), total: todo.length });
       }
       setLoading(null);
       flushCache().catch(() => {});
-      if (selectExisting) setSelected(selectExisting);
+      if (selectExisting) pick(selectExisting);
       if (newErrors.length) setErrors((prev) => [...prev, ...newErrors]);
       if (newDuplicates.length && !opts.quiet) setDuplicates((prev) => [...prev, ...newDuplicates]);
-      if (added.length === 1 && !opts.noSelect) setSelected(added[0].summary.path);
+      if (added.length === 1 && !opts.noSelect) pick(added[0].summary.path);
       if (added.length > 0 && !opts.noFit) {
         // İlk yüklemede hepsini, sonradan eklemede yalnızca yenileri göster.
         requestAnimationFrame(() => mapRef.current?.fitFiles(wasEmpty ? filesRef.current : added));
@@ -539,7 +606,7 @@ export default function App() {
       }
       return added;
     },
-    [entryFor, say],
+    [entryFor, say, pick],
   );
 
   const openPaths = useCallback(
@@ -557,15 +624,19 @@ export default function App() {
   /** Kütüphaneyi (ve izlenen klasörleri) güncel ayarlarla baştan yükler. */
   const reloadAll = useCallback(() => {
     const gen = ++loadGen.current;
-    // Üst üste yeniden yüklemelerde ilk seçim korunur.
-    if (restoreSel.current === undefined) restoreSel.current = selectedRef.current;
+    // Üst üste yeniden yüklemelerde ilk seçim korunur; kullanıcı bu arada
+    // kendisi seçtiyse yeni yükleme bittiğinde onun seçimi geri gelir.
+    if (restoreSel.current === undefined || restoreSel.current === KEEP_SELECTION) {
+      restoreSel.current = selectedRef.current;
+    }
     setSelected(null);
     setCompare(null);
+    setReloading(true);
     return enqueue(async () => {
       if (gen !== loadGen.current) return;
       try {
-        filesRef.current = [];
-        setFiles([]);
+        // Eski liste yükleme bitene kadar görünür kalır.
+        reloadBuf.current = [];
         const lib = await libraryFiles();
         if (gen !== loadGen.current) return;
         const quiet: OpenOptions = { quiet: true, noFit: true, noSelect: true, silent: true };
@@ -576,9 +647,16 @@ export default function App() {
       } finally {
         // Daha yeni bir yeniden yükleme başladıysa seçimi o geri getirir.
         if (gen === loadGen.current) {
+          const next = reloadBuf.current ?? filesRef.current;
+          reloadBuf.current = null;
+          filesRef.current = next;
+          setFiles(next);
+          setReloading(false);
           const sel = restoreSel.current;
           restoreSel.current = undefined;
-          setSelected(sel && filesRef.current.some((f) => f.summary.path === sel) ? sel : null);
+          // Kullanıcı bu arada kendisi seçtiyse onun seçimine dokunulmaz.
+          if (sel !== KEEP_SELECTION) setSelected(sel && next.some((f) => f.summary.path === sel) ? sel : null);
+          else setSelected((cur) => (cur && next.some((f) => f.summary.path === cur) ? cur : null));
         }
       }
     });
@@ -594,12 +672,12 @@ export default function App() {
         else say(`Bu kayıt zaten kütüphanede: ${baseName(r.existing)}`);
       }
       if (added.length) {
-        setFiles((prev) => [...prev, ...added]);
+        patchFiles((prev) => [...prev, ...added]);
         flushCache().catch(() => {});
       }
       return added;
     },
-    [entryFor, fail, say],
+    [entryFor, fail, say, patchFiles],
   );
 
   const pickFiles = useCallback(async () => {
@@ -607,14 +685,14 @@ export default function App() {
       multiple: true,
       filters: [{ name: "İz dosyaları (GPX, FIT, TCX, KML)", extensions: OPEN_EXTS }],
     });
-    if (res) openPaths(Array.isArray(res) ? res : [res]);
+    if (res) openPaths(Array.isArray(res) ? res : [res], { explicit: true });
   }, [openPaths]);
 
   const pickFolder = useCallback(async () => {
     const res = await open({ directory: true, multiple: true });
     if (!res) return;
     const folders = Array.isArray(res) ? res : [res];
-    openPaths(folders);
+    openPaths(folders, { explicit: true });
     const watched = new Set(settingsRef.current?.watchedFolders ?? []);
     const offer = folders.filter((f) => !watched.has(f));
     if (offer.length) setWatchOffer(offer);
@@ -673,12 +751,12 @@ export default function App() {
         up({ filters: { ...prefsRef.current.filters, route: keep } });
       }
       filesRef.current = filesRef.current.filter((f) => !set.has(f.summary.path));
-      setFiles((prev) => prev.filter((f) => !set.has(f.summary.path)));
+      patchFiles((prev) => prev.filter((f) => !set.has(f.summary.path)));
       setSelected((s) => (s && set.has(s) ? null : s));
       setCompare((c) => (c && c.some((p) => set.has(p)) ? null : c));
       setMulti((m) => new Set([...m].filter((p) => !set.has(p))));
     },
-    [fail, up],
+    [fail, up, patchFiles],
   );
 
   useEffect(() => {
@@ -697,7 +775,8 @@ export default function App() {
       fail(String(e));
       return;
     }
-    await openPaths(restored, { quiet: true, silent: true, noFit: true, noSelect: restored.length !== 1 });
+    // Geri getirme kullanıcının isteği: kaldırılanlar listesinden de çıkarılsınlar.
+    await openPaths(restored, { quiet: true, silent: true, noFit: true, noSelect: restored.length !== 1, explicit: true });
     say(`${fmtNumber(restored.length)} kayıt geri getirildi.`);
   }, [undo, openPaths, say, fail]);
 
@@ -706,7 +785,7 @@ export default function App() {
     if (all.length === 0) return;
     const ok = await ask(
       `Kütüphanedeki ${all.length} kaydın tamamı kaldırılsın mı? Orijinal dosyalarınız etkilenmez; hemen ardından “Geri al” ile geri getirebilirsiniz.`,
-      { title: "Kütüphaneyi temizle", kind: "warning", okLabel: "Temizle", cancelLabel: "Vazgeç" },
+      { title: "Kütüphaneyi boşalt", kind: "warning", okLabel: "Boşalt", cancelLabel: "Vazgeç" },
     );
     if (!ok) return;
     await removePaths(all);
@@ -714,8 +793,9 @@ export default function App() {
     setDuplicates([]);
   }, [removePaths]);
 
+  /** Listede (filtreye uyan) ve haritada görünen kayıtlara yakınlaştırır. */
   const fitAll = useCallback(() => {
-    mapRef.current?.fitFiles(filesRef.current.filter((f) => f.visible));
+    mapRef.current?.fitFiles(onMapRef.current);
   }, []);
 
   // ---------- Dışa aktarma ve düzenleme ----------
@@ -749,16 +829,30 @@ export default function App() {
     const f = filesRef.current.find((x) => x.summary.path === selected);
     if (!f) return;
     try {
-      const path = await pickSavePath(f.summary.fileName, [
+      // Varsayılan biçim GPX; biçim seçilen yolun uzantısından belirlenir.
+      const stem = f.summary.fileName.replace(/\.[^.]+$/, "") || f.summary.fileName;
+      const path = await pickSavePath(`${stem}.gpx`, [
         { name: "GPX", extensions: ["gpx"] },
         { name: "KML (Google Earth)", extensions: ["kml"] },
         { name: "TCX (Garmin)", extensions: ["tcx"] },
         { name: "FIT (Garmin, Strava)", extensions: ["fit"] },
       ]);
       if (!path) return;
-      const ext = path.split(".").pop()?.toLowerCase();
+      const name = baseName(path);
+      const dot = name.lastIndexOf(".");
+      const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
       const format: ExportFormat = ext === "kml" || ext === "tcx" || ext === "fit" ? ext : "gpx";
-      await exportAs(f.summary.path, path, format);
+      if (ext) {
+        await exportAs(f.summary.path, path, format);
+      } else {
+        // Uzantısız ad: ".gpx" eklenir. Arka uç yalnızca pencerede seçilen yolu
+        // kabul ediyorsa seçilen ad olduğu gibi kullanılır.
+        try {
+          await exportAs(f.summary.path, `${path}.gpx`, "gpx");
+        } catch {
+          await exportAs(f.summary.path, path, "gpx");
+        }
+      }
       say(`${format.toUpperCase()} dosyası kaydedildi.`);
     } catch (e) {
       fail(String(e));
@@ -769,22 +863,22 @@ export default function App() {
     if (!selected || !detail || !range) return;
     try {
       const added = addResults([await trimFile(selected, detail.idx[range[0]], detail.idx[range[1]])]);
-      if (added[0]) setSelected(added[0].summary.path);
+      if (added[0]) pick(added[0].summary.path);
     } catch (e) {
       fail(String(e));
     }
-  }, [selected, detail, range, addResults, fail]);
+  }, [selected, detail, range, addResults, fail, pick]);
 
   const split = useCallback(async () => {
     if (!selected || !detail || !range) return;
     try {
       const added = addResults(await splitFile(selected, detail.idx[range[0]]));
       if (added.length === 2) say("Kayıt ikiye bölündü; iki yeni kayıt eklendi (orijinal duruyor).");
-      if (added[1]) setSelected(added[1].summary.path);
+      if (added[1]) pick(added[1].summary.path);
     } catch (e) {
       fail(String(e));
     }
-  }, [selected, detail, range, addResults, fail, say]);
+  }, [selected, detail, range, addResults, fail, say, pick]);
 
   const merge = useCallback(
     async (name: string) => {
@@ -794,14 +888,14 @@ export default function App() {
         const added = addResults([await mergeFiles(paths, name)]);
         if (added[0]) {
           setMulti(new Set());
-          setSelected(added[0].summary.path);
+          pick(added[0].summary.path);
           say(`${paths.length} kayıt birleştirildi (orijinaller duruyor).`);
         }
       } catch (e) {
         fail(String(e));
       }
     },
-    [shown, multi, addResults, say, fail],
+    [shown, multi, addResults, say, fail, pick],
   );
 
   const openMerge = useCallback(() => {
@@ -818,7 +912,7 @@ export default function App() {
     const unlisten: Promise<() => void>[] = [];
     const drainPending = () =>
       takePendingPaths()
-        .then((p) => openPaths(p))
+        .then((p) => openPaths(p, { explicit: true }))
         .catch((e) => fail(String(e)));
 
     unlisten.push(
@@ -828,7 +922,7 @@ export default function App() {
         else if (t === "leave") setDragging(false);
         else if (t === "drop") {
           setDragging(false);
-          openPaths(e.payload.paths);
+          openPaths(e.payload.paths, { explicit: true });
         }
       }),
     );
@@ -858,7 +952,7 @@ export default function App() {
         setSelected((sel) => (sel && filesRef.current.some((f) => f.summary.path === sel) ? sel : null));
       }
       try {
-        await openPaths(await takePendingPaths());
+        await openPaths(await takePendingPaths(), { explicit: true });
       } catch (e) {
         fail(String(e));
       }
@@ -882,6 +976,7 @@ export default function App() {
     export_png: exportPng,
     export_gpx: exportSelectedGpx,
     merge: openMerge,
+    help: () => setDialog("help"),
   };
   useEffect(() => {
     const u = listen<string>("menu", (e) => handlers.current[e.payload]?.());
@@ -916,12 +1011,12 @@ export default function App() {
       }
       setMulti(new Set());
       anchor.current = path;
-      setSelected(path);
+      pick(path);
     },
-    [rows, selected],
+    [rows, selected, pick],
   );
 
-  // Klavye: Esc, ↑/↓, Boşluk.
+  // Klavye: Esc, ↑/↓, Boşluk, ?.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (dialog || routeModal) return;
@@ -934,7 +1029,11 @@ export default function App() {
         else if (compare) setCompare(null);
         else if (range) setRange(null);
         else if (multi.size) setMulti(new Set());
-        else setSelected(null);
+        else pick(null);
+      }
+      if (e.key === "?") {
+        e.preventDefault();
+        setDialog("help");
       }
       if (e.key === " " && detail && tag !== "BUTTON") {
         e.preventDefault();
@@ -945,18 +1044,16 @@ export default function App() {
         const idx = rows.findIndex((f) => f.summary.path === selected);
         const next = e.key === "ArrowDown" ? idx + 1 : idx < 0 ? rows.length - 1 : idx - 1;
         const target = rows[Math.max(0, Math.min(rows.length - 1, next))];
+        // Seçilen satırı görünür kılmak kenar çubuğunun işi (liste sanal; satır henüz çizilmemiş olabilir).
         if (target) {
-          setSelected(target.summary.path);
+          pick(target.summary.path);
           anchor.current = target.summary.path;
-          document
-            .querySelector(`.file-row[data-path="${CSS.escape(target.summary.path)}"]`)
-            ?.scrollIntoView({ block: "nearest" });
         }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rows, selected, range, multi, detail, dialog, routeModal, areaMode, compare]);
+  }, [rows, selected, range, multi, detail, dialog, routeModal, areaMode, compare, pick]);
 
   const zoomTo = useCallback((path: string) => {
     const f = filesRef.current.find((x) => x.summary.path === path);
@@ -965,16 +1062,16 @@ export default function App() {
 
   const selectAndZoom = useCallback(
     (path: string) => {
-      setSelected(path);
+      pick(path);
       zoomTo(path);
     },
-    [zoomTo],
+    [zoomTo, pick],
   );
 
   const setVisible = useCallback(
     (paths: string[], visible: boolean) => {
       const ids = new Set(paths);
-      setFiles((prev) => prev.map((f) => (ids.has(f.summary.path) ? { ...f, visible } : f)));
+      patchFiles((prev) => prev.map((f) => (ids.has(f.summary.path) ? { ...f, visible } : f)));
       const hidden = new Set(prefsRef.current.hidden);
       for (const p of paths) {
         if (visible) hidden.delete(p);
@@ -982,7 +1079,7 @@ export default function App() {
       }
       up({ hidden: [...hidden] });
     },
-    [up],
+    [up, patchFiles],
   );
 
   const toggle = useCallback(
@@ -995,10 +1092,10 @@ export default function App() {
 
   const setColor = useCallback(
     (path: string, color: string) => {
-      setFiles((prev) => prev.map((f) => (f.summary.path === path ? { ...f, color } : f)));
+      patchFiles((prev) => prev.map((f) => (f.summary.path === path ? { ...f, color } : f)));
       up({ colors: { ...prefsRef.current.colors, [path]: color }, colorMode: "file" });
     },
-    [up],
+    [up, patchFiles],
   );
 
   const setFilters = useCallback((filters: Filters) => up({ filters }), [up]);
@@ -1010,13 +1107,13 @@ export default function App() {
       try {
         const res = await saveMeta(path, m);
         if (res?.status === "ok") {
-          setFiles((prev) => prev.map((f) => (f.summary.path === path ? { ...f, summary: res.file } : f)));
+          patchFiles((prev) => prev.map((f) => (f.summary.path === path ? { ...f, summary: res.file } : f)));
         } else if (res?.status === "error") fail(res.message, path);
       } catch (e) {
         fail(String(e), path);
       }
     },
-    [fail],
+    [fail, patchFiles],
   );
 
   const tagMany = useCallback(
@@ -1039,9 +1136,9 @@ export default function App() {
     const t = (p: string) => filesRef.current.find((f) => f.summary.path === p)?.summary.stats.startTime ?? 0;
     pair.sort((a, b) => t(a) - t(b));
     setCompare([pair[0], pair[1]]);
-    setSelected(null);
+    pick(null);
     mapRef.current?.fitFiles(filesRef.current.filter((f) => pair.includes(f.summary.path)));
-  }, [multi]);
+  }, [multi, pick]);
 
   const zoomRange = useCallback(() => {
     if (!detail || !range) return;
@@ -1080,6 +1177,8 @@ export default function App() {
     [setVisible],
   );
   const openSettings = useCallback(() => setDialog("settings"), []);
+  const openHelp = useCallback(() => setDialog("help"), []);
+  const dismissMultiHint = useCallback(() => up({ multiHintSeen: true }), [up]);
   const openSummary = useCallback(() => setDialog("summary"), []);
   const openTag = useCallback(() => setDialog("tag"), []);
   const clearMulti = useCallback(() => setMulti(new Set()), []);
@@ -1119,13 +1218,16 @@ export default function App() {
           onRemove={removePaths}
           onOpenFiles={pickFiles}
           onOpenFolder={pickFolder}
-          onCloseAll={closeAll}
           onSettings={openSettings}
           onSummary={openSummary}
           onMerge={openMerge}
           onExportCsv={exportCsv}
           onSetVisible={setVisible}
           onClearMulti={clearMulti}
+          onHelp={openHelp}
+          tzMode={prefs.tzMode}
+          multiHintSeen={prefs.multiHintSeen}
+          onDismissMultiHint={dismissMultiHint}
           meta={meta}
           allTags={allTags}
           routeLabel={routeLabel}
@@ -1141,6 +1243,7 @@ export default function App() {
             ref={mapRef}
             files={onMap}
             selected={selected}
+            selectedSummary={selectedEntry?.summary ?? null}
             detail={detail}
             cursor={cursor}
             onHoverIdx={onHoverIdx}
@@ -1154,7 +1257,7 @@ export default function App() {
             onSelect={(p) => {
               setMulti(new Set());
               setCompare(null);
-              setSelected(p);
+              pick(p);
             }}
             areaMode={areaMode}
             area={prefs.filters.area}
@@ -1191,7 +1294,7 @@ export default function App() {
                   <button
                     className={prefs.heatmap ? "active" : ""}
                     onClick={() => up({ heatmap: true })}
-                    title="En çok geçilen yerler (Ctrl/⌘+H)"
+                    title="En çok geçilen yerler (Ctrl/⌘+Shift+H)"
                   >
                     Isı haritası
                   </button>
@@ -1209,9 +1312,9 @@ export default function App() {
                 <button
                   className={`btn small${prefs.stopsLayer ? " primary" : ""}`}
                   onClick={() => up({ stopsLayer: !prefs.stopsLayer })}
-                  title="Tüm kayıtlarda en çok durulan yerler"
+                  title="Tüm kayıtlarda en sık duraklama yapılan yerler"
                 >
-                  Duraklar
+                  Duraklamalar
                 </button>
                 <label
                   className="check map-check"
@@ -1249,8 +1352,12 @@ export default function App() {
                     GPS gürültüsünü temizle
                   </label>
                 )}
-                <button className="btn small" onClick={fitAll} title="Tümünü göster (Ctrl/⌘+0)">
-                  Tümünü göster
+                <button
+                  className="btn small"
+                  onClick={fitAll}
+                  title="Listede görünen (filtreye uyan) tüm kayıtlara yakınlaştır (Ctrl/⌘+0)"
+                >
+                  Tümüne yakınlaştır
                 </button>
                 <button className="btn small" onClick={exportPng} title="Harita görüntüsünü kaydet (Ctrl/⌘+Shift+E)">
                   PNG
@@ -1294,6 +1401,15 @@ export default function App() {
             )}
           </div>
 
+          {reloading && (
+            <div className="reload-overlay" role="status" aria-live="polite">
+              <span className="spinner" aria-hidden />
+              <span>
+                Kayıtlar yeniden hesaplanıyor…
+                {loading && loading.total > 0 && ` ${fmtNumber(loading.done)} / ${fmtNumber(loading.total)}`}
+              </span>
+            </div>
+          )}
           <UpdateNotice />
           {(duplicates.length > 0 || errors.length > 0 || info || undo || watchOffer) && (
             <div className="toasts">
@@ -1315,7 +1431,7 @@ export default function App() {
                       ×
                     </button>
                   </div>
-                  <div>Yeni eklenen GPX dosyaları kütüphaneye kendiliğinden eklenir.</div>
+                  <div>Yeni eklenen GPX, FIT, TCX, KML dosyaları kütüphaneye kendiliğinden eklenir.</div>
                   <div className="update-actions">
                     <button
                       className="btn small primary"
@@ -1427,7 +1543,7 @@ export default function App() {
             follow={prefs.follow}
             onFollow={(follow) => up({ follow })}
             onColor={(c) => setColor(selectedEntry.summary.path, c)}
-            onClose={() => setSelected(null)}
+            onClose={() => pick(null)}
             onZoom={() => zoomTo(selectedEntry.summary.path)}
             onExportGpx={exportSelectedGpx}
             meta={meta[selectedEntry.summary.path] ?? EMPTY_META}
@@ -1453,8 +1569,14 @@ export default function App() {
             up({ tzMode });
             applySettings(s);
           }}
+          libraryCount={files.length}
+          onClearLibrary={() => {
+            setDialog(null);
+            closeAll();
+          }}
         />
       )}
+      {dialog === "help" && <HelpDialog onClose={() => setDialog(null)} />}
       {dialog === "summary" && (
         <SummaryPanel
           files={shown}

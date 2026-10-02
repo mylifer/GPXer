@@ -36,7 +36,9 @@ pub fn parse_fit(bytes: &[u8]) -> Result<Gpx, ParseError> {
         let x: Result<f64, _> = v.clone().try_into();
         x.ok().filter(|x| x.is_finite())
     };
-    let mut points = Vec::new();
+    let mut segments: Vec<Vec<Point>> = vec![Vec::new()];
+    // Zamanlayıcı durduktan sonra gelen kayıtlar yeni segmente başlar.
+    let mut stopped = false;
     // Kadansın kesirli kısmı (devir/dk), noktalarla aynı sırada.
     let mut fractions: Vec<Option<f32>> = Vec::new();
     let mut sport: Option<String> = None;
@@ -78,9 +80,39 @@ pub fn parse_fit(bytes: &[u8]) -> Result<Gpx, ParseError> {
                         p.lat = la;
                         p.lon = lo;
                         p.ele = alt.map(|a| a as f32);
-                        points.push(p);
+                        if std::mem::take(&mut stopped)
+                            && segments.last().is_some_and(|s| !s.is_empty())
+                        {
+                            segments.push(Vec::new());
+                        }
+                        segments.last_mut().unwrap().push(p);
                         fractions.push(frac);
                     }
+                }
+            }
+            MesgNum::Event => {
+                let field = |name: &str| {
+                    r.fields()
+                        .iter()
+                        .find(|f| f.name() == name)
+                        .map(|f| f.value().to_string())
+                };
+                let timer = matches!(field("event").as_deref(), Some("timer" | "0"));
+                let stop = matches!(
+                    field("event_type").as_deref(),
+                    Some(
+                        "stop"
+                            | "stop_all"
+                            | "stop_disable"
+                            | "stop_disable_all"
+                            | "1"
+                            | "4"
+                            | "8"
+                            | "9"
+                    )
+                );
+                if timer && stop {
+                    stopped = true;
                 }
             }
             MesgNum::Sport | MesgNum::Session if sport.is_none() => {
@@ -93,7 +125,8 @@ pub fn parse_fit(bytes: &[u8]) -> Result<Gpx, ParseError> {
             _ => {}
         }
     }
-    if points.is_empty() {
+    segments.retain(|s| !s.is_empty());
+    if segments.is_empty() {
         return Err(ParseError("FIT dosyasında konum kaydı yok".into()));
     }
     // Koşuda FIT kadansı tek bacağın adım sayısıdır (adım/dk'nın yarısı).
@@ -105,21 +138,18 @@ pub fn parse_fit(bytes: &[u8]) -> Result<Gpx, ParseError> {
         None => running_dynamics,
     };
     if running {
-        for (p, frac) in points.iter_mut().zip(&fractions) {
+        for (p, frac) in segments.iter_mut().flatten().zip(&fractions) {
             if let Some(c) = p.cad.as_mut() {
                 *c = (*c + frac.unwrap_or(0.0)) * 2.0;
             }
         }
     }
-    let time = points.iter().find_map(|p| p.time);
+    let time = segments.iter().flatten().find_map(|p| p.time);
     let name = sport.map(|s| format!("FIT {s}"));
     Ok(Gpx {
         name: name.clone(),
         time,
-        tracks: vec![Track {
-            name,
-            segments: vec![points],
-        }],
+        tracks: vec![Track { name, segments }],
         ..Gpx::default()
     })
 }
@@ -715,17 +745,34 @@ fn fit_sport(activity: crate::analysis::Activity) -> u8 {
     }
 }
 
+/// Bu değerden küçük FIT zaman damgaları cihaz açılışından beri geçen süre
+/// sayılır (göreli); gerçek zaman olarak yazılmaz.
+const FIT_MIN_TS: i64 = 0x1000_0000;
+/// FIT süre alanlarının (ms, u32) en büyük geçerli değeri.
+const FIT_MAX_MS: f64 = 4_294_967_294.0;
+
 /// Kaydı FIT etkinlik dosyası olarak yazar (Garmin Connect, Strava vb.).
-/// Zamanı olmayan noktalara, önceki noktadan birer saniye sonrası verilir.
+/// Zamanı olmayan noktalara, önceki noktadan birer saniye sonrası verilir;
+/// kayıtta hiç zaman yoksa başlangıç olarak şimdiki zaman kullanılır. Her
+/// segment ayrı bir tur olur; segmentler arasına zamanlayıcı durdu/başladı
+/// olayları yazılır.
 pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
-    let segs = primary(gpx);
+    let segs: Vec<&[Point]> = primary(gpx).into_iter().filter(|s| !s.is_empty()).collect();
+    // FIT'te gösterilemeyen (1998 öncesi) zamanlar yok sayılır.
+    let valid = |ms: i64| ms.div_euclid(1000) - FIT_EPOCH_S >= FIT_MIN_TS;
+    let now_ms = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or((FIT_EPOCH_S + FIT_MIN_TS) * 1000, |d| d.as_millis() as i64)
+    };
     let first_time = segs
         .iter()
         .flat_map(|s| s.iter())
-        .find_map(|p| p.time)
-        .or(gpx.time)
-        .unwrap_or(FIT_EPOCH_S * 1000 + 1000);
-    let fit_ts = |ms: i64| ((ms / 1000) - FIT_EPOCH_S).max(0) as f64;
+        .filter_map(|p| p.time)
+        .find(|&t| valid(t))
+        .or(gpx.time.filter(|&t| valid(t)))
+        .unwrap_or_else(now_ms);
+    let fit_ts = |ms: i64| (ms.div_euclid(1000) - FIT_EPOCH_S).max(FIT_MIN_TS) as f64;
 
     let mut body = Vec::new();
     let start = fit_ts(first_time);
@@ -736,17 +783,28 @@ pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
         &[Some(4.0), Some(255.0), Some(0.0), Some(1.0), Some(start)],
     );
     FIT_EVENT.define(&mut body);
-    // Zamanlayıcı (0) başladı (0).
-    FIT_EVENT.write(&mut body, &[Some(start), Some(0.0), Some(0.0)]);
     FIT_RECORD.define(&mut body);
+    FIT_LAP.define(&mut body);
 
+    // Tur bilgisi: başlangıç, bitiş, zamanlayıcı süresi (ms), mesafe (m).
+    let mut laps: Vec<(f64, f64, f64, f64)> = Vec::new();
     let mut dist = 0.0;
     let mut last_ms = first_time;
     let mut moving_ms: i64 = 0;
     for seg in &segs {
         let mut prev: Option<&Point> = None;
+        let (mut seg_start, seg_dist0, seg_moving0) = (None, dist, moving_ms);
         for p in seg.iter() {
-            let ms = p.time.unwrap_or(last_ms + 1000).max(last_ms);
+            let ms = p
+                .time
+                .filter(|&t| valid(t))
+                .unwrap_or(last_ms + 1000)
+                .max(last_ms);
+            if seg_start.is_none() {
+                seg_start = Some(fit_ts(ms));
+                // Zamanlayıcı (0) başladı (0).
+                FIT_EVENT.write(&mut body, &[Some(fit_ts(ms)), Some(0.0), Some(0.0)]);
+            }
             // Segmentler arası bekleme ve kayıt boşlukları (uçuş, sinyal
             // kaybı) mesafeye ve zamanlayıcıya katılmaz.
             if let Some(q) = prev.filter(|q| !crate::is_gap(q, p)) {
@@ -770,40 +828,54 @@ pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
                 ],
             );
         }
+        let seg_end = fit_ts(last_ms);
+        // Zamanlayıcı (0) durdu (4: tümü).
+        FIT_EVENT.write(&mut body, &[Some(seg_end), Some(0.0), Some(4.0)]);
+        laps.push((
+            seg_start.unwrap_or(seg_end),
+            seg_end,
+            (moving_ms - seg_moving0) as f64,
+            dist - seg_dist0,
+        ));
     }
-
     let end = fit_ts(last_ms);
-    let elapsed = (end - start) * 1000.0;
-    let timer = moving_ms as f64;
-    // Zamanlayıcı (0) durdu (4: tümü).
-    FIT_EVENT.write(&mut body, &[Some(end), Some(0.0), Some(4.0)]);
-    FIT_LAP.define(&mut body);
-    // Olay 9: tur, tür 1: durdu.
-    FIT_LAP.write(
-        &mut body,
-        &[
-            Some(end),
-            Some(start),
-            Some(elapsed),
-            Some(timer),
-            Some(dist * 100.0),
-            Some(9.0),
-            Some(1.0),
-        ],
-    );
+    if laps.is_empty() {
+        FIT_EVENT.write(&mut body, &[Some(start), Some(0.0), Some(0.0)]);
+        FIT_EVENT.write(&mut body, &[Some(end), Some(0.0), Some(4.0)]);
+        laps.push((start, end, 0.0, 0.0));
+    }
+    // Çok uzun (49,7 günden uzun) kayıtlarda süre alanı taşmasın.
+    let ms_field = |ms: f64| Some(ms.clamp(0.0, FIT_MAX_MS));
+    for &(lap_start, lap_end, lap_timer, lap_dist) in &laps {
+        // Olay 9: tur, tür 1: durdu.
+        FIT_LAP.write(
+            &mut body,
+            &[
+                Some(lap_end),
+                Some(lap_start),
+                ms_field((lap_end - lap_start) * 1000.0),
+                ms_field(lap_timer),
+                Some(lap_dist * 100.0),
+                Some(9.0),
+                Some(1.0),
+            ],
+        );
+    }
+    let elapsed = ms_field((end - start) * 1000.0);
+    let timer = ms_field(moving_ms as f64);
     FIT_SESSION.define(&mut body);
     FIT_SESSION.write(
         &mut body,
         &[
             Some(end),
             Some(start),
-            Some(elapsed),
-            Some(timer),
+            elapsed,
+            timer,
             Some(dist * 100.0),
             Some(fit_sport(activity) as f64),
             Some(0.0),
             Some(0.0),
-            Some(1.0),
+            Some(laps.len() as f64),
             Some(8.0),
             Some(1.0),
         ],
@@ -814,7 +886,7 @@ pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
         &mut body,
         &[
             Some(end),
-            Some(timer),
+            timer,
             Some(1.0),
             Some(0.0),
             Some(26.0),

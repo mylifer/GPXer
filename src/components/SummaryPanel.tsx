@@ -212,7 +212,7 @@ export function SummaryPanel({ files, routes, onPeriod, onOpen, onRoute, onActiv
             if (!list.length) return null;
             const dist = list.reduce((x, f) => x + f.summary.stats.distanceM, 0);
             return (
-              <button key={a.id} className="type-tile" onClick={() => onActivity(a.id)} title="Listeyi bu türe süz">
+              <button key={a.id} className="type-tile" onClick={() => onActivity(a.id)} title="Listeyi bu türe göre filtrele">
                 <span>
                   {a.icon} {a.label}
                 </span>

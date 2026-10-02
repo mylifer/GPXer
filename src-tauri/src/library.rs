@@ -3,7 +3,7 @@
 
 use gpx_core::{Activity, FileSummary, Prepared, StatsConfig};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Önbellek biçimi ya da özet hesaplaması değiştiğinde artırılır; eski
 /// önbellek yok sayılır.
-const CACHE_VERSION: u32 = 8;
+const CACHE_VERSION: u32 = 9;
 /// Bellekte tutulan hazırlanmış (temizlenmiş) kayıt sayısı.
 const PREPARED_KEEP: usize = 4;
 /// Çöp kutusundaki dosyalar bu süreden sonra kalıcı olarak silinir.
@@ -84,11 +84,37 @@ pub struct Library {
     /// İçerik parmak izi → kütüphanedeki dosya yolu.
     known: Mutex<HashMap<u64, String>>,
     cache: Mutex<Cache>,
-    /// Kullanıcının sildiği kayıtların parmak izi → çöp kutusundaki yolu.
-    /// İzlenen klasörden yeniden eklenmezler.
-    dismissed: Mutex<HashMap<u64, String>>,
+    /// Kullanıcının sildiği kayıtların parmak izi → çöp kutusundaki yolları
+    /// (aynı içerik birden çok kez silinmiş olabilir). Kendiliğinden
+    /// yüklemelerde (izlenen klasör) yeniden eklenmezler.
+    dismissed: Mutex<Dismissed>,
     /// Son kullanılan hazırlanmış kayıtlar (grafik, aralık, kırpma için).
     prepared: Mutex<VecDeque<(PreparedKey, Arc<Prepared>)>>,
+}
+
+/// Parmak izi → çöp kutusundaki yollar.
+type Dismissed = HashMap<u64, BTreeSet<String>>;
+
+/// dismissed.json'u okur. Eski biçim (parmak izi → tek yol) de kabul edilir.
+fn parse_dismissed(bytes: &[u8]) -> Option<Dismissed> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Paths {
+        Many(BTreeSet<String>),
+        One(String),
+    }
+    let map: HashMap<u64, Paths> = serde_json::from_slice(bytes).ok()?;
+    Some(
+        map.into_iter()
+            .map(|(fp, p)| {
+                let set = match p {
+                    Paths::Many(s) => s,
+                    Paths::One(s) => BTreeSet::from([s]),
+                };
+                (fp, set)
+            })
+            .collect(),
+    )
 }
 
 pub fn is_gpx(path: &Path) -> bool {
@@ -222,7 +248,7 @@ impl Library {
         let dismissed_path = root.join("dismissed.json");
         let dismissed = std::fs::read(&dismissed_path)
             .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
+            .and_then(|b| parse_dismissed(&b))
             .unwrap_or_default();
         let entries = std::fs::read(&cache_path)
             .ok()
@@ -367,6 +393,12 @@ impl Library {
         self.dismissed.lock().unwrap().contains_key(&fingerprint)
     }
 
+    /// Yükleme silinen kayıt yüzünden atlanmalı mı: yalnızca kendiliğinden
+    /// (elle açılmamış) ve kütüphane dışından gelen yüklemelerde.
+    pub fn blocks(&self, fingerprint: u64, path: &str, explicit: bool) -> bool {
+        !explicit && !self.contains(Path::new(path)) && self.is_dismissed(fingerprint)
+    }
+
     /// Kaydı silinenlerden çıkarır (kullanıcı yeniden açtı ya da geri aldı).
     pub fn undismiss(&self, fingerprint: u64) {
         let mut map = self.dismissed.lock().unwrap();
@@ -375,7 +407,7 @@ impl Library {
         }
     }
 
-    fn save_dismissed(&self, map: &HashMap<u64, String>) {
+    fn save_dismissed(&self, map: &Dismissed) {
         let res = serde_json::to_vec(map)
             .map_err(std::io::Error::other)
             .and_then(|bytes| {
@@ -568,7 +600,9 @@ impl Library {
         drop(known);
         if !dismissed.is_empty() {
             let mut map = self.dismissed.lock().unwrap();
-            map.extend(dismissed);
+            for (fp, trashed) in dismissed {
+                map.entry(fp).or_default().insert(trashed);
+            }
             self.save_dismissed(&map);
         }
         if out.is_empty() && !errors.is_empty() {
@@ -608,10 +642,12 @@ impl Library {
                 let _ = std::fs::remove_file(&target);
             }
         }
+        // Aynı içeriğin herhangi bir kopyası geri gelince kayıt artık silinmiş
+        // sayılmaz.
         let restored: Vec<&String> = out.iter().map(|(t, _)| t).collect();
         let mut map = self.dismissed.lock().unwrap();
         let before = map.len();
-        map.retain(|_, v| !restored.contains(&&*v));
+        map.retain(|_, v| !v.is_empty() && !restored.iter().any(|t| v.contains(*t)));
         if map.len() != before {
             self.save_dismissed(&map);
         }
@@ -828,6 +864,68 @@ mod tests {
         assert!(lib.check(&back[0].1).is_ok());
         let up = lib.dir.join("..").join("x.gpx");
         assert!(lib.check(&up.to_string_lossy()).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn dismissal_blocks_only_implicit_loads() {
+        let root = temp_root("explicit");
+        let lib = Library::open(&root).unwrap();
+        let cfg = StatsConfig::default();
+        let src = root.join("izlenen");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.gpx"), track("41.0")).unwrap();
+        let sp = src.join("a.gpx").to_string_lossy().into_owned();
+        let LoadResult::Ok { file } = lib.load(sp.clone(), &cfg, None) else {
+            panic!()
+        };
+        let (_, fp) = lib.summarize(&sp, &cfg, None).unwrap();
+        lib.trash(std::slice::from_ref(&file.path)).unwrap();
+        // İzlenen klasörden kendiliğinden gelen yükleme atlanır, elle açılan
+        // atlanmaz.
+        assert!(lib.blocks(fp, &sp, false));
+        assert!(!lib.blocks(fp, &sp, true));
+        // Kütüphanedeki dosyalar hiçbir zaman atlanmaz.
+        let inside = lib.dir.join("a.gpx").to_string_lossy().into_owned();
+        assert!(!lib.blocks(fp, &inside, false));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn restoring_older_trash_copy_clears_dismissal() {
+        let root = temp_root("twice");
+        let lib = Library::open(&root).unwrap();
+        let cfg = StatsConfig::default();
+        let p = lib.write_new("a", &track("41.0")).unwrap();
+        let ps = p.to_string_lossy().into_owned();
+        let (_, fp) = lib.summarize(&ps, &cfg, None).unwrap();
+        assert!(matches!(
+            lib.load(ps.clone(), &cfg, None),
+            LoadResult::Ok { .. }
+        ));
+        let first = lib.trash(std::slice::from_ref(&ps)).unwrap();
+        // Aynı içerik yeniden eklenip yeniden silinir.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let q = lib.write_new("a", &track("41.0")).unwrap();
+        let qs = q.to_string_lossy().into_owned();
+        assert!(matches!(
+            lib.load(qs.clone(), &cfg, None),
+            LoadResult::Ok { .. }
+        ));
+        let second = lib.trash(std::slice::from_ref(&qs)).unwrap();
+        assert_ne!(first[0].trashed, second[0].trashed);
+        assert_eq!(lib.dismissed.lock().unwrap()[&fp].len(), 2);
+        // Eskisi geri getirilince de kayıt silinmiş sayılmaz.
+        assert_eq!(lib.restore(&first).len(), 1);
+        assert!(!lib.is_dismissed(fp));
+        assert!(!Library::open(&root).unwrap().is_dismissed(fp));
+        // Eski biçimdeki dismissed.json okunur.
+        std::fs::write(
+            root.join("dismissed.json"),
+            format!(r#"{{"{fp}":"/x/1-a.gpx"}}"#),
+        )
+        .unwrap();
+        assert!(Library::open(&root).unwrap().is_dismissed(fp));
         let _ = std::fs::remove_dir_all(&root);
     }
 

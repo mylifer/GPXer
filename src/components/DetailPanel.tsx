@@ -181,7 +181,7 @@ export function DetailPanel(p: Props) {
             {st.segmentCount > 1 && ` · ${st.segmentCount} parça`}
             {s.waypoints.length > 0 && ` · ${s.waypoints.length} işaret`}
             {s.removedPoints > 0 && ` · ${fmtNumber(s.removedPoints)} GPS sıçraması ayıklandı`}
-            {collapsed > 0 && ` · ${fmtNumber(collapsed)} duraklama noktası sadeleştirildi`}
+            {collapsed > 0 && ` · duraklamalarda ${fmtNumber(collapsed)} nokta sadeleştirildi`}
           </div>
           {placeLabel(s) && <div className="muted place-line">{placeLabel(s)}</div>}
         </div>
@@ -193,8 +193,8 @@ export function DetailPanel(p: Props) {
         <button className="btn small" onClick={p.onZoom}>
           Yakınlaştır
         </button>
-        <button className="btn small" onClick={p.onExportGpx} title="GPX, KML, TCX ya da FIT olarak kaydet (Ctrl/⌘+S)">
-          Kaydet…
+        <button className="btn small" onClick={p.onExportGpx} title="Farklı kaydet (GPX, KML, TCX, FIT) (Ctrl/⌘+S)">
+          Farklı kaydet…
         </button>
         <button className="icon-btn" onClick={p.onClose} title="Kapat (Esc)">
           ×

@@ -125,7 +125,11 @@ export interface Settings {
 }
 
 export const expandPaths = (paths: string[]) => invoke<string[]>("expand_paths", { paths });
-export const loadFiles = (paths: string[]) => invoke<LoadResult[]>("load_files", { paths });
+/** `explicit`: kullanıcı dosyaları kendisi açtı (Dosya Aç, Klasör Aç, sürükle-bırak,
+ * çift tıklama, "Birlikte aç"); kütüphaneden çıkarılmış kayıtlar da yeniden eklenir.
+ * Açılıştaki kütüphane, izlenen klasörler ve yeniden yüklemede verilmez. */
+export const loadFiles = (paths: string[], explicit = false) =>
+  invoke<LoadResult[]>("load_files", { paths, explicit });
 export const flushCache = () => invoke<void>("flush_cache");
 export const loadDetail = (path: string) => invoke<Detail>("load_detail", { path });
 export const libraryFiles = () => invoke<string[]>("library_files");

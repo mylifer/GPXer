@@ -60,10 +60,18 @@ async fn expand_paths(paths: Vec<String>) -> Result<Vec<String>, String> {
 }
 
 /// Dosyaları paralel olarak okuyup özetler ve kütüphaneye ekler. Değişmemiş
-/// dosyaların özeti önbellekten gelir. Kullanıcının sildiği kayıtlar izlenen
-/// klasörden yeniden eklenmez; başka yerden açılırsa yeniden eklenir.
+/// dosyaların özeti önbellekten gelir. `explicit` kullanıcının dosyayı kendisi
+/// açtığını (Dosya Aç, Klasör Aç, sürükle-bırak, çift tıklama) belirtir.
+/// Kullanıcının sildiği kayıtlar yalnızca kendiliğinden yüklemelerde
+/// (açılışta, izlenen klasörden) yeniden eklenmez; elle açılırsa eklenir ve
+/// silinenlerden çıkarılır.
 #[tauri::command]
-async fn load_files(app: AppHandle, paths: Vec<String>) -> Result<Vec<LoadResult>, String> {
+async fn load_files(
+    app: AppHandle,
+    paths: Vec<String>,
+    explicit: Option<bool>,
+) -> Result<Vec<LoadResult>, String> {
+    let explicit = explicit.unwrap_or(false);
     run_blocking(move || {
         let library = app.state::<Library>();
         let meta = app.state::<MetaStore>();
@@ -82,14 +90,14 @@ async fn load_files(app: AppHandle, paths: Vec<String>) -> Result<Vec<LoadResult
         parsed
             .into_iter()
             .map(|(p, chosen, res)| match res {
-                Ok((_, fp)) if library.is_dismissed(fp) && settings.is_watched(&p) => {
-                    LoadResult::Duplicate {
-                        existing: p.clone(),
-                        path: p,
-                    }
-                }
+                Ok((_, fp)) if library.blocks(fp, &p, explicit) => LoadResult::Duplicate {
+                    existing: p.clone(),
+                    path: p,
+                },
                 Ok((file, fp)) => {
-                    library.undismiss(fp);
+                    if explicit {
+                        library.undismiss(fp);
+                    }
                     library.add(p, file, fp, &cfg, chosen)
                 }
                 Err(message) => LoadResult::Error { path: p, message },
@@ -386,11 +394,25 @@ async fn pick_save_path(
 
 /// Hedefin kaydetme penceresinde seçildiğini denetler; izni kullanır.
 fn take_approved(app: &AppHandle, path: &str) -> Result<(), String> {
-    if app.state::<ApprovedPaths>().0.lock().unwrap().remove(path) {
-        Ok(())
-    } else {
-        Err("Bu konuma yazma izni yok; kaydetme yerini yeniden seçin".into())
+    let state = app.state::<ApprovedPaths>();
+    let mut approved = state.0.lock().unwrap();
+    if approved.remove(path) {
+        return Ok(());
     }
+    // Pencerede uzantısız bir ad seçildiyse arayüz biçimin uzantısını ekler.
+    let p = Path::new(path);
+    let known = ["gpx", "kml", "tcx", "fit", "csv", "png"];
+    let base = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .filter(|e| known.contains(&e.to_ascii_lowercase().as_str()))
+        .and_then(|_| p.with_extension("").to_str().map(str::to_owned));
+    if let Some(base) = base.filter(|b| Path::new(b).extension().is_none()) {
+        if approved.remove(&base) {
+            return Ok(());
+        }
+    }
+    Err("Bu konuma yazma izni yok; kaydetme yerini yeniden seçin".into())
 }
 
 /// İki yol aynı dosyayı mı gösteriyor (hedef henüz olmayabilir).
@@ -431,10 +453,13 @@ async fn export_as(
             "kml" => gpx_core::formats::write_kml(&gpx).into_bytes(),
             "tcx" => gpx_core::formats::write_tcx(&gpx).into_bytes(),
             "fit" => {
-                // FIT'te spor türü de yazılır: seçilen ya da tahmin edilen tür.
+                // FIT'te spor türü de yazılır: seçilen ya da özetteki gibi
+                // hazırlanmış (temizlenmiş) kayıttan tahmin edilen tür.
+                // Yazılan veri yine ham kayıttır.
                 let cfg = app.state::<SettingsStore>().stats();
                 let chosen = app.state::<MetaStore>().activity(&src);
-                let (_, activity) = gpx_core::effective_config(&gpx, &cfg, chosen);
+                let p = prepared(&app, &src, &cfg)?;
+                let (_, activity) = gpx_core::effective_config(&p.gpx, &cfg, chosen);
                 gpx_core::formats::write_fit(&gpx, activity)
             }
             other => return Err(format!("Bilinmeyen biçim: {other}")),
@@ -531,10 +556,10 @@ fn build_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     let open_folder = MenuItemBuilder::with_id("open_folder", "Klasör Aç…")
         .accelerator("CmdOrCtrl+Shift+O")
         .build(app)?;
-    let close_all = MenuItemBuilder::with_id("close_all", "Kütüphaneyi Temizle…")
+    let close_all = MenuItemBuilder::with_id("close_all", "Kütüphaneyi Boşalt…")
         .accelerator("CmdOrCtrl+Shift+W")
         .build(app)?;
-    let fit_all = MenuItemBuilder::with_id("fit_all", "Tümünü Göster")
+    let fit_all = MenuItemBuilder::with_id("fit_all", "Tüm Kayıtlara Yakınlaştır")
         .accelerator("CmdOrCtrl+0")
         .build(app)?;
     let check_updates =
@@ -546,7 +571,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
         .accelerator("CmdOrCtrl+I")
         .build(app)?;
     let heatmap = MenuItemBuilder::with_id("toggle_heatmap", "Isı Haritası")
-        .accelerator("CmdOrCtrl+H")
+        .accelerator("CmdOrCtrl+Shift+H")
         .build(app)?;
     let settings = MenuItemBuilder::with_id("settings", "Ayarlar…")
         .accelerator("CmdOrCtrl+,")
@@ -557,7 +582,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     let export_png = MenuItemBuilder::with_id("export_png", "Harita Görüntüsünü Kaydet (PNG)…")
         .accelerator("CmdOrCtrl+Shift+E")
         .build(app)?;
-    let export_gpx = MenuItemBuilder::with_id("export_gpx", "Seçili Kaydı GPX Olarak Kaydet…")
+    let export_gpx = MenuItemBuilder::with_id("export_gpx", "Seçili Kaydı Farklı Kaydet…")
         .accelerator("CmdOrCtrl+S")
         .build(app)?;
     let merge = MenuItemBuilder::with_id("merge", "Seçilenleri Birleştir…").build(app)?;
