@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Önbellek biçimi ya da özet hesaplaması değiştiğinde artırılır; eski
 /// önbellek yok sayılır.
-const CACHE_VERSION: u32 = 11;
+const CACHE_VERSION: u32 = 12;
 /// Bellekte tutulan hazırlanmış (temizlenmiş) kayıt sayısı.
 const PREPARED_KEEP: usize = 4;
 /// Çöp kutusundaki dosyalar bu süreden sonra kalıcı olarak silinir.
@@ -191,15 +191,38 @@ pub fn place_info(lon: f64, lat: f64) -> Option<(String, String)> {
 /// öncekinden farklıysa (ardışık aynı yerler tek girdi). Yeri bulunamayan
 /// (25 km'den uzak) saatler atlanır.
 pub fn visits(gpx: &gpx_core::parse::Gpx, hours: &[[f64; 3]]) -> Vec<(i64, String, String)> {
+    let per_hour: Vec<(i64, String, String)> = gpx_core::hour_first_points(gpx, hours)
+        .into_iter()
+        .filter_map(|(hour, [lon, lat])| place_info(lon, lat).map(|(cc, n)| (hour, cc, n)))
+        .collect();
+    let per_hour = drop_brief_countries(per_hour);
     let mut out: Vec<(i64, String, String)> = Vec::new();
-    for (hour, [lon, lat]) in gpx_core::hour_first_points(gpx, hours) {
-        let Some((cc, name)) = place_info(lon, lat) else {
-            continue;
-        };
-        if out.last().is_some_and(|(_, c, n)| *c == cc && *n == name) {
+    for v in per_hour {
+        if out.last().is_some_and(|(_, c, n)| *c == v.1 && *n == v.2) {
             continue;
         }
-        out.push((hour, cc, name));
+        out.push(v);
+    }
+    out
+}
+
+/// Bir ülkede ardışık en az bu kadar saatlik kayıt yoksa (sınır yakınında tek
+/// bir nokta, en yakın şehrin komşu ülkede kalması) o saatler sayılmaz.
+const MIN_COUNTRY_HOURS: usize = 2;
+
+fn drop_brief_countries(per_hour: Vec<(i64, String, String)>) -> Vec<(i64, String, String)> {
+    let mut out = Vec::with_capacity(per_hour.len());
+    let mut i = 0;
+    while i < per_hour.len() {
+        let cc = &per_hour[i].1;
+        let j = per_hour[i..]
+            .iter()
+            .position(|v| v.1 != *cc)
+            .map_or(per_hour.len(), |k| i + k);
+        if j - i >= MIN_COUNTRY_HOURS {
+            out.extend_from_slice(&per_hour[i..j]);
+        }
+        i = j;
     }
     out
 }
@@ -1043,5 +1066,46 @@ mod place_tests {
         assert_eq!(names[1].1, "TR");
         assert_ne!(names[1].2, "Şişli");
         assert_eq!(names[2], (4 * 3_600_000, "TR", "Şişli"));
+    }
+
+    #[test]
+    fn visits_skip_flights_and_brief_countries() {
+        use gpx_core::parse::{Gpx, Point, Track};
+        let pt = |lon: f64, lat: f64, s: i64| Point {
+            lat,
+            lon,
+            time: Some(s * 1000),
+            ..Default::default()
+        };
+        let mut seg = Vec::new();
+        // İstanbul'da 3 saat.
+        for k in 0..36 {
+            seg.push(pt(28.987, 41.060, k * 300));
+        }
+        // İnişte Çek sınırının üstünden 800 km/sa ile geçiş (Aš yakını).
+        for k in 0..20 {
+            seg.push(pt(12.10 - k as f64 * 0.03, 50.20, 3 * 3600 + 7200 + k * 5));
+        }
+        // Köln'de 4 saat.
+        for k in 0..48 {
+            seg.push(pt(6.96, 50.94, 6 * 3600 + k * 300));
+        }
+        // Köln'den bir saatliğine (tek saat) Hollanda sınırına yakın tek nokta.
+        seg.push(pt(6.02, 50.85, 11 * 3600));
+        seg.push(pt(6.96, 50.94, 12 * 3600 + 600));
+        seg.push(pt(6.96, 50.94, 13 * 3600));
+        let gpx = Gpx {
+            tracks: vec![Track {
+                name: None,
+                segments: vec![seg],
+            }],
+            ..Default::default()
+        };
+        let hours: Vec<[f64; 3]> = (0..14)
+            .map(|h| [(h * 3_600_000) as f64, 0.0, 0.0])
+            .collect();
+        let v = visits(&gpx, &hours);
+        let ccs: std::collections::BTreeSet<&str> = v.iter().map(|(_, c, _)| c.as_str()).collect();
+        assert_eq!(ccs, ["DE", "TR"].into_iter().collect(), "{v:?}");
     }
 }

@@ -231,12 +231,31 @@ fn hourly_buckets(pieces: &[&[Point]], cfg: &StatsConfig) -> Vec<[f64; 3]> {
 /// düşen ilk noktası `[lon, lat]`. Noktası bulunamayan saat atlanır; sıra
 /// `hours` ile aynıdır.
 pub fn hour_first_points(gpx: &Gpx, hours: &[[f64; 3]]) -> Vec<(i64, [f64; 2])> {
+    // Uçarken (ya da çok hızlı giderken) alınan noktalar o yerde bulunulduğunu
+    // göstermez (ör. inişte bir sınırın üstünden geçmek); bunlar atlanır.
+    const GROUND_SPEED_MS: f64 = 150.0 / 3.6;
     let mut first: std::collections::HashMap<i64, [f64; 2]> = Default::default();
-    for p in primary_segments(gpx).into_iter().flatten() {
-        if let Some(t) = p.time {
-            first
-                .entry(t.div_euclid(HOUR_MS) * HOUR_MS)
-                .or_insert([p.lon, p.lat]);
+    let (pieces, _) = split_at_gaps(&primary_segments(gpx));
+    for piece in pieces {
+        for (i, p) in piece.iter().enumerate() {
+            let Some(t) = p.time else { continue };
+            let hour = t.div_euclid(HOUR_MS) * HOUR_MS;
+            if first.contains_key(&hour) {
+                continue;
+            }
+            let fast = |q: &Point| match (p.time, q.time) {
+                (Some(a), Some(b)) => {
+                    let dt = ((b - a).abs().max(1000)) as f64 / 1000.0;
+                    stats::haversine_m(p, q) / dt > GROUND_SPEED_MS
+                }
+                _ => false,
+            };
+            let before = i.checked_sub(1).map(|j| &piece[j]);
+            let after = piece.get(i + 1);
+            if before.is_some_and(fast) || after.is_some_and(fast) {
+                continue;
+            }
+            first.insert(hour, [p.lon, p.lat]);
         }
     }
     hours
