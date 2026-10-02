@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { ask, open, save } from "@tauri-apps/plugin-dialog";
+import { ask, open } from "@tauri-apps/plugin-dialog";
 import {
   exportAs,
   expandPaths,
@@ -13,6 +13,7 @@ import {
   loadDetail,
   loadFiles,
   mergeFiles,
+  pickSavePath,
   rangeStats,
   removeFiles,
   restoreFiles,
@@ -25,6 +26,7 @@ import {
   type Detail,
   type ExportFormat,
   type FileMeta,
+  type FileSummary,
   type LoadResult,
   type Settings,
   type Stats,
@@ -73,9 +75,54 @@ interface OpenOptions {
   silent?: boolean;
 }
 
+/** Oynatmada kayıttaki bu uzunluktan büyük zaman boşlukları (duraklama,
+ * sinyal kaybı) beklenmez; kısa bir sıçramayla geçilir. */
+const PLAY_MAX_GAP_MS = 60_000;
+const PLAY_GAP_AS_MS = 1_000;
+
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 const EMPTY_META: FileMeta = { tags: [], note: "", activity: null };
 const OPEN_EXTS = ["gpx", "GPX", "fit", "FIT", "tcx", "TCX", "kml", "KML"];
+
+/**
+ * İmleç konumu (grafik/harita üzerindeki nokta) için küçük dış depo: fare
+ * hareketi ve oynatma her karede güncellenir; yalnızca bu değeri kullanan
+ * bileşenler yeniden çizilir, uygulamanın tamamı değil.
+ */
+interface IdxStore {
+  get(): number | null;
+  set(i: number | null): void;
+  subscribe(fn: () => void): () => void;
+}
+
+function createIdxStore(): IdxStore {
+  let value: number | null = null;
+  const subs = new Set<() => void>();
+  return {
+    get: () => value,
+    set(i) {
+      if (i === value) return;
+      value = i;
+      subs.forEach((fn) => fn());
+    },
+    subscribe(fn) {
+      subs.add(fn);
+      return () => {
+        subs.delete(fn);
+      };
+    },
+  };
+}
+
+const useIdx = (store: IdxStore) => useSyncExternalStore(store.subscribe, store.get);
+
+function HoverMapView({ cursor, ...rest }: Omit<ComponentProps<typeof MapView>, "hoverIdx"> & { cursor: IdxStore }) {
+  return <MapView {...rest} hoverIdx={useIdx(cursor)} />;
+}
+
+function HoverDetailPanel({ cursor, ...rest }: Omit<ComponentProps<typeof DetailPanel>, "hoverIdx"> & { cursor: IdxStore }) {
+  return <DetailPanel {...rest} hoverIdx={useIdx(cursor)} />;
+}
 
 export default function App() {
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
@@ -96,10 +143,13 @@ export default function App() {
   const anchor = useRef<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  /** İmleç (fare ya da oynatma); App'i her karede yeniden çizmemek için state değil. */
+  const [cursor] = useState(createIdxStore);
   const [range, setRange] = useState<[number, number] | null>(null);
   const [rangeSt, setRangeSt] = useState<Stats | null>(null);
   const [playing, setPlaying] = useState(false);
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
   const [loading, setLoading] = useState<{ done: number; total: number } | null>(null);
   const [errors, setErrors] = useState<LoadError[]>([]);
   const [duplicates, setDuplicates] = useState<Duplicate[]>([]);
@@ -129,7 +179,14 @@ export default function App() {
   filesRef.current = files;
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   const loadQueue = useRef<Promise<void>>(Promise.resolve());
+  /** Yeniden yükleme (ayar değişikliği) sayacı: eski ayarlarla süren yüklemeler
+   * her beklemeden sonra bunu denetler ve sonuçlarını bırakır. */
+  const loadGen = useRef(0);
+  /** Yeniden yükleme bitince geri seçilecek kayıt (undefined: bekleyen yok). */
+  const restoreSel = useRef<string | null | undefined>(undefined);
   const initialLoad = useRef(true);
   /** Açılışta kayıtlı bir harita konumu var mıydı (harita kendi ilk konumunu da kaydeder). */
   const hadView = useRef(prefs.mapView != null);
@@ -167,8 +224,21 @@ export default function App() {
     });
   }, [files, prefs.colorMode, dark]);
 
+  /** Özetlerin listesi; yalnızca özetler değişince yeni dizi (görünürlük, renk
+   * gibi değişiklikler güzergâh hesabını tetiklemesin). */
+  const summariesRef = useRef<FileSummary[]>([]);
+  const summaries = useMemo(() => {
+    const prev = summariesRef.current;
+    if (prev.length === files.length && files.every((f, i) => f.summary === prev[i])) return prev;
+    return (summariesRef.current = files.map((f) => f.summary));
+  }, [files]);
+
   /** Tekrarlanan güzergâhlar (tüm kütüphane üzerinden). */
-  const routeInfo = useMemo(() => findRoutes(files), [files]);
+  const routeInfo = useMemo(() => findRoutes(summaries), [summaries]);
+  const routeInfoRef = useRef(routeInfo);
+  routeInfoRef.current = routeInfo;
+  /** Güzergâh filtresi: kayıtlı yolu içeren güzergâh (yoksa null). */
+  const activeRoute = prefs.filters.route ? (routeInfo.byPath.get(prefs.filters.route) ?? null) : null;
 
   const allTags = useMemo(
     () => [...new Set(Object.values(meta).flatMap((m) => m.tags))].sort((a, b) => a.localeCompare(b, "tr-TR")),
@@ -188,7 +258,7 @@ export default function App() {
       }
       if (fl.activity && s.activity !== fl.activity) return false;
       if (fl.tag && !m?.tags.includes(fl.tag)) return false;
-      if (fl.route && routeInfo.byPath.get(s.path)?.id !== fl.route) return false;
+      if (fl.route && (!activeRoute || routeInfo.byPath.get(s.path) !== activeRoute)) return false;
       if (fl.area && !linesHitBox(s.lines, fl.area, s.stats.bbox)) return false;
       if (!dateOn) return true;
       const t = s.stats.startTime;
@@ -219,7 +289,7 @@ export default function App() {
       case "distance":
         return list.sort((a, b) => b.summary.stats.distanceM - a.summary.stats.distanceM);
     }
-  }, [colored, prefs.filters, meta, routeInfo]);
+  }, [colored, prefs.filters, meta, routeInfo, activeRoute, prefs.tzMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groups = useMemo<Group[]>(() => {
     if (prefs.groupBy === "none") return [];
@@ -239,7 +309,7 @@ export default function App() {
       g.movingMs += f.summary.stats.movingMs ?? 0;
     }
     return [...map.values()];
-  }, [shown, prefs.groupBy]);
+  }, [shown, prefs.groupBy, prefs.tzMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const collapsed = useMemo(() => new Set(prefs.collapsed), [prefs.collapsed]);
 
@@ -265,12 +335,24 @@ export default function App() {
     [colored, selected],
   );
 
+  // Dosya listesi değişince artık var olmayan kayıtlara bağlı durumu temizle
+  // (açılış ve yeniden yükleme sürerken liste henüz eksik olabilir; beklenir).
+  useEffect(() => {
+    if (initialLoad.current || restoreSel.current !== undefined || loading) return;
+    const has = (p: string) => files.some((f) => f.summary.path === p);
+    if (selected && !has(selected)) setSelected(null);
+    if (compare && !compare.every(has)) setCompare(null);
+    // Güzergâh filtresi hiçbir güzergâha uymuyorsa sessizce boş liste göstermek yerine kaldır.
+    const fr = prefs.filters.route;
+    if (fr && !routeInfo.byPath.has(fr)) up({ filters: { ...prefsRef.current.filters, route: null } });
+  }, [files, selected, compare, routeInfo, prefs.filters.route, loading, up]);
+
   // ---------- Seçili kayıt ----------
 
   useEffect(() => {
     setDetail(null);
     setDetailError(null);
-    setHoverIdx(null);
+    cursor.set(null);
     setRange(null);
     setPlaying(false);
     if (!selected) return;
@@ -281,7 +363,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [selected]);
+  }, [selected, cursor]);
 
   // Karşılaştırılan iki kaydın grafik verisi.
   useEffect(() => {
@@ -316,24 +398,34 @@ export default function App() {
 
   // Oynatma: imleci kaydın gerçek zamanına göre (hızlandırılmış) ilerletir.
   useEffect(() => {
-    if (!playing || !detail || detail.lat.length < 2) return;
+    if (!playing || !detail) return;
     const n = detail.lat.length;
+    if (n < 2) {
+      setPlaying(false);
+      return;
+    }
     const times = detail.time;
     const timed = times.every((t, i) => t != null && (i === 0 || t >= times[i - 1]!));
-    let i0 = hoverIdx != null && hoverIdx < n - 1 ? hoverIdx : 0;
-    const startVal = timed ? times[i0]! : detail.dist[i0];
-    const endVal = timed ? times[n - 1]! : detail.dist[n - 1];
-    const speed = prefsRef.current.playSpeed;
+    // Oynatma zaman çizelgesi (ms): uzun boşluklar kısaltılır ki imleç
+    // duraklamalarda donup kalmasın. Zamansız kayıtlarda 15 km/sa varsayılır.
+    const clock = new Float64Array(n);
+    for (let i = 1; i < n; i++) {
+      const d = timed ? times[i]! - times[i - 1]! : ((detail.dist[i] - detail.dist[i - 1]) / 4.17) * 1000;
+      clock[i] = clock[i - 1] + (d > PLAY_MAX_GAP_MS ? PLAY_GAP_AS_MS : Math.max(0, d));
+    }
+    const h = cursor.get();
+    let i0 = h != null && h < n - 1 ? h : 0;
+    let v = clock[i0];
+    const end = clock[n - 1];
     let raf = 0;
-    let t0: number | null = null;
+    let last: number | null = null;
     const step = (now: number) => {
-      t0 ??= now;
-      const elapsed = now - t0;
-      // Zamansız kayıtlarda 15 km/sa varsayılır.
-      const v = startVal + (timed ? elapsed * speed : ((elapsed * speed) / 1000) * 4.17);
-      while (i0 < n - 1 && (timed ? times[i0 + 1]! : detail.dist[i0 + 1]) <= v) i0++;
-      setHoverIdx(i0);
-      if (v >= endVal) {
+      // Hız her karede okunur: oynatma sırasında değiştirilebilir.
+      if (last != null) v += Math.min(now - last, 250) * prefsRef.current.playSpeed;
+      last = now;
+      while (i0 < n - 1 && clock[i0 + 1] <= v) i0++;
+      cursor.set(i0);
+      if (v >= end) {
         setPlaying(false);
         return;
       }
@@ -341,7 +433,15 @@ export default function App() {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [playing, detail]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playing, detail, cursor]);
+
+  /** Fareyle gezinme; oynatma sürerken imleç oynatmanındır. */
+  const onHoverIdx = useCallback(
+    (i: number | null) => {
+      if (!playingRef.current) cursor.set(i);
+    },
+    [cursor],
+  );
 
   // ---------- Yükleme ----------
 
@@ -354,71 +454,135 @@ export default function App() {
     [],
   );
 
-  const openPaths = useCallback(
-    (paths: string[], opts: OpenOptions = {}) => {
-      if (paths.length === 0) return loadQueue.current;
-      // Birden fazla açma isteği üst üste gelirse sırayla işlenir.
-      loadQueue.current = loadQueue.current
-        .then(async () => {
-          const expanded = await expandPaths(paths);
-          const known = new Set(filesRef.current.map((f) => f.summary.path));
-          const todo = expanded.filter((p) => !known.has(p));
-          if (todo.length === 0) {
-            // Zaten açık tek bir dosya tekrar açıldıysa onu seç.
-            if (expanded.length === 1 && !opts.noSelect) setSelected(expanded[0]);
-            return;
-          }
-          const wasEmpty = filesRef.current.length === 0;
-          const added: FileEntry[] = [];
-          const newErrors: LoadError[] = [];
-          const newDuplicates: Duplicate[] = [];
-          const existingOf = (path: string) => {
-            const f = [...filesRef.current, ...added].find((x) => x.summary.path === path);
-            return f ? f.summary.name || f.summary.fileName : baseName(path);
-          };
-          setLoading({ done: 0, total: todo.length });
-          for (let i = 0; i < todo.length; i += CHUNK) {
-            const results = await loadFiles(todo.slice(i, i + CHUNK));
-            const batch: FileEntry[] = [];
-            for (const r of results) {
-              if (r.status === "ok") {
-                if (!known.has(r.file.path)) {
-                  known.add(r.file.path);
-                  batch.push(entryFor(r.file));
-                }
-              } else if (r.status === "duplicate") {
-                newDuplicates.push({ path: r.path, existing: existingOf(r.existing) });
-                // Tek bir dosya açıldıysa ve zaten kütüphanedeyse onu seç.
-                if (todo.length === 1 && !opts.noSelect) setSelected(r.existing);
-              } else {
-                newErrors.push({ path: r.path, message: r.message });
-              }
-            }
-            added.push(...batch);
-            setFiles((prev) => [...prev, ...batch]);
-            setLoading({ done: Math.min(todo.length, i + CHUNK), total: todo.length });
-          }
-          setLoading(null);
-          flushCache().catch(() => {});
-          if (newErrors.length) setErrors((prev) => [...prev, ...newErrors]);
-          if (newDuplicates.length && !opts.quiet) setDuplicates((prev) => [...prev, ...newDuplicates]);
-          if (added.length === 1 && !opts.noSelect) setSelected(added[0].summary.path);
-          if (added.length > 0 && !opts.noFit) {
-            // İlk yüklemede hepsini, sonradan eklemede yalnızca yenileri göster.
-            requestAnimationFrame(() => mapRef.current?.fitFiles(wasEmpty ? filesRef.current : added));
-          }
-          if (opts.quiet && !opts.silent && added.length > 0 && !initialLoad.current) {
-            say(`${fmtNumber(added.length)} yeni kayıt kütüphaneye eklendi.`);
-          }
-        })
-        .catch((e) => {
-          setLoading(null);
-          fail(String(e));
-        });
+  /** İşi yükleme kuyruğuna ekler; üst üste gelen istekler sırayla işlenir. */
+  const enqueue = useCallback(
+    (job: () => Promise<void>) => {
+      loadQueue.current = loadQueue.current.then(job).catch((e) => {
+        setLoading(null);
+        fail(String(e));
+      });
       return loadQueue.current;
     },
-    [entryFor, fail, say],
+    [fail],
   );
+
+  /**
+   * Yolları yükler (kuyruğun içinden çağrılır). Bu sırada ayarlar değişip
+   * kütüphane yeniden yüklenmeye başlarsa (loadGen) eski ayarlarla hesaplanan
+   * sonuçlar bırakılır; `requeue` verilmişse yollar yeniden kuyruğa alınır.
+   * Eklenen kayıtları döner.
+   */
+  const loadJob = useCallback(
+    async (paths: string[], opts: OpenOptions, requeue?: () => void): Promise<FileEntry[]> => {
+      const gen = loadGen.current;
+      const stale = () => {
+        if (gen === loadGen.current) return false;
+        setLoading(null);
+        requeue?.();
+        return true;
+      };
+      const expanded = await expandPaths(paths);
+      if (stale()) return [];
+      const known = new Set(filesRef.current.map((f) => f.summary.path));
+      const todo = expanded.filter((p) => !known.has(p));
+      if (todo.length === 0) {
+        // Zaten açık tek bir dosya tekrar açıldıysa onu seç.
+        if (expanded.length === 1 && !opts.noSelect) setSelected(expanded[0]);
+        return [];
+      }
+      const wasEmpty = filesRef.current.length === 0;
+      const added: FileEntry[] = [];
+      const newErrors: LoadError[] = [];
+      const newDuplicates: Duplicate[] = [];
+      let selectExisting: string | null = null;
+      const existingOf = (path: string) => {
+        const f = [...filesRef.current, ...added].find((x) => x.summary.path === path);
+        return f ? f.summary.name || f.summary.fileName : baseName(path);
+      };
+      setLoading({ done: 0, total: todo.length });
+      for (let i = 0; i < todo.length; i += CHUNK) {
+        const results = await loadFiles(todo.slice(i, i + CHUNK));
+        // Eski ayarlarla hesaplandı: listeye eklenmez.
+        if (stale()) return [];
+        const batch: FileEntry[] = [];
+        for (const r of results) {
+          if (r.status === "ok") {
+            if (!known.has(r.file.path)) {
+              known.add(r.file.path);
+              batch.push(entryFor(r.file));
+            }
+          } else if (r.status === "duplicate") {
+            newDuplicates.push({ path: r.path, existing: existingOf(r.existing) });
+            // Tek bir dosya açıldıysa ve zaten kütüphanedeyse onu seç.
+            if (todo.length === 1 && !opts.noSelect) selectExisting = r.existing;
+          } else {
+            newErrors.push({ path: r.path, message: r.message });
+          }
+        }
+        added.push(...batch);
+        filesRef.current = [...filesRef.current, ...batch];
+        setFiles((prev) => [...prev, ...batch]);
+        setLoading({ done: Math.min(todo.length, i + CHUNK), total: todo.length });
+      }
+      setLoading(null);
+      flushCache().catch(() => {});
+      if (selectExisting) setSelected(selectExisting);
+      if (newErrors.length) setErrors((prev) => [...prev, ...newErrors]);
+      if (newDuplicates.length && !opts.quiet) setDuplicates((prev) => [...prev, ...newDuplicates]);
+      if (added.length === 1 && !opts.noSelect) setSelected(added[0].summary.path);
+      if (added.length > 0 && !opts.noFit) {
+        // İlk yüklemede hepsini, sonradan eklemede yalnızca yenileri göster.
+        requestAnimationFrame(() => mapRef.current?.fitFiles(wasEmpty ? filesRef.current : added));
+      }
+      if (opts.quiet && !opts.silent && added.length > 0 && !initialLoad.current) {
+        say(`${fmtNumber(added.length)} yeni kayıt kütüphaneye eklendi.`);
+      }
+      return added;
+    },
+    [entryFor, say],
+  );
+
+  const openPaths = useCallback(
+    function openPaths(paths: string[], opts: OpenOptions = {}): Promise<void> {
+      if (paths.length === 0) return loadQueue.current;
+      return enqueue(async () => {
+        // Yeniden yüklemeyle kesilirse, o bittikten sonra baştan denenir
+        // (zaten yüklenmiş olanlar atlanır).
+        await loadJob(paths, opts, () => void openPaths(paths, opts));
+      });
+    },
+    [enqueue, loadJob],
+  );
+
+  /** Kütüphaneyi (ve izlenen klasörleri) güncel ayarlarla baştan yükler. */
+  const reloadAll = useCallback(() => {
+    const gen = ++loadGen.current;
+    // Üst üste yeniden yüklemelerde ilk seçim korunur.
+    if (restoreSel.current === undefined) restoreSel.current = selectedRef.current;
+    setSelected(null);
+    setCompare(null);
+    return enqueue(async () => {
+      if (gen !== loadGen.current) return;
+      try {
+        filesRef.current = [];
+        setFiles([]);
+        const lib = await libraryFiles();
+        if (gen !== loadGen.current) return;
+        const quiet: OpenOptions = { quiet: true, noFit: true, noSelect: true, silent: true };
+        await loadJob(lib, quiet);
+        const folders = settingsRef.current?.watchedFolders ?? [];
+        if (gen !== loadGen.current) return;
+        if (folders.length) await loadJob(folders, quiet);
+      } finally {
+        // Daha yeni bir yeniden yükleme başladıysa seçimi o geri getirir.
+        if (gen === loadGen.current) {
+          const sel = restoreSel.current;
+          restoreSel.current = undefined;
+          setSelected(sel && filesRef.current.some((f) => f.summary.path === sel) ? sel : null);
+        }
+      }
+    });
+  }, [enqueue, loadJob]);
 
   /** Yeni oluşturulan kayıtları (kırpma, bölme, birleştirme) listeye ekler. */
   const addResults = useCallback(
@@ -459,12 +623,14 @@ export default function App() {
   const applySettings = useCallback(
     async (next: Settings) => {
       const prev = settingsRef.current;
+      settingsRef.current = next;
       setSettingsState(next);
       try {
         const problems = await saveSettings(next);
         problems.forEach((m) => fail(m));
       } catch (e) {
         fail(String(e));
+        settingsRef.current = prev;
         setSettingsState(prev);
         return;
       }
@@ -476,35 +642,43 @@ export default function App() {
         prev.stats.perType !== next.stats.perType ||
         prev.stats.collapseStays !== next.stats.collapseStays;
       if (statsChanged) {
-        // İstatistikleri yeni eşiklerle yeniden hesapla.
-        setFiles([]);
-        const lib = await libraryFiles();
-        openPaths(lib, { quiet: true, noFit: true, noSelect: true });
-        const sel = selected;
-        setSelected(null);
-        loadQueue.current.then(() => setSelected(sel));
+        // İstatistikleri yeni eşiklerle yeniden hesapla (izlenen klasörler dahil).
+        reloadAll();
+        return;
       }
       const newFolders = next.watchedFolders.filter((f) => !prev?.watchedFolders.includes(f));
       if (newFolders.length) openPaths(newFolders, { quiet: true, noSelect: true });
     },
-    [fail, openPaths, selected],
+    [fail, openPaths, reloadAll],
   );
 
   const removePaths = useCallback(
     async (paths: string[]) => {
       if (paths.length === 0) return;
       const set = new Set(paths);
+      let items: TrashItem[];
       try {
-        const items = await removeFiles(paths);
-        setUndo({ items, count: paths.length });
+        items = await removeFiles(paths);
       } catch (e) {
+        // Kaldırılamadı: liste olduğu gibi kalır.
         fail(String(e));
+        return;
       }
+      // Geri alma penceresi içindeki ardışık kaldırmalar birlikte geri alınır.
+      setUndo((u) => (u ? { items: [...u.items, ...items], count: u.count + paths.length } : { items, count: paths.length }));
+      // Güzergâh filtresi kaldırılan kayda bağlıysa güzergâhın kalan bir kaydına taşı.
+      const fr = prefsRef.current.filters.route;
+      if (fr && set.has(fr)) {
+        const keep = routeInfoRef.current.byPath.get(fr)?.paths.find((p) => !set.has(p)) ?? null;
+        up({ filters: { ...prefsRef.current.filters, route: keep } });
+      }
+      filesRef.current = filesRef.current.filter((f) => !set.has(f.summary.path));
       setFiles((prev) => prev.filter((f) => !set.has(f.summary.path)));
       setSelected((s) => (s && set.has(s) ? null : s));
+      setCompare((c) => (c && c.some((p) => set.has(p)) ? null : c));
       setMulti((m) => new Set([...m].filter((p) => !set.has(p))));
     },
-    [fail],
+    [fail, up],
   );
 
   useEffect(() => {
@@ -516,10 +690,16 @@ export default function App() {
   const doUndo = useCallback(async () => {
     if (!undo) return;
     setUndo(null);
-    const restored = await restoreFiles(undo.items);
+    let restored: string[];
+    try {
+      restored = await restoreFiles(undo.items);
+    } catch (e) {
+      fail(String(e));
+      return;
+    }
     await openPaths(restored, { quiet: true, silent: true, noFit: true, noSelect: restored.length !== 1 });
     say(`${fmtNumber(restored.length)} kayıt geri getirildi.`);
-  }, [undo, openPaths, say]);
+  }, [undo, openPaths, say, fail]);
 
   const closeAll = useCallback(async () => {
     const all = filesRef.current.map((f) => f.summary.path);
@@ -543,9 +723,9 @@ export default function App() {
   const exportCsv = useCallback(async () => {
     const list = multi.size > 1 ? shown.filter((f) => multi.has(f.summary.path)) : shown;
     if (list.length === 0) return;
-    const path = await save({ defaultPath: "gpxer-ozet.csv", filters: [{ name: "CSV", extensions: ["csv"] }] });
-    if (!path) return;
     try {
+      const path = await pickSavePath("gpxer-ozet.csv", [{ name: "CSV", extensions: ["csv"] }]);
+      if (!path) return;
       await writeTextFile(path, csvFor(list, meta));
       say(`${fmtNumber(list.length)} kaydın özeti kaydedildi.`);
     } catch (e) {
@@ -556,7 +736,7 @@ export default function App() {
   const exportPng = useCallback(async () => {
     try {
       const data = await mapRef.current!.exportPng();
-      const path = await save({ defaultPath: "gpxer-harita.png", filters: [{ name: "PNG", extensions: ["png"] }] });
+      const path = await pickSavePath("gpxer-harita.png", [{ name: "PNG", extensions: ["png"] }]);
       if (!path) return;
       await writeBase64File(path, data);
       say("Harita görüntüsü kaydedildi.");
@@ -568,18 +748,15 @@ export default function App() {
   const exportSelectedGpx = useCallback(async () => {
     const f = filesRef.current.find((x) => x.summary.path === selected);
     if (!f) return;
-    const path = await save({
-      defaultPath: f.summary.fileName,
-      filters: [
+    try {
+      const path = await pickSavePath(f.summary.fileName, [
         { name: "GPX", extensions: ["gpx"] },
         { name: "KML (Google Earth)", extensions: ["kml"] },
         { name: "TCX (Garmin)", extensions: ["tcx"] },
-      ],
-    });
-    if (!path) return;
-    const ext = path.split(".").pop()?.toLowerCase();
-    const format: ExportFormat = ext === "kml" || ext === "tcx" ? ext : "gpx";
-    try {
+      ]);
+      if (!path) return;
+      const ext = path.split(".").pop()?.toLowerCase();
+      const format: ExportFormat = ext === "kml" || ext === "tcx" ? ext : "gpx";
       await exportAs(f.summary.path, path, format);
       say(`${format.toUpperCase()} dosyası kaydedildi.`);
     } catch (e) {
@@ -638,7 +815,10 @@ export default function App() {
 
   useEffect(() => {
     const unlisten: Promise<() => void>[] = [];
-    const drainPending = () => takePendingPaths().then((p) => openPaths(p));
+    const drainPending = () =>
+      takePendingPaths()
+        .then((p) => openPaths(p))
+        .catch((e) => fail(String(e)));
 
     unlisten.push(
       getCurrentWebview().onDragDropEvent((e) => {
@@ -654,7 +834,7 @@ export default function App() {
     unlisten.push(listen("pending-paths", drainPending));
     unlisten.push(listen<string[]>("watched-paths", (e) => openPaths(e.payload, { quiet: true, noFit: true, noSelect: true })));
     return () => unlisten.forEach((p) => p.then((fn) => fn()));
-  }, [openPaths]);
+  }, [openPaths, fail]);
 
   // Açılış: kütüphane, izlenen klasörlerdeki yeni dosyalar, işletim sisteminden gelenler.
   useEffect(() => {
@@ -666,12 +846,21 @@ export default function App() {
       getMeta()
         .then(setMetaState)
         .catch(() => {});
-      await openPaths(await libraryFiles(), { quiet: true, noFit: hadView.current, noSelect: true });
-      if (s?.watchedFolders.length) await openPaths(s.watchedFolders, { quiet: true, noFit: true, noSelect: true });
-      initialLoad.current = false;
-      // Kayıtlı seçim artık yoksa bırak.
-      setSelected((sel) => (sel && filesRef.current.some((f) => f.summary.path === sel) ? sel : null));
-      await openPaths(await takePendingPaths());
+      try {
+        await openPaths(await libraryFiles(), { quiet: true, noFit: hadView.current, noSelect: true });
+        if (s?.watchedFolders.length) await openPaths(s.watchedFolders, { quiet: true, noFit: true, noSelect: true });
+      } catch (e) {
+        fail(`Kütüphane yüklenemedi: ${e}`);
+      } finally {
+        initialLoad.current = false;
+        // Kayıtlı seçim artık yoksa bırak.
+        setSelected((sel) => (sel && filesRef.current.some((f) => f.summary.path === sel) ? sel : null));
+      }
+      try {
+        await openPaths(await takePendingPaths());
+      } catch (e) {
+        fail(String(e));
+      }
     })();
     return () => {
       done = true;
@@ -734,9 +923,11 @@ export default function App() {
   // Klavye: Esc, ↑/↓, Boşluk.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (dialog) return;
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      if (dialog || routeModal) return;
+      if (e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target as HTMLElement;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || el.isContentEditable) return;
       if (e.key === "Escape") {
         if (areaMode) setAreaMode(false);
         else if (compare) setCompare(null);
@@ -764,7 +955,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rows, selected, range, multi, detail, dialog, areaMode, compare]);
+  }, [rows, selected, range, multi, detail, dialog, routeModal, areaMode, compare]);
 
   const zoomTo = useCallback((path: string) => {
     const f = filesRef.current.find((x) => x.summary.path === path);
@@ -871,6 +1062,35 @@ export default function App() {
     return [Math.min(...ts), Math.max(...ts)] as const;
   }, [files, prefs.colorMode]);
 
+  // Kenar çubuğu için sabit kimlikli işleyiciler (Sidebar memo ile sarılınca
+  // imleç/oynatma gibi ilgisiz değişikliklerde yeniden çizilmesin).
+  const onGroupBy = useCallback((groupBy: Prefs["groupBy"]) => up({ groupBy }), [up]);
+  const onToggleGroup = useCallback(
+    (key: string) => {
+      const c = prefsRef.current.collapsed;
+      up({ collapsed: c.includes(key) ? c.filter((k) => k !== key) : [...c, key] });
+    },
+    [up],
+  );
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  const onToggleAll = useCallback(
+    (v: boolean) => setVisible(shownRef.current.map((f) => f.summary.path), v),
+    [setVisible],
+  );
+  const openSettings = useCallback(() => setDialog("settings"), []);
+  const openSummary = useCallback(() => setDialog("summary"), []);
+  const openTag = useCallback(() => setDialog("tag"), []);
+  const clearMulti = useCallback(() => setMulti(new Set()), []);
+
+  /** Etkin güzergâh filtresinin açıklaması (güzergâhın ilk kaydının yeri/adı). */
+  const routeLabel = useMemo(() => {
+    const f = activeRoute && files.find((x) => x.summary.path === activeRoute.paths[0]);
+    return f ? (placeLabel(f.summary) ?? f.summary.name ?? f.summary.fileName) : null;
+  }, [activeRoute, files]);
+
+  const coloredByPath = useMemo(() => new Map(colored.map((f) => [f.summary.path, f])), [colored]);
+
   const ramp = dark ? SEQ_DARK : SEQ_LIGHT;
   const gradient = `linear-gradient(to right, ${ramp.join(", ")})`;
 
@@ -889,48 +1109,40 @@ export default function App() {
           multi={multi}
           loading={loading}
           onFilters={setFilters}
-          onGroupBy={(groupBy) => up({ groupBy })}
-          onToggleGroup={(key) =>
-            up({
-              collapsed: collapsed.has(key) ? prefs.collapsed.filter((k) => k !== key) : [...prefs.collapsed, key],
-            })
-          }
+          onGroupBy={onGroupBy}
+          onToggleGroup={onToggleGroup}
           onRowClick={onRowClick}
           onZoom={selectAndZoom}
           onToggle={toggle}
-          onToggleAll={(v) => setVisible(shown.map((f) => f.summary.path), v)}
+          onToggleAll={onToggleAll}
           onRemove={removePaths}
           onOpenFiles={pickFiles}
           onOpenFolder={pickFolder}
           onCloseAll={closeAll}
-          onSettings={() => setDialog("settings")}
-          onSummary={() => setDialog("summary")}
+          onSettings={openSettings}
+          onSummary={openSummary}
           onMerge={openMerge}
           onExportCsv={exportCsv}
           onSetVisible={setVisible}
-          onClearMulti={() => setMulti(new Set())}
+          onClearMulti={clearMulti}
           meta={meta}
           allTags={allTags}
-          routeLabel={(() => {
-            const r = routeInfo.routes.find((x) => x.id === prefs.filters.route);
-            const f = r && files.find((x) => x.summary.path === r.paths[0]);
-            return f ? (placeLabel(f.summary) ?? f.summary.name ?? f.summary.fileName) : null;
-          })()}
+          routeLabel={routeLabel}
           areaMode={areaMode}
           onAreaMode={setAreaMode}
           onCompare={startCompare}
-          onTagMany={() => setDialog("tag")}
+          onTagMany={openTag}
         />
       )}
       <main className="main">
         <div className="map-wrap">
-          <MapView
+          <HoverMapView
             ref={mapRef}
             files={onMap}
             selected={selected}
             detail={detail}
-            hoverIdx={hoverIdx}
-            onHoverIdx={setHoverIdx}
+            cursor={cursor}
+            onHoverIdx={onHoverIdx}
             range={range}
             trackColorBy={prefs.trackColorBy}
             heatmap={prefs.heatmap}
@@ -1016,7 +1228,13 @@ export default function App() {
                             settings.stats.collapseStays ? " ve uzun duraklamalardaki konum titremesi" : ""
                           } haritadan ve hesaplardan çıkarılıyor (${fmtNumber(
                             files.reduce((n, f) => n + f.summary.removedPoints, 0),
-                          )} nokta). Orijinal dosyalar değişmez. Ayrıntılar: Ayarlar.`
+                          )} GPS sıçraması${
+                            settings.stats.collapseStays
+                              ? `, duraklamalarda tek noktaya indirilen ${fmtNumber(
+                                  files.reduce((n, f) => n + (f.summary.collapsedPoints ?? 0), 0),
+                                )} nokta`
+                              : ""
+                          }). Orijinal dosyalar değişmez. Ayrıntılar: Ayarlar.`
                         : "GPS gürültüsü temizlenmiyor; kayıtlar olduğu gibi gösteriliyor."
                     }
                   >
@@ -1181,7 +1399,7 @@ export default function App() {
           ) : null;
         })()}
         {selectedEntry && !compare && (
-          <DetailPanel
+          <HoverDetailPanel
             entry={selectedEntry}
             detail={detail}
             detailError={detailError}
@@ -1193,8 +1411,8 @@ export default function App() {
             onXAxis={(xAxis) => up({ xAxis })}
             trackColorBy={prefs.trackColorBy}
             onTrackColorBy={(trackColorBy) => up({ trackColorBy })}
-            hoverIdx={hoverIdx}
-            onHover={setHoverIdx}
+            cursor={cursor}
+            onHover={onHoverIdx}
             range={range}
             onRange={setRange}
             rangeStats={rangeSt}
@@ -1272,7 +1490,7 @@ export default function App() {
       {routeModal && (
         <RouteModal
           route={routeModal}
-          files={new Map(colored.map((f) => [f.summary.path, f]))}
+          files={coloredByPath}
           current={selected}
           onOpen={(p) => {
             setRouteModal(null);

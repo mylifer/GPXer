@@ -501,3 +501,246 @@ fn collapses_long_stays() {
         .collect();
     assert_eq!(analysis::collapse_segment_stays(&mut walk), 0);
 }
+
+/// Yürüyüş, 2 saat 1700 km boşluk (uçuş), yine yürüyüş.
+fn gap_gpx() -> parse::Gpx {
+    let mut seg: Vec<Point> = (0..20)
+        .map(|i| pt(41.0, 29.0 + i as f64 * 1.67e-5, i))
+        .collect();
+    seg.extend((0..20).map(|i| pt(50.2, 12.2 + i as f64 * 2.6e-5, 7500 + i)));
+    parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn gaps_are_not_counted() {
+    let gpx = gap_gpx();
+    let s = summarize(&gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
+    let st = &s.stats;
+    // Yalnızca iki yürüyüş: 19 + 19 adım, ~1,4 + ~1,85 m.
+    assert!(st.distance_m < 70.0, "{}", st.distance_m);
+    assert!(st.max_speed_ms.unwrap() < 3.0, "{:?}", st.max_speed_ms);
+    assert!(st.avg_moving_speed_ms.unwrap() < 3.0);
+    assert_eq!(st.segment_count, 1);
+    assert_eq!(st.point_count, 40);
+    // Aralık istatistiği ve grafik de boşluğu atlar.
+    let r = range_stats(&gpx, 0, 39, &StatsConfig::default());
+    assert!((r.distance_m - st.distance_m).abs() < 1e-6);
+    let d = build_detail(&gpx);
+    assert!((d.dist.last().unwrap() - st.distance_m).abs() < 1e-6);
+    assert!(d.speed.iter().flatten().all(|v| *v < 10.0), "{:?}", d.speed);
+    assert_eq!(d.idx, (0..40).collect::<Vec<u32>>());
+}
+
+#[test]
+fn detail_speed_handles_equal_and_backward_times() {
+    // Hepsi aynı zamanlı 60 000 nokta: pencere doğrusal kalmalı.
+    let seg: Vec<Point> = (0..60_000)
+        .map(|i| pt(41.0 + (i % 7) as f64 * 1e-6, 29.0, 100))
+        .collect();
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg.clone()],
+        }],
+        ..Default::default()
+    };
+    let t = std::time::Instant::now();
+    let d = build_detail(&gpx);
+    assert!(d.speed.iter().all(|s| s.is_none()));
+    // Geriye giden zamanlar.
+    let back: Vec<Point> = (0..60_000)
+        .map(|i| pt(41.0 + i as f64 * 1e-6, 29.0, 100_000 - i))
+        .collect();
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![back],
+        }],
+        ..Default::default()
+    };
+    build_detail(&gpx);
+    assert!(analysis::detect_stops([seg.as_slice()]).is_empty());
+    assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
+}
+
+/// 400 m'lik atletizm pistinde (84,39 m düzlük, 36,5 m viraj yarıçapı) `s`
+/// metredeki nokta.
+fn track_point(s: f64, t: i64) -> Point {
+    let (straight, r) = (84.39, 36.5);
+    let arc = std::f64::consts::PI * r;
+    let len = 2.0 * straight + 2.0 * arc;
+    let s = s % len;
+    let (x, y) = if s < straight {
+        (s, 0.0)
+    } else if s < straight + arc {
+        let a = (s - straight) / r;
+        (straight + r * a.sin(), r - r * a.cos())
+    } else if s < 2.0 * straight + arc {
+        (straight - (s - straight - arc), 2.0 * r)
+    } else {
+        let a = (s - 2.0 * straight - arc) / r;
+        (-r * a.sin(), r + r * a.cos())
+    };
+    pt(
+        41.0 + y / 111_195.0,
+        29.0 + x / (111_195.0 * 41f64.to_radians().cos()),
+        t,
+    )
+}
+
+#[test]
+fn keeps_running_on_a_track() {
+    // 30 dakika 3,3 m/s ile pistte koşu (1 sn aralıkla, ±2 m gürültü).
+    let mut seg: Vec<Point> = (0..1800)
+        .map(|i| {
+            let mut p = track_point(i as f64 * 3.3, i);
+            p.lat += ((i * 37 % 11) as f64 - 5.0) * 4e-6;
+            p
+        })
+        .collect();
+    let n = seg.len();
+    assert_eq!(analysis::collapse_segment_stays(&mut seg), 0);
+    assert_eq!(seg.len(), n);
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let p = prepare(gpx, &StatsConfig::default());
+    assert_eq!((p.removed, p.collapsed), (0, 0));
+    let s = summarize(&p.gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
+    assert!(s.stats.distance_m > 5800.0, "{}", s.stats.distance_m);
+
+    // Akıllı kayıtla (5 sn) aynı koşu da korunur.
+    let mut sparse: Vec<Point> = (0..360)
+        .map(|i| track_point(i as f64 * 16.5, i * 5))
+        .collect();
+    assert_eq!(analysis::collapse_segment_stays(&mut sparse), 0);
+}
+
+#[test]
+fn prepared_maps_back_to_raw_points() {
+    // Kuzeye yürüyüş; 5. nokta sıçrama, ardından 1 saat titreme, yine yürüyüş.
+    let mut seg: Vec<Point> = (0..60)
+        .map(|i| pt(41.0 + i as f64 * 4.5e-5, 29.0, i))
+        .collect();
+    seg[5].lon += 0.006;
+    let (lat0, mut t) = (seg.last().unwrap().lat, 60);
+    for k in 0..360 {
+        let a = k as f64 * 2.4;
+        let r = 8e-4 * ((k * 7 % 10) as f64 / 10.0);
+        seg.push(pt(lat0 + r * a.sin(), 29.0 + r * a.cos(), t));
+        t += 10;
+    }
+    seg.extend((1..20).map(|i| pt(lat0 + i as f64 * 4.5e-5, 29.0, t + i)));
+    let raw = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![vec![pt(40.0, 28.0, 0), pt(40.0, 28.0001, 1)], seg.clone()],
+        }],
+        ..Default::default()
+    };
+    let p = prepare(raw.clone(), &StatsConfig::default());
+    assert_eq!(p.removed, 1);
+    assert!(p.collapsed > 300, "{}", p.collapsed);
+    let raw_pts: Vec<Point> = primary_segments(&raw)
+        .iter()
+        .flat_map(|s| s.to_vec())
+        .collect();
+    let prep_pts: Vec<Point> = primary_segments(&p.gpx)
+        .iter()
+        .flat_map(|s| s.to_vec())
+        .collect();
+    assert_eq!(p.len(), prep_pts.len());
+    for (i, q) in prep_pts.iter().enumerate() {
+        let r = raw_pts[p.raw_index(i).unwrap()];
+        // Zamanlar aynı; konum yalnızca duraklamanın iki noktasında farklı.
+        assert_eq!(q.time, r.time);
+    }
+    assert_eq!(p.raw_index(1), Some(1));
+    assert_eq!(p.raw_index(2), Some(2));
+    // Sıçrama (ham 2 + 5) atlanır.
+    assert_eq!(p.raw_index(2 + 5), Some(2 + 6));
+    assert_eq!(p.raw_index(p.len()), None);
+    // Ham kayıt eşlenen sırayla kırpılır: duraklama tümüyle korunur.
+    let end = p.raw_index(p.len() - 1).unwrap();
+    let t = ops::trim(&raw, p.raw_index(2).unwrap(), end).unwrap();
+    assert_eq!(
+        primary_segments(&t).iter().map(|s| s.len()).sum::<usize>(),
+        seg.len()
+    );
+    // Sınırda taşma olmaz.
+    assert!(ops::slice_segments(&primary_segments(&raw), 0, usize::MAX).len() == 2);
+}
+
+#[test]
+fn kml_and_tcx_edge_cases() {
+    // Geçersiz koordinatlar atılır; bozuk gx:coord sonraki zamanları kaydırmaz;
+    // iz adı izin Placemark'ından gelir.
+    let kml = r#"<kml><Document>
+        <Placemark><name>Gezi</name><gx:Track>
+          <when>2024-05-01T06:00:00Z</when><when>2024-05-01T06:00:10Z</when><when>2024-05-01T06:00:20Z</when>
+          <gx:coord>29 41 5</gx:coord><gx:coord>NaN 41 5</gx:coord><gx:coord>29.001 41 inf</gx:coord>
+        </gx:Track></Placemark>
+        <Placemark><name>Nokta</name><Point><coordinates>29,41</coordinates></Point></Placemark>
+        <Placemark><name>Kötü</name><Point><coordinates>nan,41</coordinates></Point></Placemark>
+        </Document></kml>"#;
+    let g = formats::parse_kml(kml.as_bytes()).unwrap();
+    assert_eq!(g.tracks[0].name.as_deref(), Some("Gezi"));
+    let seg = &g.tracks[0].segments[0];
+    assert_eq!(seg.len(), 1);
+    assert_eq!(seg[0].time, Some(1714543200000));
+    assert_eq!(g.waypoints.len(), 1);
+    let kml = kml.replace("29.001 41 inf", "29.001 41 7");
+    let g = formats::parse_kml(kml.as_bytes()).unwrap();
+    let seg = &g.tracks[0].segments[0];
+    assert_eq!(seg.len(), 2);
+    assert_eq!(seg[1].time, Some(1714543220000));
+
+    // Yüksekliği olmayan nokta KML'de 0 m yazılmaz.
+    let mut gpx = parse_gpx(SAMPLE.as_bytes()).unwrap();
+    gpx.tracks[0].segments[0][1].ele = None;
+    let text = formats::write_kml(&gpx);
+    assert!(
+        !text.contains(" 0</gx:coord>") && !text.contains(",0\n"),
+        "{text}"
+    );
+    let back = formats::parse_kml(text.as_bytes()).unwrap();
+    assert_eq!(back.tracks[0].segments[0][1].ele, None);
+    assert_eq!(back.tracks[0].segments[0][0].ele, Some(10.0));
+
+    // TCX: mesafe segmentler boyunca sürer; turda süre ve mesafe var.
+    let tcx = formats::write_tcx(&parse_gpx(SAMPLE.as_bytes()).unwrap());
+    assert!(
+        tcx.contains("<TotalTimeSeconds>330.0</TotalTimeSeconds>"),
+        "{tcx}"
+    );
+    let lap_m: f64 = tcx
+        .split("<DistanceMeters>")
+        .nth(1)
+        .and_then(|s| s.split('<').next())
+        .and_then(|s| s.parse().ok())
+        .unwrap();
+    let last_m: f64 = tcx
+        .rsplit("<DistanceMeters>")
+        .next()
+        .and_then(|s| s.split('<').next())
+        .and_then(|s| s.parse().ok())
+        .unwrap();
+    assert!((lap_m - 4.0 * 111.2).abs() < 1.0, "{lap_m}");
+    assert!((last_m - lap_m).abs() < 0.2, "{last_m} {lap_m}");
+    let bad = tcx.replacen("<LatitudeDegrees>41", "<LatitudeDegrees>NaN", 1);
+    let g = formats::parse_tcx(bad.as_bytes()).unwrap();
+    assert_eq!(
+        primary_segments(&g).iter().map(|s| s.len()).sum::<usize>(),
+        6
+    );
+}

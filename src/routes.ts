@@ -3,7 +3,7 @@
  * kayıtlar aynı güzergâh sayılır (ör. her gün işe gidiş).
  */
 
-import type { FileEntry } from "./types";
+import type { FileSummary } from "./api";
 import { metersBetween, resample } from "./geo";
 
 export interface Route {
@@ -39,14 +39,27 @@ function similar(a: Sig, b: Sig): boolean {
   return sum / SAMPLES <= SHAPE_TOLERANCE_M;
 }
 
-/** En az iki kaydı olan güzergâhlar, kayıt sayısına göre çoktan aza. */
-export function findRoutes(files: FileEntry[]): { routes: Route[]; byPath: Map<string, Route> } {
-  const sigs: Sig[] = [];
-  for (const f of files) {
-    const s = f.summary;
-    if (s.stats.distanceM < 300) continue;
+/** Özet nesnesi başına imza önbelleği; özet değişince (yeni nesne) yeniden hesaplanır. */
+const sigCache = new WeakMap<FileSummary, Sig | null>();
+
+function sigOf(s: FileSummary): Sig | null {
+  let sig = sigCache.get(s);
+  if (sig !== undefined) return sig;
+  sig = null;
+  if (s.stats.distanceM >= 300) {
     const pts = resample(s.lines, SAMPLES);
-    if (pts) sigs.push({ path: s.path, pts, dist: s.stats.distanceM, t: s.stats.startTime ?? 0 });
+    if (pts) sig = { path: s.path, pts, dist: s.stats.distanceM, t: s.stats.startTime ?? 0 };
+  }
+  sigCache.set(s, sig);
+  return sig;
+}
+
+/** En az iki kaydı olan güzergâhlar, kayıt sayısına göre çoktan aza. */
+export function findRoutes(summaries: readonly FileSummary[]): { routes: Route[]; byPath: Map<string, Route> } {
+  const sigs: Sig[] = [];
+  for (const s of summaries) {
+    const sig = sigOf(s);
+    if (sig) sigs.push(sig);
   }
   sigs.sort((a, b) => a.t - b.t);
   const clusters: { rep: Sig; members: string[] }[] = [];

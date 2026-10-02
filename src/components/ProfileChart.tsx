@@ -193,15 +193,17 @@ export function ProfileChart({ detail, color, metrics, xAxis, tz, hoverIdx, rang
   // Seçili aralığı tüm şeritlerde göster.
   useEffect(() => {
     for (const u of plots.current) {
-      if (!range) {
+      const n = xs.current.length;
+      if (!range || n === 0) {
         u.setSelect({ left: 0, width: 0, top: 0, height: 0 }, false);
         continue;
       }
-      const left = u.valToPos(xs.current[range[0]], "x");
-      const right = u.valToPos(xs.current[range[1]], "x");
+      const left = u.valToPos(xs.current[Math.min(range[0], n - 1)], "x");
+      const right = u.valToPos(xs.current[Math.min(range[1], n - 1)], "x");
       u.setSelect({ left, width: right - left, top: 0, height: u.over.clientHeight }, false);
     }
-  }, [range, detail, metrics, xAxis]);
+    // Bağımlılıklar grafiği kuran efektle aynı olmalı: yeniden kurulumda seçim kaybolmasın.
+  }, [range, detail, color, metrics, xAxis, tz]);
 
   return <div ref={host} className="chart" />;
 }

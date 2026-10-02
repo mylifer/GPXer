@@ -78,6 +78,7 @@ const Row = memo(function Row({
   onRemove(paths: string[]): void;
 }) {
   const s = entry.summary;
+  const place = placeLabel(s);
   return (
     <li
       className={`file-row${selected ? " selected" : ""}${inMulti ? " multi" : ""}${entry.visible ? "" : " hidden-track"}`}
@@ -107,9 +108,9 @@ const Row = memo(function Row({
           <span>{fmtDistance(s.stats.distanceM)}</span>
           {s.stats.movingMs != null && <span>{fmtDuration(s.stats.movingMs)}</span>}
         </div>
-        {(placeLabel(s) || tags?.length) && (
+        {(!!place || !!tags?.length) && (
           <div className="file-meta sub">
-            {placeLabel(s) && <span className="place">{placeLabel(s)}</span>}
+            {place && <span className="place">{place}</span>}
             {tags?.map((t) => (
               <span key={t} className="tag mini">
                 {t}
@@ -132,7 +133,7 @@ const Row = memo(function Row({
   );
 });
 
-export function Sidebar(p: Props) {
+export const Sidebar = memo(function Sidebar(p: Props) {
   const totals = (() => {
     let dist = 0,
       moving = 0,
@@ -369,4 +370,4 @@ export function Sidebar(p: Props) {
       )}
     </aside>
   );
-}
+});

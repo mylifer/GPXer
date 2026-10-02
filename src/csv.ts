@@ -36,7 +36,13 @@ export function csvFor(list: FileEntry[], meta: Record<string, FileMeta> = {}): 
     "Ort. sıcaklık (°C)",
     "Nokta sayısı",
   ];
-  const cell = (v: string) => (/[;"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  const cell = (raw: string) => {
+    // Formül enjeksiyonu: = + - @ (ya da sekme/satır başı) ile başlayan metin
+    // Excel'de formül olarak çalışabilir; başına kesme işareti eklenir.
+    // Düz sayılar (ör. "-12,5") olduğu gibi kalır.
+    const v = /^[=+\-@\t\r]/.test(raw) && !/^-?\d+(,\d+)?$/.test(raw) ? `'${raw}` : raw;
+    return /[;"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  };
   const rows = list.map((f) => {
     const s = f.summary;
     const st = s.stats;

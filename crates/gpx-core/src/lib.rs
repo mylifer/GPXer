@@ -80,9 +80,12 @@ pub struct FileSummary {
     pub activity_set: bool,
     #[serde(default)]
     pub stops: Vec<Stop>,
-    /// Ayıklanan GPS sıçraması sayısı.
+    /// Ayıklanan GPS sıçraması ve kopuk uç noktası sayısı.
     #[serde(default)]
     pub removed_points: usize,
+    /// Uzun duraklamalar tek noktaya indirilirken atılan nokta sayısı.
+    #[serde(default)]
+    pub collapsed_points: usize,
 }
 
 /// Seçili dosyanın grafik verisi, sütun sütun (uPlot formatına uygun).
@@ -97,8 +100,10 @@ pub struct Detail {
     pub time: Vec<Option<i64>>,
     pub lat: Vec<f64>,
     pub lon: Vec<f64>,
-    /// Her örneğin dosyadaki asıl nokta sırası (iz/rota segmentleri uç uca
-    /// eklenmiş kabul edilir). Kırpma, bölme ve aralık istatistiğinde kullanılır.
+    /// Her örneğin hazırlanmış kayıttaki ([`prepare`]) asıl nokta sırası
+    /// (iz/rota segmentleri uç uca eklenmiş kabul edilir). Aralık istatistiği
+    /// aynı sırayı kullanır; kırpma ve bölmede [`Prepared::raw_index`] ile ham
+    /// dosyadaki sıraya çevrilir.
     pub idx: Vec<u32>,
     /// Sensör verileri; dosyada hiç yoksa boş bırakılır.
     pub hr: Vec<Option<f32>>,
@@ -176,7 +181,7 @@ fn is_gap(a: &Point, b: &Point) -> bool {
 }
 
 /// Segmentleri kayıt boşluklarında parçalara böler.
-fn split_at_gaps<'a>(segments: &[&'a [Point]]) -> (Vec<&'a [Point]>, Vec<Gap>) {
+pub fn split_at_gaps<'a>(segments: &[&'a [Point]]) -> (Vec<&'a [Point]>, Vec<Gap>) {
     let mut pieces = Vec::new();
     let mut gaps = Vec::new();
     for seg in segments {
@@ -204,6 +209,16 @@ fn round6(v: f64) -> f64 {
     (v * 1e6).round() / 1e6
 }
 
+/// Segmentlerin istatistiği; kayıt boşlukları (uçuş, sinyal kaybı) segment
+/// sınırı sayılır: mesafeye, hareket süresine ve hıza katılmaz. Segment
+/// sayısı dosyadaki segmentlerindir.
+pub fn track_stats(segments: &[&[Point]], cfg: &StatsConfig) -> Stats {
+    let (pieces, _) = split_at_gaps(segments);
+    let mut s = compute_stats(pieces.iter().copied(), cfg);
+    s.segment_count = segments.iter().filter(|s| !s.is_empty()).count();
+    s
+}
+
 /// Kaydın türünü (seçilmemişse tahmin ederek) ve o türe göre kullanılacak
 /// eşikleri belirler.
 pub fn effective_config(
@@ -211,9 +226,8 @@ pub fn effective_config(
     cfg: &StatsConfig,
     chosen: Option<Activity>,
 ) -> (StatsConfig, Activity) {
-    let activity = chosen.unwrap_or_else(|| {
-        analysis::classify(&compute_stats(primary_segments(gpx).iter().copied(), cfg))
-    });
+    let activity =
+        chosen.unwrap_or_else(|| analysis::classify(&track_stats(&primary_segments(gpx), cfg)));
     let eff = if cfg.per_type {
         activity.thresholds(cfg)
     } else {
@@ -222,17 +236,75 @@ pub fn effective_config(
     (eff, activity)
 }
 
+/// Ön işlemlerden ([`prepare`]) geçmiş kayıt.
+#[derive(Debug, Clone, Default)]
+pub struct Prepared {
+    pub gpx: Gpx,
+    /// Her asıl segment için kalan noktaların ham segmentteki sırası.
+    pub map: Vec<Vec<u32>>,
+    /// Ham kayıttaki asıl segmentlerin nokta sayıları.
+    pub raw_lens: Vec<usize>,
+    /// Ayıklanan sıçrama / kopuk uç noktası sayısı.
+    pub removed: usize,
+    /// Duraklamalar tek noktaya indirilirken atılan nokta sayısı.
+    pub collapsed: usize,
+}
+
+impl Prepared {
+    /// Hazırlanmış kayıttaki `i`. asıl noktanın ham kayıttaki sırası.
+    pub fn raw_index(&self, i: usize) -> Option<usize> {
+        let mut rest = i;
+        let mut offset = 0;
+        for (m, len) in self.map.iter().zip(&self.raw_lens) {
+            if rest < m.len() {
+                return Some(offset + m[rest] as usize);
+            }
+            rest -= m.len();
+            offset += len;
+        }
+        None
+    }
+
+    /// Hazırlanmış kayıttaki asıl nokta sayısı.
+    pub fn len(&self) -> usize {
+        self.map.iter().map(|m| m.len()).sum()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
 /// Okunan kayda ayarların gerektirdiği ön işlemleri uygular (sıçrama
-/// temizliği); ayıklanan nokta sayısını döndürür.
-pub fn prepare(gpx: &mut Gpx, cfg: &StatsConfig) -> usize {
-    if !cfg.clean_spikes {
-        return 0;
+/// temizliği, duraklamaları tek noktaya indirme). Kalan noktaların ham
+/// kayıttaki sıraları tutulur.
+pub fn prepare(mut gpx: Gpx, cfg: &StatsConfig) -> Prepared {
+    let (mut removed, mut collapsed) = (0, 0);
+    let source = if gpx.tracks.is_empty() {
+        &mut gpx.routes
+    } else {
+        &mut gpx.tracks
+    };
+    let mut map = Vec::new();
+    let mut raw_lens = Vec::new();
+    for seg in source.iter_mut().flat_map(|t| t.segments.iter_mut()) {
+        raw_lens.push(seg.len());
+        let mut idx: Vec<u32> = (0..seg.len() as u32).collect();
+        if cfg.clean_spikes {
+            removed += analysis::clean_segment_indexed(seg, &mut idx);
+            if cfg.collapse_stays {
+                collapsed += analysis::collapse_segment_stays_indexed(seg, &mut idx);
+            }
+        }
+        map.push(idx);
     }
-    let mut removed = analysis::clean_spikes(gpx);
-    if cfg.collapse_stays {
-        removed += analysis::collapse_stays(gpx);
+    Prepared {
+        gpx,
+        map,
+        raw_lens,
+        removed,
+        collapsed,
     }
-    removed
 }
 
 pub fn summarize(
@@ -257,7 +329,7 @@ pub fn summarize_with(
         return Err(LoadError::Empty);
     }
     let (eff, activity) = effective_config(gpx, cfg, chosen);
-    let mut stats = compute_stats(segments.iter().copied(), &eff);
+    let mut stats = track_stats(&segments, &eff);
 
     if stats.start_time.is_none() {
         stats.start_time = gpx.time;
@@ -349,6 +421,7 @@ pub fn summarize_with(
         activity_set: chosen.is_some(),
         stops: analysis::detect_stops(segments.iter().copied()),
         removed_points: 0,
+        collapsed_points: 0,
     })
 }
 
@@ -356,7 +429,8 @@ pub fn summarize_with(
 /// numaraları [`Detail::idx`] ile aynıdır.
 pub fn range_stats(gpx: &Gpx, start: usize, end: usize, cfg: &StatsConfig) -> Stats {
     let parts = ops::slice_segments(&primary_segments(gpx), start, end);
-    compute_stats(parts.iter().map(|s| s.as_slice()), cfg)
+    let parts: Vec<&[Point]> = parts.iter().map(|s| s.as_slice()).collect();
+    track_stats(&parts, cfg)
 }
 
 /// Dosyanın içeriğine göre parmak izi: iz/rota noktalarının konum ve
@@ -388,6 +462,48 @@ pub fn fingerprint(gpx: &Gpx) -> u64 {
     h
 }
 
+/// Hız penceresinin yarı genişliği (ms).
+const SPEED_HALF_WINDOW_MS: i64 = 15_000;
+
+/// Her noktanın çevresindeki ~±15 sn'lik pencereye göre hız (km/sa).
+/// `pts` boşluksuz tek bir parçadır; `dist` kümülatif mesafe. İki işaretçi
+/// yalnızca ileri gider: eşit ya da geriye giden zamanlarda da doğrusal.
+fn window_speeds(pts: &[&Point], dist: &[f64], out: &mut [Option<f32>]) {
+    let n = pts.len();
+    let t = |k: usize| pts[k].time.unwrap_or_default();
+    let mut i = 0;
+    while i < n {
+        if pts[i].time.is_none() {
+            i += 1;
+            continue;
+        }
+        // Zaman bilgili kesintisiz dizi: i..end.
+        let mut end = i;
+        while end < n && pts[end].time.is_some() {
+            end += 1;
+        }
+        let (mut lo, mut hi) = (i, i);
+        for (k, slot) in out.iter_mut().enumerate().take(end).skip(i) {
+            let tk = t(k);
+            hi = hi.max(k);
+            while hi + 1 < end && t(hi + 1) - tk <= SPEED_HALF_WINDOW_MS {
+                hi += 1;
+            }
+            while lo < k && tk - t(lo) > SPEED_HALF_WINDOW_MS {
+                lo += 1;
+            }
+            let (ta, tb) = (t(lo), t(hi));
+            if tb > ta {
+                let meters = dist[hi] - dist[lo];
+                *slot = Some((meters / ((tb - ta) as f64 / 1000.0) * 3.6) as f32);
+            }
+        }
+        i = end;
+    }
+}
+
+/// `gpx` [`prepare`] edilmiş olmalıdır. Kayıt boşluklarında mesafe artmaz ve
+/// hız penceresi boşluğu aşmaz.
 pub fn build_detail(gpx: &Gpx) -> Detail {
     let segments = primary_segments(gpx);
     let total: usize = segments.iter().map(|s| s.len()).sum();
@@ -395,39 +511,29 @@ pub fn build_detail(gpx: &Gpx) -> Detail {
     let mut dist_acc = 0.0;
     let mut all: Vec<&Point> = Vec::with_capacity(total);
     let mut dist = Vec::with_capacity(total);
-    let mut speed = Vec::with_capacity(total);
+    // Boşluksuz parçaların [başlangıç, bitiş) aralıkları.
+    let mut pieces = Vec::new();
 
     for seg in &segments {
-        let start_idx = all.len();
+        let base = all.len();
+        let mut piece_start = base;
         for (i, p) in seg.iter().enumerate() {
             if i > 0 {
-                dist_acc += haversine_m(&seg[i - 1], p);
+                if is_gap(&seg[i - 1], p) {
+                    pieces.push((piece_start, base + i));
+                    piece_start = base + i;
+                } else {
+                    dist_acc += haversine_m(&seg[i - 1], p);
+                }
             }
             all.push(p);
             dist.push(dist_acc);
         }
-        // Hız: her noktanın çevresindeki ~±15 sn'lik pencereye göre.
-        for i in 0..seg.len() {
-            let Some(ti) = seg[i].time else {
-                speed.push(None);
-                continue;
-            };
-            let mut a = i;
-            while a > 0 && seg[a - 1].time.is_some_and(|t| ti - t <= 15_000) {
-                a -= 1;
-            }
-            let mut b = i;
-            while b + 1 < seg.len() && seg[b + 1].time.is_some_and(|t| t - ti <= 15_000) {
-                b += 1;
-            }
-            let (ta, tb) = (seg[a].time.unwrap(), seg[b].time.unwrap());
-            if tb > ta {
-                let meters = dist[start_idx + b] - dist[start_idx + a];
-                speed.push(Some((meters / ((tb - ta) as f64 / 1000.0) * 3.6) as f32));
-            } else {
-                speed.push(None);
-            }
-        }
+        pieces.push((piece_start, all.len()));
+    }
+    let mut speed = vec![None; total];
+    for (a, b) in pieces {
+        window_speeds(&all[a..b], &dist[a..b], &mut speed[a..b]);
     }
 
     let y: Vec<f64> = all
@@ -480,22 +586,22 @@ pub fn read_gpx_file(path: &Path) -> Result<(Gpx, u64), LoadError> {
 }
 
 /// Okur ve ayarlara göre hazırlar (sıçrama temizliği).
-pub fn read_prepared(path: &Path, cfg: &StatsConfig) -> Result<(Gpx, u64, usize), LoadError> {
-    let (mut gpx, size) = read_gpx_file(path)?;
-    let removed = prepare(&mut gpx, cfg);
-    Ok((gpx, size, removed))
+pub fn read_prepared(path: &Path, cfg: &StatsConfig) -> Result<(Prepared, u64), LoadError> {
+    let (gpx, size) = read_gpx_file(path)?;
+    Ok((prepare(gpx, cfg), size))
 }
 
 pub fn load_summary(path: &Path, cfg: &StatsConfig) -> Result<FileSummary, LoadError> {
-    let (gpx, size, removed) = read_prepared(path, cfg)?;
-    let mut s = summarize(&gpx, &path.to_string_lossy(), size, cfg)?;
-    s.removed_points = removed;
+    let (p, size) = read_prepared(path, cfg)?;
+    let mut s = summarize(&p.gpx, &path.to_string_lossy(), size, cfg)?;
+    s.removed_points = p.removed;
+    s.collapsed_points = p.collapsed;
     Ok(s)
 }
 
 pub fn load_detail(path: &Path, cfg: &StatsConfig) -> Result<Detail, LoadError> {
-    let (gpx, _, _) = read_prepared(path, cfg)?;
-    Ok(build_detail(&gpx))
+    let (p, _) = read_prepared(path, cfg)?;
+    Ok(build_detail(&p.gpx))
 }
 
 #[cfg(test)]

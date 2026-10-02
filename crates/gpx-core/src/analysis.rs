@@ -112,7 +112,14 @@ fn median_speed<'a>(pts: impl Iterator<Item = &'a Point>) -> Option<f64> {
 }
 
 /// `a`dan çıkıp `run` noktalarından geçerek `b`ye dönen bölüm bir sıçrama mı?
-fn is_excursion(a: &Point, run: &[Point], b: &Point, local_speed: Option<f64>) -> bool {
+/// `local_speed` çevredeki olağan hızı verir; yalnızca şekil uyuyorsa
+/// hesaplanır (pahalı).
+fn is_excursion(
+    a: &Point,
+    run: &[Point],
+    b: &Point,
+    local_speed: impl FnOnce() -> Option<f64>,
+) -> bool {
     let d_ab = haversine_m(a, b);
     // Her noktanın iki uca da uzaklığı; sıçramadaki her nokta uzakta olmalı,
     // yoksa sıçramanın öncesindeki/sonrasındaki doğru noktalar da atılırdı.
@@ -137,7 +144,7 @@ fn is_excursion(a: &Point, run: &[Point], b: &Point, local_speed: Option<f64>) -
                 prev = p;
             }
             let speed = path / ((tb - ta).max(1000) as f64 / 1000.0);
-            let usual = local_speed.unwrap_or(0.0);
+            let usual = local_speed().unwrap_or(0.0);
             speed > (usual * SPIKE_SPEED_FACTOR).max(SPIKE_MIN_SPEED_MS)
         }
         // Zaman yoksa yalnızca belirgin ve kısa dikenler.
@@ -173,54 +180,124 @@ fn is_detached(a: &Point, b: &Point, rest: &[Point]) -> bool {
 /// - Segmentin başında ya da sonunda izin geri kalanından kopuk birkaç nokta
 ///   (uydu kilitlenmeden alınmış ya da eski konum) atılır.
 pub fn clean_segment(seg: &mut Vec<Point>) -> usize {
+    let mut idx = (0..seg.len() as u32).collect();
+    clean_segment_indexed(seg, &mut idx)
+}
+
+/// [`clean_segment`]; `idx` noktalarla birlikte süzülür (her kalan noktanın
+/// ham kayıttaki sırası).
+pub fn clean_segment_indexed(seg: &mut Vec<Point>, idx: &mut Vec<u32>) -> usize {
+    debug_assert_eq!(seg.len(), idx.len());
     let before = seg.len();
-    remove_excursions(seg);
-    trim_detached_edges(seg);
+    remove_excursions(seg, idx);
+    trim_detached_edges(seg, idx);
     before - seg.len()
 }
 
+/// Sıçramadaki her nokta, çıktığı noktadan en az bu kadar uzakta olmalıdır
+/// (`is_excursion`daki `near` koşulunun alt sınırı). Ucuz ön eleme için.
+const SPIKE_MIN_NEAR_M: f64 = SPIKE_MIN_DEV_M * 0.3;
+
+/// Hızlı yaklaşık uzaklık (eşdikdörtgen izdüşüm, `cos_lat` = cos(a.lat));
+/// 50 km'ye kadar hatası %1'in altında, ötesinde tam hesaplanır. Yalnızca
+/// paylı ön elemede kullanılır.
+fn quick_m(a: &Point, b: &Point, cos_lat: f64) -> f64 {
+    const R: f64 = 6_371_008.8;
+    let dlat = (b.lat - a.lat).to_radians();
+    let mut dlon = b.lon - a.lon;
+    if dlon > 180.0 {
+        dlon -= 360.0;
+    } else if dlon < -180.0 {
+        dlon += 360.0;
+    }
+    let x = dlon.to_radians() * cos_lat;
+    let d = R * (dlat * dlat + x * x).sqrt();
+    if d > 50_000.0 {
+        haversine_m(a, b)
+    } else {
+        d
+    }
+}
+
 /// İzden çıkıp aynı yere dönen sıçramaları atar.
-fn remove_excursions(seg: &mut Vec<Point>) {
+fn remove_excursions(seg: &mut Vec<Point>, idx: &mut Vec<u32>) {
     if seg.len() < 3 {
         return;
     }
     let pts = std::mem::take(seg);
+    let ids = std::mem::take(idx);
     let mut out: Vec<Point> = Vec::with_capacity(pts.len());
+    let mut out_ids: Vec<u32> = Vec::with_capacity(pts.len());
     let mut i = 0;
     while i < pts.len() {
         let Some(a) = out.last().copied() else {
             out.push(pts[i]);
+            out_ids.push(ids[i]);
             i += 1;
             continue;
         };
-        // Çevredeki olağan hız: önceki 10 nokta ve olası sıçramanın ötesindeki 10 nokta.
+        // Çevredeki olağan hız: önceki 10 nokta ve olası sıçramanın
+        // ötesindeki 10 nokta. Gerekirse bir kez hesaplanır.
         let after = (i + SPIKE_MAX_POINTS).min(pts.len());
-        let local = median_speed(
-            out[out.len().saturating_sub(10)..]
-                .iter()
-                .chain(pts[after..].iter().take(10)),
-        );
-        // Bu noktadan başlayan en kısa sıçrama.
-        let spike = (1..=SPIKE_MAX_POINTS)
-            .take_while(|&k| i + k < pts.len())
-            .take_while(|&k| match (a.time, pts[i + k].time) {
-                (Some(ta), Some(tb)) => tb - ta <= SPIKE_MAX_MS,
-                _ => true,
+        let mut local: Option<Option<f64>> = None;
+        let mut local_speed = || {
+            *local.get_or_insert_with(|| {
+                median_speed(
+                    out[out.len().saturating_sub(10)..]
+                        .iter()
+                        .chain(pts[after..].iter().take(10)),
+                )
             })
-            .find(|&k| is_excursion(&a, &pts[i..i + k], &pts[i + k], local));
+        };
+        // Bu noktadan başlayan en kısa sıçrama. Önce yaklaşık uzaklıklarla
+        // (paylı) ucuz ön eleme yapılır; sık kayıtlarda neredeyse her nokta
+        // burada elenir.
+        let cos_a = a.lat.to_radians().cos();
+        let (mut min_a, mut max_a) = (f64::INFINITY, 0.0_f64);
+        let mut spike = None;
+        for k in 1..=SPIKE_MAX_POINTS {
+            if i + k >= pts.len() {
+                break;
+            }
+            // Sıçramadaki her nokta çıkış noktasından uzak olmalı; yakın bir
+            // noktaya gelince daha uzun sıçrama da olamaz.
+            let q = quick_m(&a, &pts[i + k - 1], cos_a);
+            if q < SPIKE_MIN_NEAR_M * 0.9 {
+                break;
+            }
+            min_a = min_a.min(q);
+            max_a = max_a.max(q);
+            let b = &pts[i + k];
+            if let (Some(ta), Some(tb)) = (a.time, b.time) {
+                if tb - ta > SPIKE_MAX_MS {
+                    break;
+                }
+            }
+            // Sıçrama yeterince uzağa çıkmalı ve dönüş noktası çıkış noktasına,
+            // sıçramadaki noktaların yarı uzaklığından yakın olmalı.
+            if max_a < SPIKE_MIN_DEV_M * 0.9 || quick_m(&a, b, cos_a) > 0.6 * min_a {
+                continue;
+            }
+            if is_excursion(&a, &pts[i..i + k], b, &mut local_speed) {
+                spike = Some(k);
+                break;
+            }
+        }
         match spike {
             Some(k) => i += k,
             None => {
                 out.push(pts[i]);
+                out_ids.push(ids[i]);
                 i += 1;
             }
         }
     }
     *seg = out;
+    *idx = out_ids;
 }
 
 /// Segmentin başında ve sonunda izin geri kalanından kopuk birkaç noktayı atar.
-fn trim_detached_edges(seg: &mut Vec<Point>) {
+fn trim_detached_edges(seg: &mut Vec<Point>, idx: &mut Vec<u32>) {
     let n = seg.len();
     if n < 3 {
         return;
@@ -237,27 +314,31 @@ fn trim_detached_edges(seg: &mut Vec<Point>) {
     let tail = (1..=EDGE_POINTS.min(n.saturating_sub(head + 2)))
         .find(|&k| {
             let i = n - k;
-            let rest: Vec<Point> = seg[head..i].iter().rev().copied().collect();
+            // `is_detached` yalnızca ilk 11 noktaya bakar.
+            let rest: Vec<Point> = seg[head..i].iter().rev().take(11).copied().collect();
             is_detached(&seg[i], &seg[i - 1], &rest)
                 && haversine_m(&seg[n - 1], &seg[i - 1]) > EDGE_MIN_JUMP_M
         })
         .unwrap_or(0);
     seg.truncate(n - tail);
     seg.drain(..head);
+    idx.truncate(n - tail);
+    idx.drain(..head);
 }
 
-/// Kaydın asıl segmentlerindeki sıçramaları temizler.
-pub fn clean_spikes(gpx: &mut Gpx) -> usize {
+/// Kaydın asıl segmentleri (iz varsa izler, yoksa rotalar).
+fn primary_mut(gpx: &mut Gpx) -> impl Iterator<Item = &mut Vec<Point>> {
     let source = if gpx.tracks.is_empty() {
         &mut gpx.routes
     } else {
         &mut gpx.tracks
     };
-    source
-        .iter_mut()
-        .flat_map(|t| t.segments.iter_mut())
-        .map(clean_segment)
-        .sum()
+    source.iter_mut().flat_map(|t| t.segments.iter_mut())
+}
+
+/// Kaydın asıl segmentlerindeki sıçramaları temizler.
+pub fn clean_spikes(gpx: &mut Gpx) -> usize {
+    primary_mut(gpx).map(clean_segment).sum()
 }
 
 /// Duraklama sayılması için en az bu kadar süre ...
@@ -269,35 +350,88 @@ const STAY_RADIUS_M: f64 = 120.0;
 const STAY_MAX_OUT_POINTS: usize = 8;
 const STAY_MAX_OUT_MS: i64 = 5 * 60 * 1000;
 
+/// Titreme sınaması: noktadan en az bu kadar sonraki noktaya bakılır ...
+const JITTER_SPAN_MS: i64 = 30_000;
+/// ... (en az bu kadar adım ötesine) ...
+const JITTER_SPAN_STEPS: usize = 3;
+/// ... ve aradaki yolun en az bu oranı kadar ilerlenmişse hareket vardır.
+/// Gerçek harekette (pist turu bile) iz düzgün ilerler; titremede noktalar
+/// merkez çevresinde rastgele dağıldığından kuş uçuşu ilerleme yolun küçük
+/// bir kısmıdır.
+const JITTER_MAX_PROGRESS: f64 = 0.5;
+/// Aralıktaki yolun ortalama hızı bunun altındaysa ilerleme ne olursa olsun
+/// duraklamadır (seyrek kayıt ya da yavaş kayan konum).
+const JITTER_MAX_SPEED_MS: f64 = 0.5;
+
+/// Noktalar gerçek bir hareket değil, yerinde durulurken konum titremesi mi?
+fn is_jitter(pts: &[Point]) -> bool {
+    // Kümülatif yol.
+    let mut cum = Vec::with_capacity(pts.len());
+    let mut d = 0.0;
+    for (k, p) in pts.iter().enumerate() {
+        if k > 0 {
+            d += haversine_m(&pts[k - 1], p);
+        }
+        cum.push(d);
+    }
+    let times = pts.iter().filter_map(|p| p.time);
+    if let (Some(a), Some(b)) = (times.clone().min(), times.max()) {
+        if b > a && d / ((b - a) as f64 / 1000.0) < JITTER_MAX_SPEED_MS {
+            return true;
+        }
+    }
+    let mut ratios = Vec::new();
+    let mut j = 0;
+    for k in 0..pts.len() {
+        let Some(tk) = pts[k].time else { continue };
+        j = j.max(k + JITTER_SPAN_STEPS);
+        while j < pts.len() && pts[j].time.is_none_or(|t| t - tk < JITTER_SPAN_MS) {
+            j += 1;
+        }
+        if j >= pts.len() {
+            break;
+        }
+        let path = cum[j] - cum[k];
+        if path > 0.0 {
+            ratios.push(haversine_m(&pts[k], &pts[j]) / path);
+        }
+    }
+    // Ölçülemiyorsa (çok az nokta) eski davranış: duraklama.
+    median(ratios).is_none_or(|r| r < JITTER_MAX_PROGRESS)
+}
+
 /// Uzun duraklamaları tek noktaya indirir: bir yerde uzun süre kalınırken GPS
 /// konumu onlarca, yüzlerce metre titrer ve iz yumak gibi görünür. Bu
 /// aralıktaki noktalar duraklamanın merkezinde, başlangıç ve bitiş zamanlı iki
-/// noktaya dönüşür. Atılan nokta sayısını döndürür.
+/// noktaya dönüşür. Küçük bir alanda gerçek hareket (pistte koşu) korunur.
+/// Atılan nokta sayısını döndürür.
 pub fn collapse_stays(gpx: &mut Gpx) -> usize {
-    let source = if gpx.tracks.is_empty() {
-        &mut gpx.routes
-    } else {
-        &mut gpx.tracks
-    };
-    source
-        .iter_mut()
-        .flat_map(|t| t.segments.iter_mut())
-        .map(collapse_segment_stays)
-        .sum()
+    primary_mut(gpx).map(collapse_segment_stays).sum()
 }
 
 /// Tek segmentteki uzun duraklamaları tek noktaya indirir.
 pub fn collapse_segment_stays(seg: &mut Vec<Point>) -> usize {
+    let mut idx = (0..seg.len() as u32).collect();
+    collapse_segment_stays_indexed(seg, &mut idx)
+}
+
+/// [`collapse_segment_stays`]; `idx` noktalarla birlikte güncellenir
+/// (duraklamanın iki noktası ilk ve son noktanın sırasını alır).
+pub fn collapse_segment_stays_indexed(seg: &mut Vec<Point>, idx: &mut Vec<u32>) -> usize {
+    debug_assert_eq!(seg.len(), idx.len());
     let n = seg.len();
     if n < 3 || seg.iter().all(|p| p.time.is_none()) {
         return 0;
     }
     let pts = std::mem::take(seg);
+    let ids = std::mem::take(idx);
     let mut out: Vec<Point> = Vec::with_capacity(n);
+    let mut out_ids: Vec<u32> = Vec::with_capacity(n);
     let mut i = 0;
     while i < n {
         let Some(t0) = pts[i].time else {
             out.push(pts[i]);
+            out_ids.push(ids[i]);
             i += 1;
             continue;
         };
@@ -329,7 +463,18 @@ pub fn collapse_segment_stays(seg: &mut Vec<Point>) -> usize {
             j += 1;
         }
         let t1 = pts[last_in].time.unwrap_or(t0);
-        if last_in > i + 1 && t1 - t0 >= STAY_MIN_MS {
+        let long = last_in > i + 1 && t1 - t0 >= STAY_MIN_MS;
+        if long && !is_jitter(&pts[i..=last_in]) {
+            // Küçük alanda gerçek hareket: noktalar korunur. Sonraki pencereler
+            // çoğunlukla aynı hareketi kapsar; her noktadan yeniden denemek
+            // yerine pencerenin onda biri kadar ilerlenir.
+            let step = ((last_in - i) / 10).max(1);
+            out.extend_from_slice(&pts[i..i + step]);
+            out_ids.extend_from_slice(&ids[i..i + step]);
+            i += step;
+            continue;
+        }
+        if long {
             let (lat, lon) = (sum_lat / count, sum_lon / count);
             out.push(Point { lat, lon, ..pts[i] });
             out.push(Point {
@@ -337,14 +482,18 @@ pub fn collapse_segment_stays(seg: &mut Vec<Point>) -> usize {
                 lon,
                 ..pts[last_in]
             });
+            out_ids.push(ids[i]);
+            out_ids.push(ids[last_in]);
             i = last_in + 1;
         } else {
             out.push(pts[i]);
+            out_ids.push(ids[i]);
             i += 1;
         }
     }
     let removed = n - out.len();
     *seg = out;
+    *idx = out_ids;
     removed
 }
 
@@ -372,10 +521,12 @@ pub fn detect_stops<'a>(segments: impl IntoIterator<Item = &'a [Point]>) -> Vec<
             };
             let anchor = seg[i];
             let mut j = i;
+            // Kümedeki en son zaman (zamansız noktalar süreyi kısaltmasın).
+            let mut t1 = t0;
             while j + 1 < seg.len() && haversine_m(&anchor, &seg[j + 1]) <= STOP_RADIUS_M {
                 j += 1;
+                t1 = seg[j].time.map_or(t1, |t| t.max(t1));
             }
-            let t1 = seg[j].time.unwrap_or(t0);
             if j > i && t1 - t0 >= STOP_MIN_MS {
                 let n = (j - i + 1) as f64;
                 let (lat, lon) = seg[i..=j]
@@ -389,7 +540,13 @@ pub fn detect_stops<'a>(segments: impl IntoIterator<Item = &'a [Point]>) -> Vec<
                 });
                 i = j + 1;
             } else {
+                // Aynı (ya da geriye giden) zamanlı noktalardan başlayan
+                // kümeler de kısa kalır; her birinden yeniden taramak
+                // yerine zamanı ilerleyen ilk noktaya geçilir.
                 i += 1;
+                while i <= j && seg[i].time.is_none_or(|t| t <= t0) {
+                    i += 1;
+                }
             }
         }
     }

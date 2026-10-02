@@ -69,11 +69,40 @@ impl MetaStore {
         Ok(old)
     }
 
-    /// Dosya yeni bir ada taşındığında (çöp kutusundan geri gelirken) bilgileri taşır.
+    pub fn get(&self, path: &str) -> FileMeta {
+        self.map
+            .lock()
+            .unwrap()
+            .get(path)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Dosya yeni bir ada taşındığında (çöp kutusuna giderken ya da geri
+    /// gelirken) bilgileri taşır. `to`daki eski bilgi silinir.
     pub fn rename(&self, from: &str, to: &str) {
         let mut map = self.map.lock().unwrap();
-        if let Some(m) = map.remove(from) {
-            map.insert(to.to_owned(), m);
+        let old = map.remove(to);
+        match map.remove(from) {
+            Some(m) => {
+                map.insert(to.to_owned(), m);
+            }
+            None if old.is_none() => return,
+            None => {}
+        }
+        let _ = self.save(&map);
+    }
+
+    /// `dir` içinde olup artık var olmayan dosyaların (kalıcı silinen çöp
+    /// kutusu dosyaları) bilgilerini atar.
+    pub fn prune(&self, dir: &Path) {
+        let mut map = self.map.lock().unwrap();
+        let before = map.len();
+        map.retain(|k, _| {
+            let p = Path::new(k);
+            p.parent() != Some(dir) || p.exists()
+        });
+        if map.len() != before {
             let _ = self.save(&map);
         }
     }
@@ -121,6 +150,24 @@ mod tests {
         assert_eq!(again.activity("a"), Some(Activity::Bike));
         again.rename("a", "b");
         assert!(again.activity("b").is_some());
+        assert!(again.activity("a").is_none());
+        // Kalıcı silinen çöp dosyasının bilgisi atılır.
+        let trash = root.join(".trash");
+        let gone = trash.join("1-x.gpx").to_string_lossy().into_owned();
+        again.rename("b", &gone);
+        again.prune(&trash);
+        assert!(again.all().is_empty());
+        again.rename(&gone, "b");
+        assert!(again.all().is_empty());
+        again
+            .set(
+                "b",
+                FileMeta {
+                    activity: Some(Activity::Bike),
+                    ..FileMeta::default()
+                },
+            )
+            .unwrap();
         // Boş bilgi kaydı siler.
         again.set("b", FileMeta::default()).unwrap();
         assert!(MetaStore::open(&root).all().is_empty());

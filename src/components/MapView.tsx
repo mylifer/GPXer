@@ -14,7 +14,7 @@ import type { Detail, FileSummary } from "../api";
 import { METRICS, SEQ_DARK, SEQ_LIGHT, type FileEntry } from "../types";
 import type { TrackColorBy } from "../prefs";
 import { fmtDate, fmtDistance, fmtDuration, fmtKmh, fmtNumber, fmtTime, fmtTimestamp, fmtUnit, tzOf } from "../format";
-import type { BBox } from "../geo";
+import { metersBetween, type BBox } from "../geo";
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -416,6 +416,33 @@ function detailPopupHtml(s: FileSummary, d: Detail, i: number): string {
   return rows.join("<br>");
 }
 
+const GAP_MIN_MS = 10 * 60 * 1000;
+const GAP_MIN_M = 2000;
+const GAP_FLIGHT_M = 20_000;
+const GAP_FLIGHT_SPEED_MS = 300 / 3.6;
+const GAP_MIN_M_UNTIMED = 10_000;
+
+const gapKey = (p: [number, number]) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`;
+
+/** Özetteki boşlukların uç noktaları: "başlangıç|bitiş" anahtarları. */
+function gapEnds(summary: FileSummary | undefined): Set<string> {
+  return new Set((summary?.gaps ?? []).map((g) => `${gapKey(g.from)}|${gapKey(g.to)}`));
+}
+
+/** Ardışık iki ayrıntı örneği bir kayıt boşluğunun (uçuş, sinyal kaybı) iki
+ *  yakasında mı? Kural gpx-core'daki is_gap ile aynı; özetteki boşluk uçları da sayılır. */
+function isGapStep(d: Detail, i: number, ends: Set<string>): boolean {
+  const a: [number, number] = [d.lon[i], d.lat[i]];
+  const b: [number, number] = [d.lon[i + 1], d.lat[i + 1]];
+  if (ends.size && ends.has(`${gapKey(a)}|${gapKey(b)}`)) return true;
+  const dist = metersBetween(a, b);
+  const ta = d.time[i];
+  const tb = d.time[i + 1];
+  if (ta == null || tb == null) return dist > GAP_MIN_M_UNTIMED;
+  const dt = Math.abs(tb - ta);
+  return (dist > GAP_MIN_M && dt > GAP_MIN_MS) || (dist > GAP_FLIGHT_M && dist / (Math.max(dt, 1000) / 1000) > GAP_FLIGHT_SPEED_MS);
+}
+
 const hitBox = (p: maplibregl.Point, r = 5): [maplibregl.PointLike, maplibregl.PointLike] => [
   [p.x - r, p.y - r],
   [p.x + r, p.y + r],
@@ -432,6 +459,12 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
   live.current = props;
   const hoverPopup = useRef<maplibregl.Popup | null>(null);
   const chooser = useRef<maplibregl.Popup | null>(null);
+  /** Seçim penceresinde listelenen izler. */
+  const chooserPaths = useRef<string[]>([]);
+  /** Üzerinde bilgi kutusu açık olan iz (duraklama/boşluk kutusunda null). */
+  const hoverPath = useRef<string | null>(null);
+  const moveFrame = useRef(0);
+  const moveEvent = useRef<maplibregl.MapMouseEvent | null>(null);
   /** İmleç konumunu şu an harita mı belirliyor. */
   const mapHovering = useRef(false);
   /** Vektör stilleri: yükleniyor / yüklendi / yüklenemedi (raster yedek). */
@@ -726,13 +759,16 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
           box.appendChild(more);
         }
         hoverPopup.current?.remove();
+        hoverPath.current = null;
+        chooserPaths.current = hits;
         chooser.current = new maplibregl.Popup({ closeButton: true, maxWidth: "280px", className: "chooser-popup" })
           .setLngLat(e.lngLat)
           .setDOMContent(box)
           .addTo(map);
       });
 
-      map.on("mousemove", (e) => {
+      // Fare hareketi kare başına bir kez işlenir (yalnızca son olay); sorgular pahalı.
+      const handleMove = (e: maplibregl.MapMouseEvent) => {
         const { files: fs, selected: sel, detail: d, heatmap: heatOn } = live.current;
         if (live.current.areaMode) return;
         const spot = map.queryRenderedFeatures(hitBox(e.point, 6), { layers: ["stops", "hotspots"] })[0];
@@ -745,6 +781,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
           if (!hoverPopup.current) {
             hoverPopup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: "hover-popup" });
           }
+          hoverPath.current = null;
           hoverPopup.current.setLngLat(e.lngLat).setHTML(html).addTo(map);
           map.getCanvas().style.cursor = "default";
           return;
@@ -755,6 +792,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
           if (!hoverPopup.current) {
             hoverPopup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: "hover-popup" });
           }
+          hoverPath.current = null;
           hoverPopup.current.setLngLat(e.lngLat).setHTML(gapPopupHtml(gap.properties ?? {})).addTo(map);
           map.getCanvas().style.cursor = "default";
           releaseHover();
@@ -767,6 +805,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
         const path = sel && hits.includes(sel) ? sel : (hits[0] ?? null);
         const entry = path ? fs.find((f) => f.summary.path === path) : null;
         if (!entry || (heatOn && path !== sel)) {
+          hoverPath.current = null;
           hoverPopup.current?.remove();
           releaseHover();
           return;
@@ -796,9 +835,24 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
             className: "hover-popup",
           });
         }
+        hoverPath.current = path;
         hoverPopup.current.setLngLat(e.lngLat).setHTML(html).addTo(map);
+      };
+      map.on("mousemove", (e) => {
+        moveEvent.current = e;
+        if (moveFrame.current) return;
+        moveFrame.current = requestAnimationFrame(() => {
+          moveFrame.current = 0;
+          const ev = moveEvent.current;
+          moveEvent.current = null;
+          if (ev && mapRef.current === map) handleMove(ev);
+        });
       });
       map.on("mouseout", () => {
+        if (moveFrame.current) cancelAnimationFrame(moveFrame.current);
+        moveFrame.current = 0;
+        moveEvent.current = null;
+        hoverPath.current = null;
         hoverPopup.current?.remove();
         releaseHover();
       });
@@ -813,6 +867,9 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     ro.observe(container.current!);
     return () => {
       ro.disconnect();
+      if (moveFrame.current) cancelAnimationFrame(moveFrame.current);
+      moveFrame.current = 0;
+      moveEvent.current = null;
       map.remove();
       mapRef.current = null;
       readyRef.current = false;
@@ -838,6 +895,22 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       setData(map, "waypoints", waypointsGeoJSON(files));
     });
   }, [files]);
+
+  // İz listesi ya da seçim değişince eski bilgi kutusu ekranda kalmasın (sonraki
+  // fare hareketinde yeniden açılır); kaybolan izi gösteren seçim penceresi kapanır.
+  useEffect(() => {
+    const present = new Set(files.map((f) => f.summary.path));
+    hoverPopup.current?.remove();
+    if (mapHovering.current && (!selected || !present.has(selected) || hoverPath.current !== selected)) {
+      mapHovering.current = false;
+      live.current.onHoverIdx(null);
+    }
+    hoverPath.current = null;
+    if (chooser.current?.isOpen() && chooserPaths.current.some((p) => !present.has(p))) {
+      chooser.current.remove();
+      chooserPaths.current = [];
+    }
+  }, [files, selected]);
 
   useEffect(() => {
     whenReady((map) => setData(map, "heat", heatmap ? heatGeoJSON(files) : EMPTY));
@@ -970,9 +1043,10 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       const ramp = dark ? SEQ_DARK : SEQ_LIGHT;
       const [lo, hi] = domain;
       const features: GeoJSON.Feature[] = [];
+      const ends = gapEnds(live.current.files.find((f) => f.summary.path === live.current.selected)?.summary);
       for (let i = 0; i + 1 < detail.lat.length; i++) {
         const v = values[i];
-        if (v == null) continue;
+        if (v == null || isGapStep(detail, i, ends)) continue;
         const t = (v - lo) / (hi - lo);
         const k = Math.max(0, Math.min(ramp.length - 1, Math.round(t * (ramp.length - 1))));
         features.push({
@@ -994,9 +1068,20 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
   useEffect(() => {
     whenReady((map) => {
       if (!detail || !range) return setData(map, "range", EMPTY);
-      const coords: [number, number][] = [];
-      for (let i = range[0]; i <= range[1] && i < detail.lat.length; i++) coords.push([detail.lon[i], detail.lat[i]]);
-      setData(map, "range", { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } });
+      // Kayıt boşluklarında çizgi kesilir; boşluğun üstü düz çizgiyle birleştirilmez.
+      const ends = gapEnds(live.current.files.find((f) => f.summary.path === live.current.selected)?.summary);
+      const lines: [number, number][][] = [];
+      let cur: [number, number][] = [];
+      const last = Math.min(range[1], detail.lat.length - 1);
+      for (let i = Math.max(0, range[0]); i <= last; i++) {
+        cur.push([detail.lon[i], detail.lat[i]]);
+        if (i < last && isGapStep(detail, i, ends)) {
+          if (cur.length > 1) lines.push(cur);
+          cur = [];
+        }
+      }
+      if (cur.length > 1) lines.push(cur);
+      setData(map, "range", { type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: lines } });
     });
   }, [detail, range]);
 

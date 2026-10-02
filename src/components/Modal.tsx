@@ -1,5 +1,17 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Açık pencereler yığını: Esc ve Tab yalnızca en üsttekini etkiler. */
+const stack: HTMLElement[] = [];
+
+function focusables(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+    (el) => !el.closest("[inert]") && (el.offsetParent !== null || el === document.activeElement),
+  );
+}
+
 export function Modal({
   title,
   onClose,
@@ -11,17 +23,77 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
 }) {
+  const dialog = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  // Açılıştan önce odaktaki öğe: çocuk efektleri odağı taşımadan, ilk çizimde yakalanır.
+  const [opener] = useState(() => document.activeElement as HTMLElement | null);
+
+  // Odak yönetimi: açılışta içeri al, kapanışta önceki öğeye geri ver.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    const el = dialog.current;
+    if (!el) return;
+    const prev = opener;
+    stack.push(el);
+    // Çocuklar (ör. PromptModal) kendi odağını efektte ayarlamış olabilir.
+    if (!el.contains(document.activeElement)) {
+      // Kapat düğmesi yerine ilk içerik denetimini tercih et.
+      const items = focusables(el);
+      const first = items.find((x) => !x.classList.contains("modal-close")) ?? items[0];
+      (first ?? el).focus();
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (stack[stack.length - 1] !== el) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        closeRef.current();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = focusables(el);
+      if (!items.length) {
+        e.preventDefault();
+        el.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (!active || !el.contains(active)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && (active === first || active === el)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    // Yakalama aşaması: uygulamanın genel kısayolları Esc'i ayrıca işlemesin.
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      const i = stack.indexOf(el);
+      if (i >= 0) stack.splice(i, 1);
+      if (prev && prev.isConnected && typeof prev.focus === "function") prev.focus();
+    };
+  }, [opener]);
+
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal${wide ? " wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div
+        ref={dialog}
+        className={`modal${wide ? " wide" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+      >
         <header className="modal-head">
           <h2>{title}</h2>
-          <button className="icon-btn" onClick={onClose} title="Kapat (Esc)">
+          <button className="icon-btn modal-close" onClick={onClose} title="Kapat (Esc)" aria-label="Kapat">
             ×
           </button>
         </header>

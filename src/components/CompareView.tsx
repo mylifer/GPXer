@@ -60,7 +60,7 @@ function cssVar(name: string) {
 
 export function CompareView({ a, b, detailA, detailB, height, playSpeed, onPlaySpeed, onCursors, onClose }: Props) {
   const host = useRef<HTMLDivElement>(null);
-  const [metric, setMetric] = useState<Metric>("speed");
+  const [metricPref, setMetric] = useState<Metric>("speed");
   const [hoverD, setHoverD] = useState<number | null>(null);
   const [playT, setPlayT] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -73,6 +73,9 @@ export function CompareView({ a, b, detailA, detailB, height, playSpeed, onPlayS
   const metrics = (["ele", "speed", "hr", "cad", "power", "temp"] as Metric[]).filter(
     (m) => ready && hasMetric(detailA, m) && hasMetric(detailB, m),
   );
+  // Seçilen ölçü iki kayıtta yoksa (ör. zamansız kayıtta hız) ilk uygun ölçüye düş.
+  const options: Metric[] = metrics.length ? metrics : ["ele"];
+  const metric: Metric = options.includes(metricPref) ? metricPref : options[0];
   const ea = useMemo(() => (detailA ? elapsed(detailA) : null), [detailA]);
   const eb = useMemo(() => (detailB ? elapsed(detailB) : null), [detailB]);
 
@@ -290,7 +293,7 @@ export function CompareView({ a, b, detailA, detailB, height, playSpeed, onPlayS
         <label className="inline-select">
           Ölçü
           <select value={metric} onChange={(e) => setMetric(e.target.value as Metric)}>
-            {(metrics.length ? metrics : (["ele"] as Metric[])).map((m) => (
+            {options.map((m) => (
               <option key={m} value={m}>
                 {METRICS[m].label}
               </option>

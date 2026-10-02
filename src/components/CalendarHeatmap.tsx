@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FileEntry } from "../types";
-import { SEQ_LIGHT } from "../types";
+import { SEQ_DARK, SEQ_LIGHT } from "../types";
 import { MONTHS, dayKey, fmtDistance, fmtDuration, fmtNumber, isoOf, tzOf } from "../format";
 
 interface Day {
@@ -16,6 +16,22 @@ const WEEKDAY_LABELS = ["Pt", "", "Ça", "", "Cu", "", "Pz"];
 interface Props {
   files: FileEntry[];
   onDay(iso: string): void;
+}
+
+const DARK_QUERY = "(prefers-color-scheme: dark)";
+
+/** Sistem koyu temada mı? Panel renkleri de bu medya sorgusuna bağlı. */
+function usePrefersDark(): boolean {
+  const [dark, setDark] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.(DARK_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia?.(DARK_QUERY);
+    if (!mq) return;
+    const on = () => setDark(mq.matches);
+    on();
+    mq.addEventListener?.("change", on);
+    return () => mq.removeEventListener?.("change", on);
+  }, []);
+  return dark;
 }
 
 /** Yıllık takvim: her gün bir kare, koyuluğu o günkü mesafe. */
@@ -46,7 +62,9 @@ export function CalendarHeatmap({ files, onDay }: Props) {
     if (v.length === 0) return [];
     return [0.2, 0.4, 0.6, 0.8].map((q) => v[Math.min(v.length - 1, Math.floor(v.length * q))]);
   }, [days]);
-  const ramp = [SEQ_LIGHT[0], SEQ_LIGHT[2], SEQ_LIGHT[3], SEQ_LIGHT[4], SEQ_LIGHT[6]];
+  const dark = usePrefersDark();
+  const seq = dark ? SEQ_DARK : SEQ_LIGHT;
+  const ramp = [seq[0], seq[2], seq[3], seq[4], seq[6]];
   const colorOf = (dist: number) => ramp[steps.filter((s) => dist > s).length];
 
   // Pazartesi ile başlayan haftalar.

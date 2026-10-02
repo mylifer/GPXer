@@ -15,7 +15,7 @@ pub fn slice_segments(segments: &[&[Point]], start: usize, end: usize) -> Vec<Ve
         let (a, b) = (offset, offset + seg.len());
         offset = b;
         let lo = start.max(a);
-        let hi = (end + 1).min(b);
+        let hi = end.saturating_add(1).min(b);
         if lo < hi {
             out.push(seg[lo - a..hi - a].to_vec());
         }
@@ -42,13 +42,30 @@ fn track_name(gpx: &Gpx) -> Option<String> {
         .or_else(|| gpx.name.clone())
 }
 
-fn part(gpx: &Gpx, start: usize, end: usize, name: Option<String>) -> Gpx {
+/// Her işaret noktasının en yakın asıl noktası.
+fn nearest_indices(gpx: &Gpx) -> Vec<Option<usize>> {
+    let segments = primary_segments(gpx);
+    gpx.waypoints
+        .iter()
+        .map(|w| nearest_index(&segments, w))
+        .collect()
+}
+
+/// `nearest`: [`nearest_indices`] (bölmede iki parça için bir kez hesaplanır).
+fn part(
+    gpx: &Gpx,
+    start: usize,
+    end: usize,
+    name: Option<String>,
+    nearest: &[Option<usize>],
+) -> Gpx {
     let segments = primary_segments(gpx);
     let waypoints = gpx
         .waypoints
         .iter()
-        .filter(|w| nearest_index(&segments, w).is_none_or(|i| i >= start && i <= end))
-        .cloned()
+        .zip(nearest)
+        .filter(|(_, n)| n.is_none_or(|i| i >= start && i <= end))
+        .map(|(w, _)| w.clone())
         .collect();
     let parts = slice_segments(&segments, start, end);
     let time = parts.iter().flatten().find_map(|p| p.time);
@@ -80,6 +97,7 @@ pub fn trim(gpx: &Gpx, start: usize, end: usize) -> Option<Gpx> {
         start,
         end.min(n - 1),
         Some(format!("{base} (kırpılmış)")),
+        &nearest_indices(gpx),
     ))
 }
 
@@ -91,9 +109,10 @@ pub fn split(gpx: &Gpx, at: usize) -> Option<(Gpx, Gpx)> {
         return None;
     }
     let base = track_name(gpx).unwrap_or_else(|| "İz".into());
+    let nearest = nearest_indices(gpx);
     Some((
-        part(gpx, 0, at, Some(format!("{base} (1. kısım)"))),
-        part(gpx, at, n - 1, Some(format!("{base} (2. kısım)"))),
+        part(gpx, 0, at, Some(format!("{base} (1. kısım)")), &nearest),
+        part(gpx, at, n - 1, Some(format!("{base} (2. kısım)")), &nearest),
     ))
 }
 

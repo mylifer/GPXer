@@ -66,6 +66,8 @@ export interface FileSummary {
   stops: Stop[];
   /** Ayıklanan GPS sıçraması sayısı. */
   removedPoints: number;
+  /** Uzun duraklamalarda tek noktaya indirildiği için çıkarılan nokta sayısı. */
+  collapsedPoints: number;
 }
 
 export type Activity = "walk" | "run" | "bike" | "car" | "unknown";
@@ -142,6 +144,14 @@ export const exportAs = (src: string, dest: string, format: ExportFormat) =>
 export const getMeta = () => invoke<Record<string, FileMeta>>("get_meta");
 /** Tür değiştiyse yeniden hesaplanan özet döner. */
 export const setMeta = (path: string, value: FileMeta) => invoke<LoadResult | null>("set_meta", { path, value });
+export interface SaveFilter {
+  name: string;
+  extensions: string[];
+}
+/** Sistemin kaydetme penceresini açar. Arka uç yalnızca buradan dönen yollara
+ * yazar (write_text_file, write_base64_file, export_as); vazgeçilirse `null`. */
+export const pickSavePath = (defaultName: string, filters: SaveFilter[]) =>
+  invoke<string | null>("pick_save_path", { defaultName, filters });
 export const writeTextFile = (path: string, contents: string) => invoke<void>("write_text_file", { path, contents });
 export const writeBase64File = (path: string, data: string) => invoke<void>("write_base64_file", { path, data });
 export const getSettings = () => invoke<Settings>("get_settings");

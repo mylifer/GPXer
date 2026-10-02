@@ -41,9 +41,23 @@ impl SettingsStore {
         self.current.lock().unwrap().stats
     }
 
+    /// Yol izlenen klasörlerden birinin içinde mi.
+    pub fn is_watched(&self, path: &str) -> bool {
+        let p = Path::new(path);
+        self.current
+            .lock()
+            .unwrap()
+            .watched_folders
+            .iter()
+            .any(|f| p.starts_with(f))
+    }
+
     pub fn save(&self, s: Settings) -> std::io::Result<()> {
         let bytes = serde_json::to_vec_pretty(&s).map_err(std::io::Error::other)?;
-        std::fs::write(&self.path, bytes)?;
+        // Yarım yazılmış ayar dosyası kalmasın diye önce geçici dosyaya.
+        let tmp = self.path.with_extension("tmp");
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(&tmp, &self.path)?;
         *self.current.lock().unwrap() = s;
         Ok(())
     }

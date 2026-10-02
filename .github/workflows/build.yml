@@ -57,9 +57,46 @@ jobs:
       - run: npm run build
       - run: cargo test -p gpx-core -p gpxer
 
+  # Sürüm yayımlanacaksa önce tek bir TASLAK sürüm oluşturulur; iki platformun
+  # derlemesi dosyalarını buna yükler. Taslak, her iki derleme de bitince
+  # "publish" işinde yayımlanır; böylece güncelleme denetimi
+  # (releases/latest/download/latest.json) hiçbir zaman eksik platformlu bir
+  # sürüm görmez.
+  release:
+    name: Taslak sürüm
+    needs: [test, version]
+    if: needs.version.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      id: ${{ steps.draft.outputs.id }}
+    steps:
+      - id: draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          # Yarıda kalmış bir çalıştırmanın taslağı varsa o kullanılır.
+          ID=$(gh api "repos/$GH_REPO/releases?per_page=100" \
+            --jq "[.[] | select(.draft and .tag_name == \"$TAG\")][0].id // empty")
+          if [ -z "$ID" ]; then
+            ID=$(gh api "repos/$GH_REPO/releases" -X POST \
+              -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
+              -f name="GPXer $TAG" \
+              -f body="Kurulu GPXer bu sürümü bulup güncellemeyi önerir." \
+              -F draft=true --jq .id)
+          fi
+          echo "Taslak sürüm: $ID"
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
   bundle:
     name: Kurulum (${{ matrix.name }})
-    needs: [test, version]
+    needs: [test, version, release]
+    # Sürüm yayımlanmayacaksa "release" atlanır; derleme yine yapılır.
+    if: ${{ !cancelled() && needs.test.result == 'success' && needs.version.result == 'success' && needs.release.result != 'failure' }}
     strategy:
       fail-fast: false
       matrix:
@@ -151,13 +188,13 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: ${{ matrix.args }}
-          # Sürüm etiketi varsa GitHub sürümü (etiketiyle birlikte) yayımlanır.
-          # Uygulama güncellemeleri son yayımlanan sürümün latest.json
-          # dosyasından denetler, bu yüzden sürüm taslak bırakılmaz.
+          # Sürüm etiketi varsa dosyalar "release" işinin oluşturduğu taslak
+          # sürüme yüklenir; yayımlama "publish" işinde yapılır.
+          releaseId: ${{ needs.release.outputs.id }}
           tagName: ${{ needs.version.outputs.tag }}
           releaseName: GPXer ${{ needs.version.outputs.tag }}
           releaseBody: Kurulu GPXer bu sürümü bulup güncellemeyi önerir.
-          releaseDraft: false
+          releaseDraft: true
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
       - uses: actions/upload-artifact@v4
@@ -168,3 +205,71 @@ jobs:
             ${{ matrix.bundle }}/nsis/*.exe
             ${{ matrix.bundle }}/dmg/*.dmg
           if-no-files-found: error
+
+  # Her iki derleme de başarılıysa taslak sürüm yayımlanır. İki derleme
+  # latest.json'u aynı anda güncelleyebildiğinden önce eksik platform
+  # imzalı dosyalardan tamamlanır; taslakta "untagged-…" olan indirme
+  # adresleri etiket adresine çevrilir.
+  publish:
+    name: Sürümü yayımla
+    needs: [version, release, bundle]
+    if: needs.version.outputs.tag != '' && needs.bundle.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.version.outputs.tag }}
+      RELEASE_ID: ${{ needs.release.outputs.id }}
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+    steps:
+      - name: latest.json'u tamamla
+        if: env.HAS_UPDATER_KEY == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/$GH_REPO/releases/download/$TAG"
+          gh api "repos/$GH_REPO/releases/$RELEASE_ID/assets?per_page=100" > assets.json
+          asset() { jq -r --arg re "$1" '[.[] | select(.name | test($re)) | .name][0] // empty' assets.json; }
+          sig() {
+            local id
+            id=$(jq -r --arg n "$1.sig" '.[] | select(.name == $n) | .id' assets.json)
+            [ -n "$id" ] && gh api "repos/$GH_REPO/releases/assets/$id" -H "Accept: application/octet-stream"
+          }
+          LATEST_ID=$(jq -r '.[] | select(.name == "latest.json") | .id' assets.json)
+          if [ -n "$LATEST_ID" ]; then
+            gh api "repos/$GH_REPO/releases/assets/$LATEST_ID" -H "Accept: application/octet-stream" > latest.json
+          else
+            jq -n --arg v "${TAG#v}" --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              '{version: $v, notes: "Kurulu GPXer bu sürümü bulup güncellemeyi önerir.", pub_date: $d, platforms: {}}' > latest.json
+          fi
+          add() {
+            local key="$1" re="$2" name s
+            name=$(asset "$re")
+            [ -z "$name" ] && { echo "::warning::$key için dosya yok"; return; }
+            s=$(sig "$name") || { echo "::warning::$name.sig yok"; return; }
+            jq --arg k "$key" --arg u "$BASE/$name" --arg s "$s" \
+              '.platforms[$k] //= {signature: $s, url: $u}' latest.json > tmp.json && mv tmp.json latest.json
+          }
+          add windows-x86_64 '-setup\.exe$'
+          add windows-x86_64-nsis '-setup\.exe$'
+          add darwin-aarch64 '\.app\.tar\.gz$'
+          add darwin-aarch64-app '\.app\.tar\.gz$'
+          # Taslak adresleri ("untagged-…") yayımlanınca geçersizleşir.
+          jq --arg b "$BASE/" '.platforms |= map_values(.url |= sub("^https://github.com/[^/]+/[^/]+/releases/download/[^/]+/"; $b))' \
+            latest.json > tmp.json && mv tmp.json latest.json
+          cat latest.json
+          for k in windows-x86_64 darwin-aarch64; do
+            jq -e --arg k "$k" '.platforms[$k].url' latest.json > /dev/null || { echo "::error::latest.json'da $k yok"; exit 1; }
+          done
+          if [ -n "$LATEST_ID" ]; then
+            gh api -X DELETE "repos/$GH_REPO/releases/assets/$LATEST_ID"
+          fi
+          UPLOAD="https://uploads.github.com/repos/$GH_REPO/releases/$RELEASE_ID/assets?name=latest.json"
+          curl -sSf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/json" \
+            --data-binary @latest.json "$UPLOAD" > /dev/null
+      - name: Yayımla
+        shell: bash
+        run: |
+          gh api -X PATCH "repos/$GH_REPO/releases/$RELEASE_ID" -F draft=false -f make_latest=true --jq .html_url

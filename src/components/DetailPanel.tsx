@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Detail, FileMeta, Stats, Stop } from "../api";
 import { METRICS, PALETTE, placeLabel, type FileEntry } from "../types";
 import { MetaEditor } from "./MetaEditor";
@@ -130,12 +130,22 @@ function ColorPicker({ color, onColor }: { color: string; onColor(c: string): vo
 export function DetailPanel(p: Props) {
   const s = p.entry.summary;
   const st = s.stats;
+  /** Durakta biriken noktaların sadeleştirilmesiyle düşenler (sıçramalardan ayrı). */
+  const collapsed = s.collapsedPoints ?? 0;
   const tz = tzOf(s);
   const dragStart = useRef<{ y: number; h: number } | null>(null);
-  const available = p.detail ? ALL_METRICS.filter((m) => hasMetric(p.detail!, m)) : [];
+  const available = useMemo(() => (p.detail ? ALL_METRICS.filter((m) => hasMetric(p.detail!, m)) : []), [p.detail]);
   const timeOk = p.detail ? canUseTime(p.detail) : false;
   const d = p.detail;
   const i = p.hoverIdx;
+  // Seçili ölçülerin hiçbiri bu kayıtta yoksa (ör. nabız seçili, kayıtta yok) boş
+  // grafik yerine kayıttaki ilk uygun ölçü çizilir.
+  const chartMetrics = useMemo(() => {
+    const own = p.metrics.filter((m) => available.includes(m));
+    if (own.length) return own;
+    if (available.includes("ele")) return ELE_ONLY;
+    return available.length ? available.slice(0, 1) : ELE_ONLY;
+  }, [p.metrics, available]);
 
   const toggleMetric = (m: Metric) => {
     const next = p.metrics.includes(m) ? p.metrics.filter((x) => x !== m) : [...p.metrics, m];
@@ -170,7 +180,8 @@ export function DetailPanel(p: Props) {
             {tz && ` (${tz})`} · {s.fileName} · {fmtBytes(s.fileSize)} · {fmtNumber(st.pointCount)} nokta
             {st.segmentCount > 1 && ` · ${st.segmentCount} parça`}
             {s.waypoints.length > 0 && ` · ${s.waypoints.length} işaret`}
-            {s.removedPoints > 0 && ` · ${s.removedPoints} GPS sıçraması ayıklandı`}
+            {s.removedPoints > 0 && ` · ${fmtNumber(s.removedPoints)} GPS sıçraması ayıklandı`}
+            {collapsed > 0 && ` · ${fmtNumber(collapsed)} duraklama noktası sadeleştirildi`}
           </div>
           {placeLabel(s) && <div className="muted place-line">{placeLabel(s)}</div>}
         </div>
@@ -200,11 +211,11 @@ export function DetailPanel(p: Props) {
           ))}
         </div>
         <div className="segmented small" role="group" aria-label="Yatay eksen">
-          <button className={p.xAxis === "dist" ? "active" : ""} onClick={() => p.onXAxis("dist")}>
+          <button className={p.xAxis === "dist" || !timeOk ? "active" : ""} onClick={() => p.onXAxis("dist")}>
             Mesafe
           </button>
           <button
-            className={p.xAxis === "time" ? "active" : ""}
+            className={p.xAxis === "time" && timeOk ? "active" : ""}
             disabled={!timeOk}
             onClick={() => p.onXAxis("time")}
             title={timeOk ? undefined : "Bu kayıtta her noktada zaman bilgisi yok"}
@@ -227,8 +238,8 @@ export function DetailPanel(p: Props) {
           <button
             className="btn small primary"
             onClick={p.onPlay}
-            disabled={!d}
-            title="Oynat / duraklat (Boşluk)"
+            disabled={!d || d.lat.length < 2}
+            title={d && d.lat.length < 2 ? "Oynatmak için en az iki nokta gerekir" : "Oynat / duraklat (Boşluk)"}
           >
             {p.playing ? "❚❚ Duraklat" : "▶ Oynat"}
           </button>
@@ -305,7 +316,7 @@ export function DetailPanel(p: Props) {
               <ProfileChart
                 detail={d}
                 color={p.entry.color}
-                metrics={p.metrics.length ? p.metrics : ELE_ONLY}
+                metrics={chartMetrics}
                 xAxis={timeOk ? p.xAxis : "dist"}
                 tz={tz}
                 hoverIdx={p.hoverIdx}

@@ -377,7 +377,16 @@ label.check {
 }
 
 .maplibregl-popup-content {
+  /* Harita kutuları koyu temada da açık zeminli: içerideki .muted vb. okunur kalsın. */
+  --text: #1d2327;
+  --text-muted: #5f666c;
+  --hover: #eeece6;
+  --border: #e0ddd5;
   color: #1d2327;
+}
+
+.maplibregl-popup-content .muted {
+  color: #5f666c;
 }
 
 .toast {
@@ -1112,6 +1121,10 @@ label.check.small {
 
 .modal.wide {
   width: min(960px, calc(100vw - 32px));
+}
+
+.modal:focus {
+  outline: none;
 }
 
 .modal-head {

@@ -37,13 +37,18 @@ pub fn parse_fit(bytes: &[u8]) -> Result<Gpx, ParseError> {
         x.ok().filter(|x| x.is_finite())
     };
     let mut points = Vec::new();
+    // Kadansın kesirli kısmı (devir/dk), noktalarla aynı sırada.
+    let mut fractions: Vec<Option<f32>> = Vec::new();
     let mut sport: Option<String> = None;
+    // Koşu dinamikleri (adım uzunluğu vb.) varsa kayıt koşudur.
+    let mut running_dynamics = false;
     for r in &records {
         match r.kind() {
             MesgNum::Record => {
                 let mut p = Point::default();
                 let (mut lat, mut lon) = (None, None);
                 let mut alt = None;
+                let mut frac = None;
                 for f in r.fields() {
                     let v = f.value();
                     match f.name() {
@@ -59,6 +64,10 @@ pub fn parse_fit(bytes: &[u8]) -> Result<Gpx, ParseError> {
                         }
                         "heart_rate" => p.hr = num(v).map(|x| x as f32),
                         "cadence" => p.cad = num(v).map(|x| x as f32),
+                        "fractional_cadence" => frac = num(v).map(|x| x as f32),
+                        "step_length" | "vertical_oscillation" | "stance_time" => {
+                            running_dynamics |= num(v).is_some_and(|x| x > 0.0)
+                        }
                         "power" => p.power = num(v).map(|x| x as f32),
                         "temperature" => p.temp = num(v).map(|x| x as f32),
                         _ => {}
@@ -70,6 +79,7 @@ pub fn parse_fit(bytes: &[u8]) -> Result<Gpx, ParseError> {
                         p.lon = lo;
                         p.ele = alt.map(|a| a as f32);
                         points.push(p);
+                        fractions.push(frac);
                     }
                 }
             }
@@ -86,6 +96,21 @@ pub fn parse_fit(bytes: &[u8]) -> Result<Gpx, ParseError> {
     if points.is_empty() {
         return Err(ParseError("FIT dosyasında konum kaydı yok".into()));
     }
+    // Koşuda FIT kadansı tek bacağın adım sayısıdır (adım/dk'nın yarısı).
+    let running = match sport.as_deref() {
+        Some(s) => {
+            let s = s.to_ascii_lowercase();
+            s.contains("run") || (matches!(s.as_str(), "generic" | "0") && running_dynamics)
+        }
+        None => running_dynamics,
+    };
+    if running {
+        for (p, frac) in points.iter_mut().zip(&fractions) {
+            if let Some(c) = p.cad.as_mut() {
+                *c = (*c + frac.unwrap_or(0.0)) * 2.0;
+            }
+        }
+    }
     let time = points.iter().find_map(|p| p.time);
     let name = sport.map(|s| format!("FIT {s}"));
     Ok(Gpx {
@@ -100,6 +125,11 @@ pub fn parse_fit(bytes: &[u8]) -> Result<Gpx, ParseError> {
 }
 
 // ---------- TCX ----------
+
+/// Sonlu bir sayı (NaN ve sonsuz kabul edilmez).
+fn finite(s: &str) -> Option<f64> {
+    s.parse::<f64>().ok().filter(|x| x.is_finite())
+}
 
 pub fn parse_tcx(bytes: &[u8]) -> Result<Gpx, ParseError> {
     let mut reader = Reader::from_reader(bytes);
@@ -141,12 +171,14 @@ pub fn parse_tcx(bytes: &[u8]) -> Result<Gpx, ParseError> {
                 if let Some((p, lat, lon)) = pt.as_mut() {
                     match n.as_slice() {
                         b"Time" => p.time = parse_time(v),
-                        b"LatitudeDegrees" => *lat = v.parse().ok(),
-                        b"LongitudeDegrees" => *lon = v.parse().ok(),
-                        b"AltitudeMeters" => p.ele = v.parse().ok(),
-                        b"Value" if parent == Some(b"HeartRateBpm") => p.hr = v.parse().ok(),
-                        b"Cadence" | b"RunCadence" => p.cad = v.parse().ok(),
-                        b"Watts" => p.power = v.parse().ok(),
+                        b"LatitudeDegrees" => *lat = finite(v).filter(|x| x.abs() <= 90.0),
+                        b"LongitudeDegrees" => *lon = finite(v).filter(|x| x.abs() <= 180.0),
+                        b"AltitudeMeters" => p.ele = finite(v).map(|x| x as f32),
+                        b"Value" if parent == Some(b"HeartRateBpm") => {
+                            p.hr = finite(v).map(|x| x as f32)
+                        }
+                        b"Cadence" | b"RunCadence" => p.cad = finite(v).map(|x| x as f32),
+                        b"Watts" => p.power = finite(v).map(|x| x as f32),
                         _ => {}
                     }
                 }
@@ -198,7 +230,7 @@ fn kml_point(s: &str) -> Option<Point> {
     let parts: Vec<f64> = s
         .split(|c: char| c == ',' || c.is_whitespace())
         .filter(|x| !x.is_empty())
-        .map(|x| x.parse().ok())
+        .map(finite)
         .collect::<Option<Vec<_>>>()?;
     let (lon, lat) = (*parts.first()?, *parts.get(1)?);
     if lat.abs() > 90.0 || lon.abs() > 180.0 {
@@ -207,7 +239,7 @@ fn kml_point(s: &str) -> Option<Point> {
     Some(Point {
         lat,
         lon,
-        ele: parts.get(2).map(|e| *e as f32),
+        ele: parts.get(2).map(|e| *e as f32).filter(|e| e.is_finite()),
         ..Point::default()
     })
 }
@@ -220,10 +252,14 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
     let mut text = String::new();
     let mut saw_root = false;
     let mut placemark_name: Option<String> = None;
+    // İz adı: iz içeren ilk Placemark'ın adı.
+    let mut track_name: Option<String> = None;
+    let mut placemark_segments = 0;
     let mut segments: Vec<Vec<Point>> = Vec::new();
-    // gx:Track: zamanlar ve koordinatlar ayrı listeler halinde gelir.
+    // gx:Track: zamanlar ve koordinatlar ayrı listeler halinde gelir;
+    // okunamayan bir değer sıralamayı kaydırmasın diye ikisi de tutulur.
     let mut whens: Vec<Option<i64>> = Vec::new();
-    let mut coords: Vec<Point> = Vec::new();
+    let mut coords: Vec<Option<Point>> = Vec::new();
 
     loop {
         let ev = reader
@@ -234,7 +270,10 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
                 let n = e.local_name().as_ref().to_vec();
                 match n.as_slice() {
                     b"kml" => saw_root = true,
-                    b"Placemark" => placemark_name = None,
+                    b"Placemark" => {
+                        placemark_name = None;
+                        placemark_segments = segments.len();
+                    }
                     b"Track" => {
                         whens.clear();
                         coords.clear();
@@ -279,18 +318,24 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
                         }
                     }
                     b"when" if parent == Some(b"Track") => whens.push(parse_time(v)),
-                    b"coord" if parent == Some(b"Track") => {
-                        if let Some(p) = kml_point(v) {
-                            coords.push(p);
-                        }
-                    }
+                    b"coord" if parent == Some(b"Track") => coords.push(kml_point(v)),
                     b"Track" => {
-                        let mut seg = std::mem::take(&mut coords);
-                        for (p, t) in seg.iter_mut().zip(whens.iter()) {
-                            p.time = *t;
-                        }
+                        let seg: Vec<Point> = std::mem::take(&mut coords)
+                            .into_iter()
+                            .enumerate()
+                            .filter_map(|(i, p)| {
+                                let mut p = p?;
+                                p.time = whens.get(i).copied().flatten();
+                                Some(p)
+                            })
+                            .collect();
                         if !seg.is_empty() {
                             segments.push(seg);
+                        }
+                    }
+                    b"Placemark" => {
+                        if segments.len() > placemark_segments && track_name.is_none() {
+                            track_name = placemark_name.clone();
                         }
                     }
                     _ => {}
@@ -308,7 +353,7 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
     if !segments.is_empty() {
         gpx.time = segments.iter().flatten().find_map(|p| p.time);
         gpx.tracks.push(Track {
-            name: placemark_name.or_else(|| gpx.name.clone()),
+            name: track_name.or_else(|| gpx.name.clone()),
             segments,
         });
     }
@@ -360,19 +405,26 @@ pub fn write_kml(gpx: &Gpx) -> String {
                 let _ = writeln!(out, "<when>{}</when>", format_time(p.time.unwrap()));
             }
             for p in seg {
+                // Yükseklik bilinmiyorsa yazılmaz (0 m sanılmasın).
                 let _ = writeln!(
                     out,
-                    "<gx:coord>{} {} {}</gx:coord>",
+                    "<gx:coord>{} {}{}</gx:coord>",
                     p.lon,
                     p.lat,
-                    p.ele.unwrap_or(0.0)
+                    p.ele.map(|e| format!(" {e}")).unwrap_or_default()
                 );
             }
             out.push_str("</gx:Track>\n");
         } else {
             out.push_str("<LineString><tessellate>1</tessellate><coordinates>\n");
             for p in seg {
-                let _ = writeln!(out, "{},{},{}", p.lon, p.lat, p.ele.unwrap_or(0.0));
+                let _ = writeln!(
+                    out,
+                    "{},{}{}",
+                    p.lon,
+                    p.lat,
+                    p.ele.map(|e| format!(",{e}")).unwrap_or_default()
+                );
             }
             out.push_str("</coordinates></LineString>\n");
         }
@@ -398,10 +450,30 @@ pub fn write_tcx(gpx: &Gpx) -> String {
     let id = start
         .map(format_time)
         .unwrap_or_else(|| "1970-01-01T00:00:00Z".into());
-    let _ = writeln!(out, "<Id>{id}</Id>\n<Lap StartTime=\"{id}\">");
+    // Tur özeti: toplam süre ve mesafe (segmentler arası atlama sayılmaz).
+    let times = segs.iter().flat_map(|s| s.iter()).filter_map(|p| p.time);
+    let total_s = match (times.clone().min(), times.max()) {
+        (Some(a), Some(b)) => (b - a) as f64 / 1000.0,
+        _ => 0.0,
+    };
+    let total_m: f64 = segs
+        .iter()
+        .map(|s| {
+            s.windows(2)
+                .map(|w| crate::haversine_m(&w[0], &w[1]))
+                .sum::<f64>()
+        })
+        .sum();
+    let _ = writeln!(
+        out,
+        "<Id>{id}</Id>\n<Lap StartTime=\"{id}\">\n<TotalTimeSeconds>{total_s:.1}</TotalTimeSeconds>\n\
+         <DistanceMeters>{total_m:.1}</DistanceMeters>\n<Calories>0</Calories>\n\
+         <Intensity>Active</Intensity>\n<TriggerMethod>Manual</TriggerMethod>"
+    );
+    // Kümülatif mesafe segmentten segmente sürer.
+    let mut dist = 0.0;
     for seg in segs {
         out.push_str("<Track>\n");
-        let mut dist = 0.0;
         for (i, p) in seg.iter().enumerate() {
             if i > 0 {
                 dist += crate::haversine_m(&seg[i - 1], p);

@@ -25,7 +25,8 @@ export interface Filters {
   /** "" = tümü */
   activity: string;
   tag: string;
-  /** Tekrarlanan güzergâh kimliği; yalnızca o güzergâhın kayıtları. */
+  /** Tekrarlanan güzergâhın bir kaydının yolu; yalnızca o kaydı içeren
+   * güzergâhın kayıtları gösterilir (üyelik değişse de filtre korunur). */
   route: string | null;
 }
 
@@ -103,14 +104,37 @@ export function loadPrefs(): Prefs {
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined;
+let pending: Prefs | null = null;
+
+function write(p: Prefs) {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(p));
+  } catch {
+    /* önemli değil */
+  }
+}
+
 /** Sık değişen durum (harita konumu gibi) için yazma kısa süre ertelenir. */
 export function savePrefs(p: Prefs) {
+  pending = p;
   clearTimeout(timer);
-  timer = setTimeout(() => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(p));
-    } catch {
-      /* önemli değil */
-    }
-  }, 300);
+  timer = setTimeout(flushPrefs, 300);
+}
+
+/** Bekleyen ertelenmiş yazmayı hemen yapar (kapanışta kaybolmasın). */
+export function flushPrefs() {
+  clearTimeout(timer);
+  timer = undefined;
+  if (!pending) return;
+  const p = pending;
+  pending = null;
+  write(p);
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", flushPrefs);
+  window.addEventListener("pagehide", flushPrefs);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushPrefs();
+  });
 }
