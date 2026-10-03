@@ -119,13 +119,90 @@ const DEFAULTS: Prefs = {
 const KEY = "gpxer.prefs.v1";
 
 export function loadPrefs(): Prefs {
-  let saved: Partial<Prefs> = {};
+  let saved: unknown = {};
   try {
-    saved = JSON.parse(localStorage.getItem(KEY) ?? "{}") ?? {};
+    saved = JSON.parse(localStorage.getItem(KEY) ?? "{}");
   } catch {
     saved = {};
   }
-  return { ...DEFAULTS, ...saved, filters: { ...DEFAULT_FILTERS, ...(saved.filters ?? {}) } };
+  return sanitizePrefs(saved);
+}
+
+type Rec = Record<string, unknown>;
+const isRec = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
+const oneOf =
+  <T extends string>(...allowed: T[]) =>
+  (v: unknown): v is T =>
+    typeof v === "string" && (allowed as string[]).includes(v);
+const isStr = (v: unknown): v is string => typeof v === "string";
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const isBool = (v: unknown): v is boolean => typeof v === "boolean";
+const isMetric = oneOf<Metric>("ele", "speed", "hr", "cad", "power", "temp");
+const strings = (v: unknown) => (Array.isArray(v) ? v.filter(isStr) : undefined);
+const isBox = (v: unknown): v is [number, number, number, number] =>
+  Array.isArray(v) && v.length === 4 && v.every(isNum);
+
+/** Değeri doğrulanırsa onu, değilse varsayılanı seçer. */
+function pick<T>(v: unknown, ok: (v: unknown) => v is T, fallback: T): T {
+  return ok(v) ? v : fallback;
+}
+
+/** Kayıtlı tercihleri doğrular: eski sürümden kalan, elle değiştirilmiş ya da
+ * bozuk her alan varsayılanına döner (yanlış türdeki bir alan arayüzü
+ * açılışta çökertiyordu). */
+export function sanitizePrefs(raw: unknown): Prefs {
+  const s: Rec = isRec(raw) ? raw : {};
+  const f: Rec = isRec(s.filters) ? s.filters : {};
+  const D = DEFAULTS;
+  const F = DEFAULT_FILTERS;
+  const nullable =
+    <T>(ok: (v: unknown) => v is T) =>
+    (v: unknown): v is T | null =>
+      v === null || ok(v);
+  const filters: Filters = {
+    query: pick(f.query, isStr, F.query),
+    from: pick(f.from, isStr, F.from),
+    to: pick(f.to, isStr, F.to),
+    includeUndated: pick(f.includeUndated, isBool, F.includeUndated),
+    sort: pick(f.sort, oneOf<SortKey>("date-desc", "date-asc", "name", "distance"), F.sort),
+    area: pick(f.area, nullable(isBox), F.area),
+    activity: pick(f.activity, isStr, F.activity),
+    tag: pick(f.tag, isStr, F.tag),
+    route: pick(f.route, nullable(isStr), F.route),
+    overlap: pick(f.overlap, isBool, F.overlap),
+  };
+  const isView = (v: unknown): v is Prefs["mapView"] & object =>
+    isRec(v) && Array.isArray(v.center) && v.center.length === 2 && v.center.every(isNum) && isNum(v.zoom);
+  const colors = isRec(s.colors)
+    ? Object.fromEntries(Object.entries(s.colors).filter((e): e is [string, string] => isStr(e[1])))
+    : D.colors;
+  const series = Array.isArray(s.series) ? s.series.filter(isMetric) : D.series;
+  return {
+    filters,
+    groupBy: pick(s.groupBy, oneOf<GroupBy>("none", "month", "year"), D.groupBy),
+    collapsed: strings(s.collapsed) ?? D.collapsed,
+    hidden: strings(s.hidden) ?? D.hidden,
+    selected: pick(s.selected, nullable(isStr), D.selected),
+    mapView: pick(s.mapView, nullable(isView), D.mapView),
+    sidebarOpen: pick(s.sidebarOpen, isBool, D.sidebarOpen),
+    colorMode: pick(s.colorMode, oneOf<ColorMode>("file", "date"), D.colorMode),
+    colors,
+    panelHeight: pick(s.panelHeight, isNum, D.panelHeight),
+    xAxis: pick(s.xAxis, oneOf<XAxis>("dist", "time"), D.xAxis),
+    series,
+    trackColorBy: pick(s.trackColorBy, (v): v is TrackColorBy => v === "none" || isMetric(v), D.trackColorBy),
+    tzMode: pick(s.tzMode, oneOf<TzMode>("local", "record"), D.tzMode),
+    heatmap: pick(s.heatmap, isBool, D.heatmap),
+    follow: pick(s.follow, isBool, D.follow),
+    playSpeed: pick(s.playSpeed, (v): v is number => isNum(v) && v > 0, D.playSpeed),
+    stopsLayer: pick(s.stopsLayer, isBool, D.stopsLayer),
+    showGaps: pick(s.showGaps, isBool, D.showGaps),
+    multiHintSeen: pick(s.multiHintSeen, isBool, D.multiHintSeen),
+    flightsLayer: pick(s.flightsLayer, isBool, D.flightsLayer),
+    photos: strings(s.photos) ?? D.photos,
+    photosLayer: pick(s.photosLayer, isBool, D.photosLayer),
+    photoOffsetH: pick(s.photoOffsetH, isNum, D.photoOffsetH),
+  };
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined;
