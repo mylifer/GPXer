@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Activity, FileMeta, FileSummary } from "../api";
 import { ACTIVITIES, activityOf } from "../types";
 
@@ -20,6 +20,25 @@ export function MetaEditor({ summary, meta, allTags, onChange }: Props) {
     setNoteOf({ path: summary.path, note: meta.note });
     setNote(meta.note);
   }
+
+  // Not yazmaya ara verilince kaydedilir; seçim değişir ya da panel kapanırsa
+  // bekleyen not eski kayda yazılır (yalnızca alandan çıkınca kaydetmek,
+  // odak kaybı olmadan seçim değişince yazılanı kaybettiriyordu).
+  const pending = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (note === meta.note) {
+      pending.current = null;
+      return;
+    }
+    const save = () => {
+      pending.current = null;
+      onChange({ ...meta, note });
+    };
+    pending.current = save;
+    const t = setTimeout(save, 800);
+    return () => clearTimeout(t);
+  }, [note, meta, onChange]);
+  useEffect(() => () => pending.current?.(), [summary.path]);
 
   const addTag = () => {
     const t = tag.trim();
@@ -88,7 +107,7 @@ export function MetaEditor({ summary, meta, allTags, onChange }: Props) {
         placeholder="Not…"
         rows={1}
         onChange={(e) => setNote(e.target.value)}
-        onBlur={() => note !== meta.note && onChange({ ...meta, note })}
+        onBlur={() => pending.current?.()}
       />
     </div>
   );
