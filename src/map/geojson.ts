@@ -16,8 +16,39 @@ export interface DateWindow {
   to: string;
 }
 
-const geoOf = (f: FileEntry, win: DateWindow | null) =>
-  win ? clipToRange(f.summary, win.from, win.to) : { lines: f.summary.lines, gaps: f.summary.gaps ?? [], bbox: f.summary.stats.bbox };
+/** Boylamı bir öncekine en yakın dünya kopyasına taşır (±180° boylamını
+ * geçen iz, haritayı boydan boya kesen bir çizgi olarak çizilmesin). */
+export const nearLon = (lon: number, prev: number) => lon + 360 * Math.round((prev - lon) / 360);
+
+type Line = [number, number][];
+const unwrapCache = new WeakMap<Line[], { lines: Line[]; bbox: [number, number, number, number] | null }>();
+
+/** Çizgileri sürekli boylamlarla döndürür; ±180°'yi geçmeyen (neredeyse
+ * tüm) kayıtlarda aynı dizi ve sınır kutusu kullanılır. */
+export function unwrapLines(lines: Line[], bbox: [number, number, number, number] | null) {
+  const crosses = lines.some((l) => l.some((p, i) => i > 0 && Math.abs(p[0] - l[i - 1][0]) > 180));
+  if (!crosses) return { lines, bbox };
+  const hit = unwrapCache.get(lines);
+  if (hit) return hit;
+  let bb: [number, number, number, number] | null = null;
+  const out = lines.map((l) => {
+    let prev = l[0]?.[0] ?? 0;
+    return l.map(([x, y]): [number, number] => {
+      const lon = nearLon(x, prev);
+      prev = lon;
+      bb = bb ? [Math.min(bb[0], lon), Math.min(bb[1], y), Math.max(bb[2], lon), Math.max(bb[3], y)] : [lon, y, lon, y];
+      return [lon, y];
+    });
+  });
+  const res = { lines: out, bbox: bb };
+  unwrapCache.set(lines, res);
+  return res;
+}
+
+const geoOf = (f: FileEntry, win: DateWindow | null) => {
+  const g = win ? clipToRange(f.summary, win.from, win.to) : { lines: f.summary.lines, gaps: f.summary.gaps ?? [], bbox: f.summary.stats.bbox };
+  return { ...g, ...unwrapLines(g.lines, g.bbox) };
+};
 
 export function tracksGeoJSON(files: FileEntry[], win: DateWindow | null): GeoJSON.FeatureCollection {
   return {
@@ -44,7 +75,7 @@ export function gapsGeoJSON(files: FileEntry[], win: DateWindow | null): GeoJSON
           dist: g.distanceM,
           tz: f.summary.timeZone ?? "",
         },
-        geometry: { type: "LineString", coordinates: [g.from, g.to] },
+        geometry: { type: "LineString", coordinates: [g.from, [nearLon(g.to[0], g.from[0]), g.to[1]]] },
       });
     }
   }
@@ -74,7 +105,8 @@ export function heatGeoJSON(files: FileEntry[], win: DateWindow | null, stepM = 
       let carry = 0;
       for (let j = 0; j + 1 < line.length; j++) {
         const [x0, y0] = line[j];
-        const [x1, y1] = line[j + 1];
+        const [x1r, y1] = line[j + 1];
+        const x1 = nearLon(x1r, x0);
         const kx = 111_320 * Math.cos((y0 * Math.PI) / 180);
         const seg = Math.hypot((x1 - x0) * kx, (y1 - y0) * 110_574);
         let t = stepM - carry;
@@ -270,7 +302,7 @@ export function coloredGeoJSON(
         type: "LineString",
         coordinates: [
           [detail.lon[i], detail.lat[i]],
-          [detail.lon[i + 1], detail.lat[i + 1]],
+          [nearLon(detail.lon[i + 1], detail.lon[i]), detail.lat[i + 1]],
         ],
       },
     });
@@ -285,8 +317,10 @@ export function rangeGeoJSON(detail: Detail, range: [number, number]): GeoJSON.F
   const lines: [number, number][][] = [];
   let cur: [number, number][] = [];
   const last = Math.min(range[1], detail.lat.length - 1);
+  let prev = detail.lon[Math.max(0, range[0])] ?? 0;
   for (let i = Math.max(0, range[0]); i <= last; i++) {
-    cur.push([detail.lon[i], detail.lat[i]]);
+    prev = nearLon(detail.lon[i], prev);
+    cur.push([prev, detail.lat[i]]);
     if (i < last && gaps.has(i)) {
       if (cur.length > 1) lines.push(cur);
       cur = [];
