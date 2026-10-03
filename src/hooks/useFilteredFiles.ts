@@ -6,7 +6,7 @@ import { linesHitBox } from "../geo";
 import { SEQ_DARK, SEQ_LIGHT, placeLabel, rampColor, type FileEntry } from "../types";
 import type { Prefs } from "../prefs";
 import { dayBuckets, rangeShare, touchesRange } from "../days";
-import { dayKey, monthLabel, tzOf } from "../format";
+import { dayKey, monthLabel, searchKey, tzOf } from "../format";
 import { findOverlaps } from "../overlaps";
 import { flightsOf, type Flight } from "../flights";
 
@@ -65,14 +65,14 @@ export function useFilteredFiles({
 
   const shown = useMemo(() => {
     const fl = prefs.filters;
-    const q = fl.query.trim().toLocaleLowerCase("tr-TR");
+    const q = searchKey(fl.query.trim());
     const dateOn = !!(fl.from || fl.to);
     const list = colored.filter((f) => {
       const s = f.summary;
       const m = meta[s.path];
       if (q) {
         const hay = `${s.name ?? ""} ${s.fileName} ${s.startPlace ?? ""} ${s.endPlace ?? ""} ${places.length ? (placeLabel(s) ?? "") : ""} ${m?.tags.join(" ") ?? ""} ${m?.note ?? ""}`;
-        if (!hay.toLocaleLowerCase("tr-TR").includes(q)) return false;
+        if (!searchKey(hay).includes(q)) return false;
       }
       if (fl.activity && s.activity !== fl.activity) return false;
       if (fl.tag && !m?.tags.includes(fl.tag)) return false;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayKey, fastDayKey, fmtDistance, fmtPace, parseTrWall, wallToUtc } from "./format";
+import { dayKey, fastDayKey, fmtDistance, fmtPace, parseTrWall, searchKey, wallToUtc } from "./format";
 
 const wall = (y: number, mo: number, d: number, h = 0, mi = 0) => Date.UTC(y, mo - 1, d, h, mi);
 const H = 3_600_000;
@@ -72,5 +72,15 @@ describe("rounding edges", () => {
     expect(fmtPace(1000 / 359.7)).toBe("6:00 /km");
     expect(fmtDistance(999.6)).toBe("1,00 km");
     expect(fmtDistance(999.4)).toBe("999 m");
+  });
+});
+
+describe("searchKey", () => {
+  it("matches I/ı/İ/i and NFD names", () => {
+    expect(searchKey("IKEA Bayrampaşa").includes(searchKey("ikea"))).toBe(true);
+    expect(searchKey("Innsbruck").includes(searchKey("inns"))).toBe(true);
+    expect(searchKey("İstanbul").includes(searchKey("istanbul"))).toBe(true);
+    expect(searchKey("Işık").includes(searchKey("ışık"))).toBe(true);
+    expect(searchKey("Bayrampaşa").includes(searchKey("paşa"))).toBe(true);
   });
 });

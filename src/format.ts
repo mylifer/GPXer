@@ -116,6 +116,11 @@ export function fmtElevation(m: number | null | undefined): string {
   return `${nf0.format(m)} m`;
 }
 
+/** Arama için karşılaştırma biçimi: Türkçe küçük harf, ama ı/i ayrımı
+ * yapılmaz ("IKEA", "Innsbruck" Türkçe kurallarla "ıkea" olup "ikea" ile
+ * bulunamıyordu); macOS'un ayrıştırılmış (NFD) adları da birleştirilir. */
+export const searchKey = (s: string) => s.normalize("NFC").toLocaleLowerCase("tr-TR").replace(/ı/g, "i");
+
 export function fmtNumber(n: number): string {
   return nf0.format(n);
 }
