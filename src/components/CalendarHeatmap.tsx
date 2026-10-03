@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { usePrefersDark } from "../hooks/usePrefersDark";
+import { useMemo, useState } from "react";
 import type { FileEntry } from "../types";
 import { SEQ_DARK, SEQ_LIGHT } from "../types";
 import { MONTHS, fmtDistance, fmtDuration, fmtNumber, isoOf } from "../format";
@@ -22,21 +23,6 @@ interface Props {
   onDay(iso: string): void;
 }
 
-const DARK_QUERY = "(prefers-color-scheme: dark)";
-
-/** Sistem koyu temada mı? Panel renkleri de bu medya sorgusuna bağlı. */
-function usePrefersDark(): boolean {
-  const [dark, setDark] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.(DARK_QUERY).matches);
-  useEffect(() => {
-    const mq = window.matchMedia?.(DARK_QUERY);
-    if (!mq) return;
-    const on = () => setDark(mq.matches);
-    on();
-    mq.addEventListener?.("change", on);
-    return () => mq.removeEventListener?.("change", on);
-  }, []);
-  return dark;
-}
 
 /** Yıllık takvim: her gün bir kare, koyuluğu o günkü mesafe. */
 export function CalendarHeatmap({ files, from, to, onDay }: Props) {

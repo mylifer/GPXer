@@ -2107,3 +2107,8 @@ kbd {
   display: flex;
   gap: 8px;
 }
+
+/* Grafikte seçilen aralık (uPlot'un varsayılanı koyu temada görünmüyordu). */
+.chart .u-select {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}

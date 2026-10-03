@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { usePrefersDark } from "../hooks/usePrefersDark";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import type { Detail } from "../api";
@@ -55,6 +56,8 @@ export function ProfileChart({ detail, color, metrics, xAxis, tz, hoverIdx, rang
   cb.current = { onHover, onRange };
   const syncKey = useRef(`gpxer-${Math.random().toString(36).slice(2)}`);
 
+  // Eksen ve çizgi renkleri temadan okunur: tema değişince yeniden kurulur.
+  const dark = usePrefersDark();
   useEffect(() => {
     const el = host.current!;
     const useTime = xAxis === "time" && canUseTime(detail);
@@ -174,7 +177,7 @@ export function ProfileChart({ detail, color, metrics, xAxis, tz, hoverIdx, rang
       rows.forEach((r) => r.remove());
       plots.current = [];
     };
-  }, [detail, color, metrics, xAxis, tz]);
+  }, [detail, color, metrics, xAxis, tz, dark]);
 
   // Dışarıdan gelen imleç konumunu grafiğe yansıt.
   useEffect(() => {
