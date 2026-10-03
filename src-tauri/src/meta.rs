@@ -60,13 +60,17 @@ impl MetaStore {
     pub fn set(&self, path: &str, mut meta: FileMeta) -> std::io::Result<FileMeta> {
         meta.tags = clean_tags(meta.tags);
         let mut map = self.map.lock().unwrap();
+        // Kaydedilemezse bellekteki bilgi de değişmez (yeniden başlatınca
+        // kaybolacak bir değişiklik gösterilmez).
+        let mut next = map.clone();
         let old = if meta.is_empty() {
-            map.remove(path)
+            next.remove(path)
         } else {
-            map.insert(path.to_owned(), meta)
+            next.insert(path.to_owned(), meta)
         }
         .unwrap_or_default();
-        self.save(&map)?;
+        self.save(&next)?;
+        *map = next;
         Ok(old)
     }
 
@@ -91,7 +95,9 @@ impl MetaStore {
             None if old.is_none() => return,
             None => {}
         }
-        let _ = self.save(&map);
+        if let Err(e) = self.save(&map) {
+            eprintln!("Kayıt bilgileri yazılamadı: {e}");
+        }
     }
 
     /// `dir` içinde olup artık var olmayan dosyaların (kalıcı silinen çöp
@@ -104,7 +110,9 @@ impl MetaStore {
             p.parent() != Some(dir) || p.exists()
         });
         if map.len() != before {
-            let _ = self.save(&map);
+            if let Err(e) = self.save(&map) {
+                eprintln!("Kayıt bilgileri yazılamadı: {e}");
+            }
         }
     }
 }
@@ -173,5 +181,25 @@ mod tests {
         again.set("b", FileMeta::default()).unwrap();
         assert!(MetaStore::open(&root).all().is_empty());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn failed_save_leaves_memory_unchanged() {
+        let root = std::env::temp_dir().join(format!("gpxer-meta-fail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let m = MetaStore::open(&root);
+        // meta.json yerine klasör: üzerine taşıma başarısız olur.
+        std::fs::create_dir(root.join("meta.json")).unwrap();
+        std::fs::write(root.join("meta.json").join("x"), "x").unwrap();
+        let r = m.set(
+            "a",
+            FileMeta {
+                note: "not".into(),
+                ..Default::default()
+            },
+        );
+        assert!(r.is_err());
+        assert!(m.all().is_empty());
     }
 }
