@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import type { Settings } from "../api";
 import type { Prefs } from "../prefs";
 import type { FileEntry } from "../types";
@@ -35,8 +36,21 @@ export function MapToolbar({
   pickPhotos(folder: boolean): void;
   clearPhotos(): void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // Dar pencerede çubuk birkaç satıra iner; bildirimler (`.toasts`) altında
+  // dursun diye alt kenarı haritaya CSS değişkeni olarak verilir.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const host = el?.parentElement;
+    if (!el || !host) return;
+    const set = () => host.style.setProperty("--toolbar-bottom", `${el.offsetTop + el.offsetHeight}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   return (
-    <div className="map-toolbar">
+    <div className="map-toolbar" ref={ref}>
       <button
         className="icon-btn"
         onClick={() => up({ sidebarOpen: !prefs.sidebarOpen })}

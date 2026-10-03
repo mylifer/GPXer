@@ -434,7 +434,7 @@ label.check {
 .toasts {
   position: absolute;
   right: 56px;
-  top: 56px;
+  top: calc(var(--toolbar-bottom, 46px) + 10px);
   z-index: 5;
   display: flex;
   flex-direction: column;
