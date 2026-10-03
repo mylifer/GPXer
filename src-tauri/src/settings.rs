@@ -76,16 +76,17 @@ pub struct SettingsStore {
     /// `current.watched_folders`'ın kanonik halleriyle birlikte kopyası.
     watched: Mutex<Vec<WatchedFolder>>,
     watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
+    /// Dosya açılışta okunamadıysa kayıt reddedilir (bkz. [`crate::store`]).
+    locked: Option<String>,
 }
 
 impl SettingsStore {
     pub fn open(root: &Path) -> Self {
         let path = root.join("settings.json");
-        let current = std::fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
+        let loaded = crate::store::load_json(&path, "Ayar dosyası");
+        let current: Settings = loaded.value;
         SettingsStore {
+            locked: loaded.locked,
             path,
             watched: Mutex::new(watched_folders(&current)),
             current: Mutex::new(current),
@@ -98,11 +99,11 @@ impl SettingsStore {
     }
 
     pub fn save(&self, s: Settings) -> std::io::Result<()> {
+        if let Some(why) = &self.locked {
+            return Err(std::io::Error::other(why.clone()));
+        }
         let bytes = serde_json::to_vec_pretty(&s).map_err(std::io::Error::other)?;
-        // Yarım yazılmış ayar dosyası kalmasın diye önce geçici dosyaya.
-        let tmp = self.path.with_extension("tmp");
-        std::fs::write(&tmp, bytes)?;
-        std::fs::rename(&tmp, &self.path)?;
+        crate::store::write_atomic(&self.path, &bytes)?;
         *self.watched.lock().unwrap() = watched_folders(&s);
         *self.current.lock().unwrap() = s;
         Ok(())

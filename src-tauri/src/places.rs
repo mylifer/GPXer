@@ -16,50 +16,21 @@ pub struct NamedPlace {
     pub radius_m: f64,
 }
 
-/// `places.json`'u okur. Dosya bozuksa silinmez ve üzerine yazılmaz:
-/// `places.json.bad-<zaman>` adıyla kenara alınır, liste boş başlar.
-fn load(path: &Path) -> Vec<NamedPlace> {
-    let bytes = match std::fs::read(path) {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
-        Err(e) => {
-            eprintln!("Yerler dosyası okunamadı ({}): {e}", path.display());
-            return Vec::new();
-        }
-    };
-    match serde_json::from_slice(&bytes) {
-        Ok(list) => list,
-        Err(e) => {
-            let stamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis());
-            let mut name = path.file_name().unwrap_or_default().to_os_string();
-            name.push(format!(".bad-{stamp}"));
-            let bad = path.with_file_name(name);
-            match std::fs::rename(path, &bad) {
-                Ok(()) => eprintln!(
-                    "Yerler dosyası bozuk ({e}); {} olarak saklandı",
-                    bad.display()
-                ),
-                Err(re) => eprintln!("Yerler dosyası bozuk ({e}) ve kenara alınamadı: {re}"),
-            }
-            Vec::new()
-        }
-    }
-}
-
 pub struct PlacesStore {
     path: PathBuf,
     list: Mutex<Vec<NamedPlace>>,
+    /// Dosya açılışta okunamadıysa kayıt reddedilir (bkz. [`crate::store`]).
+    locked: Option<String>,
 }
 
 impl PlacesStore {
     pub fn open(root: &Path) -> Self {
         let path = root.join("places.json");
-        let list = load(&path);
+        let loaded = crate::store::load_json(&path, "Yerler dosyası");
         PlacesStore {
             path,
-            list: Mutex::new(list),
+            list: Mutex::new(loaded.value),
+            locked: loaded.locked,
         }
     }
 
@@ -70,11 +41,12 @@ impl PlacesStore {
     /// Listenin tamamını değiştirir. Yarım dosya kalmasın diye önce geçici
     /// dosyaya yazılır.
     pub fn set(&self, places: Vec<NamedPlace>) -> std::io::Result<()> {
+        if let Some(why) = &self.locked {
+            return Err(std::io::Error::other(why.clone()));
+        }
         let mut list = self.list.lock().unwrap();
         let bytes = serde_json::to_vec_pretty(&places).map_err(std::io::Error::other)?;
-        let tmp = self.path.with_extension("tmp");
-        std::fs::write(&tmp, bytes)?;
-        std::fs::rename(&tmp, &self.path)?;
+        crate::store::write_atomic(&self.path, &bytes)?;
         *list = places;
         Ok(())
     }

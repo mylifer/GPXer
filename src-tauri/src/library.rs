@@ -390,11 +390,7 @@ impl Library {
     fn save_dismissed(&self, map: &Dismissed) {
         let res = serde_json::to_vec(map)
             .map_err(std::io::Error::other)
-            .and_then(|bytes| {
-                let tmp = self.dismissed_path.with_extension("tmp");
-                std::fs::write(&tmp, bytes)?;
-                std::fs::rename(&tmp, &self.dismissed_path)
-            });
+            .and_then(|bytes| crate::store::write_atomic(&self.dismissed_path, &bytes));
         if let Err(e) = res {
             eprintln!("Silinen kayıtlar listesi yazılamadı: {e}");
         }
@@ -475,12 +471,7 @@ impl Library {
         };
         let res = serde_json::to_vec(&file)
             .map_err(std::io::Error::other)
-            .and_then(|bytes| {
-                // Yarım yazılmış önbellek kalmasın diye önce geçici dosyaya.
-                let tmp = self.cache_path.with_extension("tmp");
-                std::fs::write(&tmp, bytes)?;
-                std::fs::rename(&tmp, &self.cache_path)
-            });
+            .and_then(|bytes| crate::store::write_atomic(&self.cache_path, &bytes));
         cache.entries = file.entries;
         if res.is_ok() {
             cache.dirty = false;

@@ -25,18 +25,18 @@ impl FileMeta {
 pub struct MetaStore {
     path: PathBuf,
     map: Mutex<HashMap<String, FileMeta>>,
+    /// Dosya açılışta okunamadıysa kayıt reddedilir (bkz. [`crate::store`]).
+    locked: Option<String>,
 }
 
 impl MetaStore {
     pub fn open(root: &Path) -> Self {
         let path = root.join("meta.json");
-        let map = std::fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
+        let loaded = crate::store::load_json(&path, "Kayıt bilgileri dosyası");
         MetaStore {
             path,
-            map: Mutex::new(map),
+            map: Mutex::new(loaded.value),
+            locked: loaded.locked,
         }
     }
 
@@ -49,10 +49,11 @@ impl MetaStore {
     }
 
     fn save(&self, map: &HashMap<String, FileMeta>) -> std::io::Result<()> {
+        if let Some(why) = &self.locked {
+            return Err(std::io::Error::other(why.clone()));
+        }
         let bytes = serde_json::to_vec_pretty(map).map_err(std::io::Error::other)?;
-        let tmp = self.path.with_extension("tmp");
-        std::fs::write(&tmp, bytes)?;
-        std::fs::rename(&tmp, &self.path)
+        crate::store::write_atomic(&self.path, &bytes)
     }
 
     /// Kaydın bilgilerini değiştirir; önceki halini döndürür.

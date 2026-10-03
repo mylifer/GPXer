@@ -7,6 +7,7 @@ mod meta;
 mod photos;
 mod places;
 mod settings;
+mod store;
 
 use gpx_core::{Detail, Stats};
 use library::{is_track_file, Library, LoadResult, TrashItem};
