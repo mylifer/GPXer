@@ -192,6 +192,12 @@ export function detailDays(
   }
   const dist = new Map(dayBuckets(s).map((b) => [b.day, b.distanceM]));
   const days = [...byDay.values()].sort((a, b) => a.start - b.start);
+  // Gün, ertesi günün ilk örneğine kadar sürer: gece yarısını aşan adım
+  // (saatlik dökümde olduğu gibi) başladığı güne sayılır; yoksa seçili günün
+  // aralık istatistiği gün seçicideki mesafeden kısa çıkıyordu.
+  for (let k = 0; k + 1 < days.length; k++) {
+    if (days[k + 1].start === days[k].end + 1) days[k].end = days[k + 1].start;
+  }
   for (const x of days) x.distanceM = dist.get(x.day) ?? d.dist[x.end] - d.dist[x.start];
   detailDayCache.set(d, { key, days });
   return days;
