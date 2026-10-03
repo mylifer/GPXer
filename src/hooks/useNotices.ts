@@ -15,11 +15,13 @@ export interface Duplicate {
 export function useNotices() {
   const [errors, setErrors] = useState<LoadError[]>([]);
   const [duplicates, setDuplicates] = useState<Duplicate[]>([]);
+  /** Hiç nokta içermediği için atlanan dosyalar. */
+  const [empties, setEmpties] = useState<string[]>([]);
   const [info, setInfo] = useState<string | null>(null);
   const say = useCallback((msg: string) => {
     setInfo(msg);
     setTimeout(() => setInfo((m) => (m === msg ? null : m)), 5000);
   }, []);
   const fail = useCallback((message: string, path = "") => setErrors((prev) => [...prev, { path, message }]), []);
-  return { errors, setErrors, duplicates, setDuplicates, info, setInfo, say, fail };
+  return { errors, setErrors, duplicates, setDuplicates, empties, setEmpties, info, setInfo, say, fail };
 }

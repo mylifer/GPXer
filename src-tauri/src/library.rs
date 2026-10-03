@@ -33,6 +33,47 @@ pub enum LoadResult {
         path: String,
         existing: String,
     },
+    /// Dosyada hiç nokta yok (ör. başlatılıp hemen durdurulmuş kayıt);
+    /// hata değil, atlanır.
+    Empty {
+        path: String,
+    },
+}
+
+/// Özet çıkarılamama nedeni.
+#[derive(Debug)]
+pub enum SummaryError {
+    /// Dosyada rota, iz ya da nokta yok.
+    Empty,
+    Failed(String),
+}
+
+impl std::fmt::Display for SummaryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SummaryError::Empty => gpx_core::LoadError::Empty.fmt(f),
+            SummaryError::Failed(m) => f.write_str(m),
+        }
+    }
+}
+
+impl From<gpx_core::LoadError> for SummaryError {
+    fn from(e: gpx_core::LoadError) -> Self {
+        match e {
+            gpx_core::LoadError::Empty => SummaryError::Empty,
+            other => SummaryError::Failed(other.to_string()),
+        }
+    }
+}
+
+impl SummaryError {
+    /// Yükleme sonucu: boş dosya hata sayılmaz.
+    pub fn into_result(self, path: String) -> LoadResult {
+        match self {
+            SummaryError::Empty => LoadResult::Empty { path },
+            SummaryError::Failed(message) => LoadResult::Error { path, message },
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -366,20 +407,20 @@ impl Library {
         path: &str,
         cfg: &StatsConfig,
         chosen: Option<Activity>,
-    ) -> Result<(FileSummary, u64), String> {
-        let meta = std::fs::metadata(path).map_err(|e| format!("Dosya okunamadı: {e}"))?;
+    ) -> Result<(FileSummary, u64), SummaryError> {
+        let meta = std::fs::metadata(path)
+            .map_err(|e| SummaryError::Failed(format!("Dosya okunamadı: {e}")))?;
         let (size, mtime) = (meta.len(), mtime_ms(&meta));
         if let Some(e) = self.cache.lock().unwrap().entries.get(path) {
             if e.size == size && e.mtime == mtime && e.cfg == *cfg && e.chosen == chosen {
                 return Ok((e.summary.clone(), e.fingerprint));
             }
         }
-        let (gpx, size) = gpx_core::read_gpx_file(Path::new(path)).map_err(|e| e.to_string())?;
+        let (gpx, size) = gpx_core::read_gpx_file(Path::new(path))?;
         // Parmak izi ham veriden: kopya tespiti ayarlardan etkilenmesin.
         let fingerprint = gpx_core::fingerprint(&gpx);
         let prepared = gpx_core::prepare(gpx, cfg);
-        let mut summary = gpx_core::summarize_with(&prepared.gpx, path, size, cfg, chosen)
-            .map_err(|e| e.to_string())?;
+        let mut summary = gpx_core::summarize_with(&prepared.gpx, path, size, cfg, chosen)?;
         summary.removed_points = prepared.removed;
         summary.collapsed_points = prepared.collapsed;
         summary.time_zone = summary.start.and_then(|[lon, lat]| time_zone_at(lon, lat));
@@ -512,7 +553,7 @@ impl Library {
     pub fn load(&self, path: String, cfg: &StatsConfig, chosen: Option<Activity>) -> LoadResult {
         match self.summarize(&path, cfg, chosen) {
             Ok((file, fp)) => self.add(path, file, fp, cfg, chosen),
-            Err(message) => LoadResult::Error { path, message },
+            Err(e) => e.into_result(path),
         }
     }
 

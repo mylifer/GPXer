@@ -103,7 +103,7 @@ async fn load_files(
                     }
                     library.add(p, file, fp, &cfg, chosen)
                 }
-                Err(message) => LoadResult::Error { path: p, message },
+                Err(e) => e.into_result(p),
             })
             .collect()
     })

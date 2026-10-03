@@ -42,7 +42,7 @@ import { useKeyboard } from "./hooks/useKeyboard";
 export default function App() {
   const { prefs, prefsRef, persistedSel, up } = usePrefs();
   const [baseLayer, setBaseLayer] = useBaseLayer();
-  const { errors, setErrors, duplicates, setDuplicates, info, setInfo, say, fail } = useNotices();
+  const { errors, setErrors, duplicates, setDuplicates, empties, setEmpties, info, setInfo, say, fail } = useNotices();
 
   const [multi, setMulti] = useState<Set<string>>(new Set());
   /** İmleç (fare ya da oynatma); App'i her karede yeniden çizmemek için state değil. */
@@ -81,7 +81,7 @@ export default function App() {
     pickFolder,
     removePaths,
     closeAll,
-  } = useFileLoader({ prefsRef, persistedSel, up, say, fail, setErrors, setDuplicates, mapRef, setCompare, setMulti, routeInfoRef });
+  } = useFileLoader({ prefsRef, persistedSel, up, say, fail, setErrors, setDuplicates, setEmpties, mapRef, setCompare, setMulti, routeInfoRef });
   const { places, setPlacesState, namePrompt, setNamePrompt, updatePlaces, onNamePlace, namePlace } = usePlaces(say, fail);
   const { meta, setMetaState, allTags, updateMeta, tagMany } = useMeta({ fail, say, patchFiles, multi, setDialog });
 
@@ -390,6 +390,8 @@ export default function App() {
             onCloseInfo={() => setInfo(null)}
             duplicates={duplicates}
             onClearDuplicates={() => setDuplicates([])}
+            empties={empties}
+            onClearEmpties={() => setEmpties([])}
             errors={errors}
             onClearErrors={() => setErrors([])}
           />

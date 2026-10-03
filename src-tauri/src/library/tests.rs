@@ -294,3 +294,23 @@ fn unique_names_and_prepared_cache() {
     assert_eq!(lib.prepared.lock().unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn empty_files_are_skipped_not_errors() {
+    let root = temp_root("empty");
+    let f = root.join("bos.gpx");
+    // Geo Tracker'da başlatılıp hemen durdurulmuş kayıt: yalnızca üst bilgi.
+    std::fs::write(
+        &f,
+        r#"<gpx version="1.1"><metadata><name>9 Tem 2023</name></metadata><trk><trkseg/></trk></gpx>"#,
+    )
+    .unwrap();
+    let lib = Library::open(&root).unwrap();
+    let r = lib.load(
+        f.to_string_lossy().into_owned(),
+        &StatsConfig::default(),
+        None,
+    );
+    assert!(matches!(r, LoadResult::Empty { .. }));
+    let _ = std::fs::remove_dir_all(&root);
+}

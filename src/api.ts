@@ -111,7 +111,9 @@ export interface Detail {
 export type LoadResult =
   | { status: "ok"; file: FileSummary }
   | { status: "error"; path: string; message: string }
-  | { status: "duplicate"; path: string; existing: string };
+  | { status: "duplicate"; path: string; existing: string }
+  /** Dosyada hiç nokta yok (ör. başlatılıp hemen durdurulmuş kayıt): atlanır. */
+  | { status: "empty"; path: string };
 
 export interface TrashItem {
   original: string;

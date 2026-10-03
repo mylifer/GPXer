@@ -13,6 +13,8 @@ export function Toasts({
   onCloseInfo,
   duplicates,
   onClearDuplicates,
+  empties,
+  onClearEmpties,
   errors,
   onClearErrors,
 }: {
@@ -25,10 +27,13 @@ export function Toasts({
   onCloseInfo(): void;
   duplicates: Duplicate[];
   onClearDuplicates(): void;
+  /** Hiç nokta içermediği için atlanan dosyalar. */
+  empties: string[];
+  onClearEmpties(): void;
   errors: LoadError[];
   onClearErrors(): void;
 }) {
-  if (!(duplicates.length > 0 || errors.length > 0 || info || undo || watchOffer)) return null;
+  if (!(duplicates.length > 0 || empties.length > 0 || errors.length > 0 || info || undo || watchOffer)) return null;
   return (
     <div className="toasts">
       {undo && (
@@ -68,6 +73,24 @@ export function Toasts({
               ×
             </button>
           </div>
+        </div>
+      )}
+      {empties.length > 0 && (
+        <div className="toast info">
+          <div className="toast-head">
+            <strong>{empties.length} dosyada hiç nokta yok, atlandı</strong>
+            <button className="icon-btn" onClick={onClearEmpties} title="Kapat">
+              ×
+            </button>
+          </div>
+          <ul>
+            {empties.slice(0, 5).map((p, i) => (
+              <li key={i}>
+                <span className="path">{baseName(p)}</span>
+              </li>
+            ))}
+            {empties.length > 5 && <li>… ve {empties.length - 5} dosya daha</li>}
+          </ul>
         </div>
       )}
       {duplicates.length > 0 && (

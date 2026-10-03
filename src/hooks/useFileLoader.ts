@@ -53,6 +53,7 @@ interface Deps {
   fail(message: string, path?: string): void;
   setErrors: Dispatch<SetStateAction<LoadError[]>>;
   setDuplicates: Dispatch<SetStateAction<Duplicate[]>>;
+  setEmpties: Dispatch<SetStateAction<string[]>>;
   mapRef: RefObject<MapHandle | null>;
   setCompare: Dispatch<SetStateAction<[string, string] | null>>;
   setMulti: Dispatch<SetStateAction<Set<string>>>;
@@ -73,6 +74,7 @@ export function useFileLoader({
   fail,
   setErrors,
   setDuplicates,
+  setEmpties,
   mapRef,
   setCompare,
   setMulti,
@@ -175,6 +177,7 @@ export function useFileLoader({
       const added: FileEntry[] = [];
       const newErrors: LoadError[] = [];
       const newDuplicates: Duplicate[] = [];
+      const newEmpties: string[] = [];
       let selectExisting: string | null = null;
       const existingOf = (path: string) => {
         const f = [...current(), ...added].find((x) => x.summary.path === path);
@@ -196,6 +199,8 @@ export function useFileLoader({
             newDuplicates.push({ path: r.path, existing: existingOf(r.existing) });
             // Tek bir dosya açıldıysa ve zaten kütüphanedeyse onu seç.
             if (todo.length === 1 && !opts.noSelect) selectExisting = r.existing;
+          } else if (r.status === "empty") {
+            newEmpties.push(r.path);
           } else {
             newErrors.push({ path: r.path, message: r.message });
           }
@@ -214,6 +219,7 @@ export function useFileLoader({
       if (selectExisting) pick(selectExisting);
       if (newErrors.length) setErrors((prev) => [...prev, ...newErrors]);
       if (newDuplicates.length && !opts.quiet) setDuplicates((prev) => [...prev, ...newDuplicates]);
+      if (newEmpties.length && !opts.quiet) setEmpties((prev) => [...prev, ...newEmpties]);
       if (added.length === 1 && !opts.noSelect) pick(added[0].summary.path);
       if (added.length > 0 && !opts.noFit) {
         // İlk yüklemede hepsini, sonradan eklemede yalnızca yenileri göster.
@@ -287,6 +293,7 @@ export function useFileLoader({
       for (const r of results) {
         if (r.status === "ok") added.push(entryFor(r.file));
         else if (r.status === "error") fail(r.message, r.path);
+        else if (r.status === "empty") say(`Kayıtta hiç nokta yok: ${baseName(r.path)}`);
         else say(`Bu kayıt zaten kütüphanede: ${baseName(r.existing)}`);
       }
       if (added.length) {
@@ -409,6 +416,7 @@ export function useFileLoader({
     await removePaths(all);
     setErrors([]);
     setDuplicates([]);
+    setEmpties([]);
   }, [removePaths]);
 
   return {
