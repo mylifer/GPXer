@@ -156,8 +156,25 @@ export function useFileLoader({
   const loadJob = useCallback(
     async (paths: string[], opts: OpenOptions, requeue?: () => void): Promise<FileEntry[]> => {
       const gen = loadGen.current;
+      // Her eklemede tüm kütüphanenin harita katmanları ve süzgeçleri yeniden
+      // kurulur; her parçada eklemek büyük kütüphanede açılışı karesel
+      // yavaşlatıyordu (3000 kayıtta 69 sn). Eklenenler, listeyi en az ikiye
+      // katlayacak kadar birikince (ya da 2 sn geçince) işlenir: ilk kayıtlar
+      // hemen görünür, toplam iş n·log n olur.
+      let unsent: FileEntry[] = [];
+      let shown = filesRef.current.length;
+      let sentAt = performance.now();
+      const send = () => {
+        sentAt = performance.now();
+        if (!unsent.length) return;
+        const batch = unsent;
+        unsent = [];
+        shown += batch.length;
+        setFiles((prev) => [...prev, ...batch]);
+      };
       const stale = () => {
         if (gen === loadGen.current) return false;
+        send();
         setLoading(null);
         requeue?.();
         return true;
@@ -179,10 +196,9 @@ export function useFileLoader({
       const newDuplicates: Duplicate[] = [];
       const newEmpties: string[] = [];
       let selectExisting: string | null = null;
-      const existingOf = (path: string) => {
-        const f = [...current(), ...added].find((x) => x.summary.path === path);
-        return f ? f.summary.name || f.summary.fileName : baseName(path);
-      };
+      const label = (f: FileEntry) => f.summary.name || f.summary.fileName;
+      const names = new Map(current().map((f) => [f.summary.path, label(f)]));
+      const existingOf = (path: string) => names.get(path) ?? baseName(path);
       setLoading({ done: 0, total: todo.length });
       for (let i = 0; i < todo.length; i += CHUNK) {
         const results = await loadFiles(todo.slice(i, i + CHUNK), !!opts.explicit);
@@ -206,14 +222,17 @@ export function useFileLoader({
           }
         }
         added.push(...batch);
+        for (const f of batch) names.set(f.summary.path, label(f));
         if (reloadBuf.current) {
           reloadBuf.current = [...reloadBuf.current, ...batch];
         } else {
           filesRef.current = [...filesRef.current, ...batch];
-          setFiles((prev) => [...prev, ...batch]);
+          unsent.push(...batch);
+          if (unsent.length >= Math.max(CHUNK, shown) || performance.now() - sentAt >= 2000) send();
         }
         setLoading({ done: Math.min(todo.length, i + CHUNK), total: todo.length });
       }
+      send();
       setLoading(null);
       flushCache().catch(() => {});
       if (selectExisting) pick(selectExisting);
