@@ -86,7 +86,7 @@ pub fn build_detail(gpx: &Gpx) -> Detail {
         .iter()
         .map(|p| p.ele.map_or(0.0, |e| e as f64))
         .collect();
-    let idx = simplify::lttb_indices(&dist, &y, PROFILE_MAX_POINTS);
+    let idx = with_time_anchors(simplify::lttb_indices(&dist, &y, PROFILE_MAX_POINTS), &all);
     let has = |f: fn(&Point) -> Option<f32>| all.iter().any(|p| f(p).is_some());
     let (has_hr, has_cad, has_power, has_temp) = (
         has(|p| p.hr),
@@ -128,4 +128,35 @@ pub fn build_detail(gpx: &Gpx) -> Detail {
         }
     }
     d
+}
+
+/// Örneklemeye her saatin (çok uzun kayıtta daha geniş dilimin) ilk noktası da
+/// eklenir. Mesafeye göre seyreltme duraklarda ve seyrek kayıtta günleri
+/// tümden atabiliyor; grafik ve gün seçici her kayıtlı günü görmeli.
+fn with_time_anchors(mut idx: Vec<usize>, all: &[&Point]) -> Vec<usize> {
+    const HOUR_MS: i64 = 3_600_000;
+    let buckets_of = |len: i64| {
+        let mut last = None;
+        all.iter()
+            .enumerate()
+            .filter_map(|(i, p)| {
+                let b = p.time?.div_euclid(len);
+                (last.replace(b) != Some(b)).then_some(i)
+            })
+            .collect::<Vec<usize>>()
+    };
+    // Saatlik çapalar örnek sayısını en çok iki katına çıkarsın; aşarsa
+    // dilim genişler (3, 6, 24 saat).
+    let anchors = [1, 3, 6, 24]
+        .into_iter()
+        .map(|h| buckets_of(h * HOUR_MS))
+        .find(|a| a.len() <= PROFILE_MAX_POINTS * 2)
+        .unwrap_or_default();
+    if anchors.is_empty() {
+        return idx;
+    }
+    idx.extend(anchors);
+    idx.sort_unstable();
+    idx.dedup();
+    idx
 }

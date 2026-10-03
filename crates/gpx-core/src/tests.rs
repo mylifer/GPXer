@@ -122,7 +122,8 @@ fn detail_downsamples() {
     xml.push_str("</trkseg></trk></gpx>");
     let gpx = parse_gpx(xml.as_bytes()).unwrap();
     let d = build_detail(&gpx);
-    assert_eq!(d.dist.len(), PROFILE_MAX_POINTS);
+    // Seyreltilmiş örneklere 6 saatin her birinin ilk noktası eklenir.
+    assert!((PROFILE_MAX_POINTS..=PROFILE_MAX_POINTS + 6).contains(&d.dist.len()));
     assert!(d.dist.windows(2).all(|w| w[0] <= w[1]));
     assert!(d.speed.iter().any(|s| s.is_some()));
 }
@@ -559,7 +560,7 @@ fn detail_marks_gaps_between_samples() {
         ..Default::default()
     };
     let d = build_detail(&gpx);
-    assert_eq!(d.idx.len(), PROFILE_MAX_POINTS);
+    assert!((PROFILE_MAX_POINTS..=PROFILE_MAX_POINTS + 9).contains(&d.idx.len()));
     assert_eq!(d.gap_after.len(), 1);
     let k = d.gap_after[0] as usize;
     assert!(d.idx[k] < 10_000 && d.idx[k + 1] >= 10_000);
@@ -1185,4 +1186,30 @@ fn sparse_records_get_a_longer_gap_threshold() {
     let s = summarize(&gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
     assert_eq!(s.gaps.len(), 1);
     assert!(s.stats.distance_m > 180_000.0);
+}
+
+#[test]
+fn detail_keeps_every_recorded_hour() {
+    // Uzun duraklar ve seyrek günler: mesafeye göre seyreltme onları
+    // atabilir; her kayıtlı saatin ilk noktası örneklerde kalır.
+    let mut seg: Vec<Point> = (0..20_000)
+        .map(|i| pt(41.0, 29.0 + i as f64 * 1e-5, i))
+        .collect();
+    // Sonraki 10 gün: günde bir kez yerinde tek nokta.
+    seg.extend((1..=10).map(|k| pt(41.0, 29.2, 20_000 + k * 86_400)));
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let d = build_detail(&gpx);
+    let days: std::collections::BTreeSet<i64> = d
+        .time
+        .iter()
+        .flatten()
+        .map(|t| t.div_euclid(86_400_000))
+        .collect();
+    assert_eq!(days.len(), 11);
 }
