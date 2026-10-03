@@ -183,6 +183,18 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
   }, [files]);
 
   const byPath = useMemo(() => new Map(files.map((f) => [f.summary.path, f])), [files]);
+  /** İlk 6 güzergâh: temsilci kayıt ve en iyi hareket süresi (fare bir
+   * çubuğun üstüne geldikçe yeniden hesaplanmasın). */
+  const routeRows = useMemo(
+    () =>
+      routes.slice(0, 6).flatMap((r) => {
+        const f = byPath.get(r.paths[0]) ?? r.paths.map((p) => byPath.get(p)).find((x) => x);
+        if (!f) return [];
+        const timed = r.paths.map((p) => byPath.get(p)?.summary.stats.movingMs).filter((v): v is number => v != null);
+        return [{ r, f, best: timed.length ? Math.min(...timed) : null }];
+      }),
+    [routes, byPath],
+  );
   /** Gösterilen kayıtların tarih aralığına düşen uçuşları. */
   const flights = useMemo(() => {
     const list: Flight[] = [];
@@ -395,12 +407,7 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
           <>
             <h3 className="chart-title">Sık güzergâhlar</h3>
             <ul className="records">
-              {routes.slice(0, 6).map((r) => {
-                const f = files.find((x) => x.summary.path === r.paths[0]) ?? files.find((x) => r.paths.includes(x.summary.path));
-                if (!f) return null;
-                const timed = r.paths
-                  .map((p) => files.find((x) => x.summary.path === p)?.summary.stats.movingMs)
-                  .filter((v): v is number => v != null);
+              {routeRows.map(({ r, f, best }) => {
                 return (
                   <li key={r.id}>
                     <span className="muted">{fmtNumber(r.paths.length)} kez</span>
@@ -409,7 +416,7 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
                       {placeLabel(f.summary) ?? f.summary.name ?? f.summary.fileName}
                       <span className="muted"> · {fmtDistance(f.summary.stats.distanceM)}</span>
                     </button>
-                    <strong>{timed.length ? `en iyi ${fmtDuration(Math.min(...timed))}` : ""}</strong>
+                    <strong>{best != null ? `en iyi ${fmtDuration(best)}` : ""}</strong>
                   </li>
                 );
               })}
