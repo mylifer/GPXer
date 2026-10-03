@@ -113,9 +113,11 @@ impl SettingsStore {
     /// Klasörde oluşan ya da değişen .gpx dosyaları `on_files` ile bildirilir.
     /// Kurulamayan klasörlerin hata mesajları döndürülür.
     pub fn restart_watcher(&self, on_files: impl Fn(Vec<String>) + Send + 'static) -> Vec<String> {
+        // Liste kilit alındıktan sonra okunur: eşzamanlı iki kurulumdan
+        // sonra biten de en son kaydedilen listeyi izler.
+        let mut slot = self.watcher.lock().unwrap();
         let folders = self.current.lock().unwrap().watched_folders.clone();
         let watched = self.watched.lock().unwrap().clone();
-        let mut slot = self.watcher.lock().unwrap();
         *slot = None;
         if folders.is_empty() {
             return Vec::new();

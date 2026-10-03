@@ -347,9 +347,14 @@ pub fn run() {
             app.manage(meta);
             app.manage(PlacesStore::open(&root));
             app.set_menu(menu::build_menu(handle)?)?;
-            for e in start_watcher(handle) {
-                eprintln!("{e}");
-            }
+            // Büyük ya da ağdaki klasörü izlemeye almak saniyeler sürebilir;
+            // pencere beklemesin.
+            let h = handle.clone();
+            std::thread::spawn(move || {
+                for e in start_watcher(&h) {
+                    eprintln!("{e}");
+                }
+            });
             let initial = paths_from_args(std::env::args().skip(1), None);
             app.state::<PendingPaths>()
                 .0
