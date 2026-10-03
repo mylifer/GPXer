@@ -395,6 +395,8 @@ export function useFileLoader({
         up({ filters: { ...prefsRef.current.filters, route: keep } });
       }
       filesRef.current = filesRef.current.filter((f) => !set.has(f.summary.path));
+      // Yeniden yükleme sürerken silinenler yeni listeye de girmesin.
+      if (reloadBuf.current) reloadBuf.current = reloadBuf.current.filter((f) => !set.has(f.summary.path));
       patchFiles((prev) => prev.filter((f) => !set.has(f.summary.path)));
       setSelected((s) => (s && set.has(s) ? null : s));
       setCompare((c) => (c && c.some((p) => set.has(p)) ? null : c));

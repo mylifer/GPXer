@@ -520,6 +520,15 @@ impl Library {
         chosen: Option<Activity>,
     ) -> LoadResult {
         let mut known = self.known.lock().unwrap();
+        // Özet hesaplanırken kütüphaneden silinmiş (çöp kutusuna taşınmış)
+        // olabilir: silinen dosya yeniden kaydedilmez. Taşıma aynı kilit
+        // altında yapıldığından bu denetim yarışmaz.
+        if self.contains(Path::new(&path)) && !Path::new(&path).exists() {
+            return LoadResult::Error {
+                path,
+                message: "Dosya bu sırada kaldırıldı".into(),
+            };
+        }
         if let Some(existing) = known.get(&fingerprint) {
             if *existing == path {
                 return LoadResult::Ok {
