@@ -76,7 +76,12 @@ fn part(
             name,
             segments: parts,
         }],
-        routes: Vec::new(),
+        // İzli dosyada rotalar (planlanan güzergâh) kırpılmaz, olduğu gibi kalır.
+        routes: if gpx.tracks.is_empty() {
+            Vec::new()
+        } else {
+            gpx.routes.clone()
+        },
         waypoints,
     }
 }
@@ -117,7 +122,8 @@ pub fn split(gpx: &Gpx, at: usize) -> Option<(Gpx, Gpx)> {
 }
 
 /// Kayıtları başlangıç zamanına göre sıralayıp tek dosyada birleştirir; her
-/// kayıt ayrı bir iz (trk) olur.
+/// kaydın her izi ayrı bir iz (trk) olarak, adıyla korunur (adsız izler
+/// kaydın adını alır). İzli kayıtların rotaları da taşınır.
 pub fn merge(mut parts: Vec<Gpx>, name: Option<String>) -> Gpx {
     let start = |g: &Gpx| {
         primary_segments(g)
@@ -140,13 +146,16 @@ pub fn merge(mut parts: Vec<Gpx>, name: Option<String>) -> Gpx {
         let source = if g.tracks.is_empty() {
             std::mem::take(&mut g.routes)
         } else {
+            out.routes.append(&mut g.routes);
             std::mem::take(&mut g.tracks)
         };
-        let segments: Vec<Vec<Point>> = source.into_iter().flat_map(|t| t.segments).collect();
-        if !segments.is_empty() {
+        for t in source
+            .into_iter()
+            .filter(|t| t.segments.iter().any(|s| !s.is_empty()))
+        {
             out.tracks.push(Track {
-                name: tname,
-                segments,
+                name: t.name.or_else(|| tname.clone()),
+                segments: t.segments,
             });
         }
         out.waypoints.extend(g.waypoints);

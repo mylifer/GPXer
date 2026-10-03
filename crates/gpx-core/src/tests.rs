@@ -1263,3 +1263,36 @@ fn fit_keeps_real_times_after_untimed_points() {
         .collect();
     assert_eq!(times, vec![-2, -1, 0, 1]);
 }
+
+#[test]
+fn merge_and_trim_keep_tracks_and_routes() {
+    let trk = |name: &str, t0: i64| parse::Track {
+        name: Some(name.into()),
+        segments: vec![(0..3)
+            .map(|k| pt(41.0, 29.0 + k as f64 * 1e-4, t0 + k))
+            .collect()],
+    };
+    let a = parse::Gpx {
+        tracks: vec![trk("T1", 0), trk("T2", 100)],
+        routes: vec![trk("R", 0)],
+        ..Default::default()
+    };
+    let b = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            ..trk("", 1000)
+        }],
+        name: Some("B".into()),
+        ..Default::default()
+    };
+    let cut = ops::trim(&a, 1, 4).unwrap();
+    assert_eq!(cut.routes.len(), 1);
+    let m = ops::merge(vec![b, a], None);
+    let names: Vec<_> = m
+        .tracks
+        .iter()
+        .map(|t| t.name.clone().unwrap_or_default())
+        .collect();
+    assert_eq!(names, vec!["T1", "T2", "B"]);
+    assert_eq!(m.routes.len(), 1);
+}
