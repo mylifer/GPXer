@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayKey, fastDayKey, parseTrWall, wallToUtc } from "./format";
+import { dayKey, fastDayKey, fmtDistance, fmtPace, parseTrWall, wallToUtc } from "./format";
 
 const wall = (y: number, mo: number, d: number, h = 0, mi = 0) => Date.UTC(y, mo - 1, d, h, mi);
 const H = 3_600_000;
@@ -63,5 +63,14 @@ describe("dayKey / fastDayKey", () => {
   it("yyyy-aa-gg biçimi", () => {
     expect(dayKey(Date.parse("2024-01-01T22:30:00Z"), "Europe/Istanbul")).toBe("2024-01-02");
     expect(dayKey(Date.parse("2024-01-01T22:30:00Z"))).toBe("2024-01-01");
+  });
+});
+
+describe("rounding edges", () => {
+  it("never shows :60 in a pace or 1.000 m", () => {
+    expect(fmtPace(1000 / 299.6)).toBe("5:00 /km");
+    expect(fmtPace(1000 / 359.7)).toBe("6:00 /km");
+    expect(fmtDistance(999.6)).toBe("1,00 km");
+    expect(fmtDistance(999.4)).toBe("999 m");
   });
 });

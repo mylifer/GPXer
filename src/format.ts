@@ -61,7 +61,8 @@ const TIME: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", s
 
 export function fmtDistance(m: number | null | undefined): string {
   if (m == null) return DASH;
-  if (m < 1000) return `${nf0.format(m)} m`;
+  // Yuvarlanınca 1000 olan (999,6 m) "1.000 m" yerine km olarak yazılır.
+  if (Math.round(m) < 1000) return `${nf0.format(m)} m`;
   if (m < 100_000) return `${nf2.format(m / 1000)} km`;
   return `${nf1.format(m / 1000)} km`;
 }
@@ -103,8 +104,10 @@ export function fmtPace(ms: number | null | undefined): string {
   if (ms == null || ms <= 0) return DASH;
   const secPerKm = 1000 / ms;
   if (secPerKm > 3600) return DASH;
-  const m = Math.floor(secPerKm / 60);
-  const s = Math.round(secPerKm % 60);
+  // Önce toplam saniye yuvarlanır ("4:60" yerine "5:00").
+  const total = Math.round(secPerKm);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
   return `${m}:${String(s).padStart(2, "0")} /km`;
 }
 
