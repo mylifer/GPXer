@@ -213,6 +213,10 @@ export function DetailPanel(p: Props) {
   const dragStart = useRef<{ y: number; h: number } | null>(null);
   const available = useMemo(() => (p.detail ? ALL_METRICS.filter((m) => hasMetric(p.detail!, m)) : []), [p.detail]);
   const timeOk = p.detail ? canUseTime(p.detail) : false;
+  // Mesafesi olmayan kayıtta (koşu bandı, sabit nabız kaydı) mesafe ekseninde
+  // tüm örnekler 0 km'ye yığılır: zaman ekseni kullanılır.
+  const distOk = !p.detail || (p.detail.dist[p.detail.dist.length - 1] ?? 0) > 0 || !timeOk;
+  const axis = !timeOk ? "dist" : !distOk ? "time" : p.xAxis;
   const d = p.detail;
   const i = p.hoverIdx;
   // Seçili ölçülerin hiçbiri bu kayıtta yoksa (ör. nabız seçili, kayıtta yok) boş
@@ -345,11 +349,11 @@ export function DetailPanel(p: Props) {
           </div>
         )}
         <div className="segmented small" role="group" aria-label="Yatay eksen">
-          <button className={p.xAxis === "dist" || !timeOk ? "active" : ""} onClick={() => p.onXAxis("dist")}>
+          <button className={axis === "dist" ? "active" : ""} disabled={!distOk} onClick={() => p.onXAxis("dist")}>
             Mesafe
           </button>
           <button
-            className={p.xAxis === "time" && timeOk ? "active" : ""}
+            className={axis === "time" ? "active" : ""}
             disabled={!timeOk}
             onClick={() => p.onXAxis("time")}
             title={timeOk ? undefined : "Bu kayıtta her noktada zaman bilgisi yok"}
@@ -462,7 +466,7 @@ export function DetailPanel(p: Props) {
                 detail={d}
                 color={p.entry.color}
                 metrics={chartMetrics}
-                xAxis={timeOk ? p.xAxis : "dist"}
+                xAxis={axis}
                 tz={tz}
                 hoverIdx={p.hoverIdx}
                 range={p.range}
