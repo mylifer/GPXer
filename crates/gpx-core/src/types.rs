@@ -102,7 +102,7 @@ pub struct Detail {
     pub temp: Vec<Option<f32>>,
     /// Ardından kayıt boşluğu gelen örneklerin sırası: `k` listedeyse `k` ile
     /// `k + 1` arasındaki asıl noktalarda (seyreltmede atlananlar dahil) bir
-    /// boşluk ([`is_gap`](crate::is_gap)) vardır. Harita çizgiyi burada keser.
+    /// boşluk ([`GapRule`](crate::GapRule)) vardır. Harita çizgiyi burada keser.
     pub gap_after: Vec<u32>,
 }
 

@@ -780,6 +780,7 @@ pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
         .into_iter()
         .filter(|s| !s.is_empty())
         .collect();
+    let gap_rule = crate::GapRule::of(&segs);
     // FIT'te gösterilemeyen (1998 öncesi) zamanlar yok sayılır.
     let valid = |ms: i64| ms.div_euclid(1000) - FIT_EPOCH_S >= FIT_MIN_TS;
     let now_ms = || {
@@ -829,7 +830,7 @@ pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
             }
             // Segmentler arası bekleme ve kayıt boşlukları (uçuş, sinyal
             // kaybı) mesafeye ve zamanlayıcıya katılmaz.
-            if let Some(q) = prev.filter(|q| !crate::is_gap(q, p)) {
+            if let Some(q) = prev.filter(|q| !gap_rule.is_gap(q, p)) {
                 dist += crate::stats::haversine_m(q, p);
                 moving_ms += ms - last_ms;
             }

@@ -1166,3 +1166,23 @@ fn removes_segments_teleported_far_away() {
     };
     assert_eq!(prepare(fly, &StatsConfig::default()).removed, 0);
 }
+
+#[test]
+fn sparse_records_get_a_longer_gap_threshold() {
+    // 12 dakikada bir nokta alan konum geçmişi: her adım ~5 km'lik sürüş,
+    // boşluk değil. Kayıt 3 saat kesilip 20 km ötede sürdüğünde boşluk var.
+    let mut a: Vec<Point> = (0..20)
+        .map(|k| pt(41.0, 29.0 + k as f64 * 0.06, k * 720))
+        .collect();
+    a.extend((0..20).map(|k| pt(41.0, 30.4 + k as f64 * 0.06, 19 * 720 + 3 * 3600 + k * 720)));
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![a],
+        }],
+        ..Default::default()
+    };
+    let s = summarize(&gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
+    assert_eq!(s.gaps.len(), 1);
+    assert!(s.stats.distance_m > 180_000.0);
+}

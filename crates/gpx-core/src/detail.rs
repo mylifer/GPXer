@@ -2,7 +2,7 @@
 
 use crate::parse::{Gpx, Point};
 use crate::stats::haversine_m;
-use crate::{is_gap, primary_segments, simplify, Detail, PROFILE_MAX_POINTS};
+use crate::{primary_segments, simplify, Detail, PROFILE_MAX_POINTS};
 
 /// Hız penceresinin yarı genişliği (ms).
 const SPEED_HALF_WINDOW_MS: i64 = 15_000;
@@ -58,12 +58,13 @@ pub fn build_detail(gpx: &Gpx) -> Detail {
     // Boşluktan sonraki ilk noktanın `all` içindeki sırası (artan).
     let mut gap_at = Vec::new();
 
+    let rule = crate::GapRule::of(&segments);
     for seg in &segments {
         let base = all.len();
         let mut piece_start = base;
         for (i, p) in seg.iter().enumerate() {
             if i > 0 {
-                if is_gap(&seg[i - 1], p) {
+                if rule.is_gap(&seg[i - 1], p) {
                     pieces.push((piece_start, base + i));
                     piece_start = base + i;
                     gap_at.push(base + i);

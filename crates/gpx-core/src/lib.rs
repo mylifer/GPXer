@@ -24,7 +24,7 @@ pub use analysis::{Activity, Stop};
 pub use detail::build_detail;
 pub use parse::{parse_gpx, ParseError};
 pub use segments::{hour_first_points, primary_segments, split_at_gaps, track_stats};
-pub(crate) use segments::{hourly_buckets, is_gap, round6};
+pub(crate) use segments::{hourly_buckets, round6, GapRule};
 pub use stats::{compute_stats, haversine_m, Stats, StatsConfig};
 pub use types::{Detail, FileSummary, Gap, LoadError, WaypointOut};
 

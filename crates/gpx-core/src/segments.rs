@@ -29,12 +29,46 @@ const GAP_FLIGHT_SPEED_MS: f64 = 300.0 / 3.6;
 /// Zaman bilgisi yoksa yalnızca mesafeye bakılır.
 const GAP_MIN_M_UNTIMED: f64 = 10_000.0;
 
-pub(crate) fn is_gap(a: &Point, b: &Point) -> bool {
+/// Kaydın boşluk kuralı. Süre eşiği kaydın nokta sıklığına uyar: seyrek
+/// kayıtta (ör. 10–15 dakikada bir nokta alan konum geçmişi) her adım
+/// boşluk sayılmasın diye eşik, olağan aralığın 3 katından az olmaz.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GapRule {
+    min_ms: i64,
+}
+
+impl GapRule {
+    pub(crate) fn of(segments: &[&[Point]]) -> Self {
+        // Olağan aralık: zaman adımlarının ortancası (en çok 20 bin örnek).
+        let mut steps: Vec<i64> = segments
+            .iter()
+            .flat_map(|s| s.windows(2))
+            .filter_map(|w| Some(w[1].time? - w[0].time?))
+            .filter(|&dt| dt > 0)
+            .take(20_000)
+            .collect();
+        let median = if steps.is_empty() {
+            0
+        } else {
+            let mid = steps.len() / 2;
+            *steps.select_nth_unstable(mid).1
+        };
+        GapRule {
+            min_ms: GAP_MIN_MS.max(3 * median),
+        }
+    }
+
+    pub(crate) fn is_gap(&self, a: &Point, b: &Point) -> bool {
+        is_gap_with(a, b, self.min_ms)
+    }
+}
+
+fn is_gap_with(a: &Point, b: &Point, min_ms: i64) -> bool {
     let d = stats::haversine_m(a, b);
     match (a.time, b.time) {
         (Some(ta), Some(tb)) => {
             let dt = (tb - ta).abs();
-            (d > GAP_MIN_M && dt > GAP_MIN_MS)
+            (d > GAP_MIN_M && dt > min_ms)
                 || (d > GAP_FLIGHT_M && d / (dt.max(1000) as f64 / 1000.0) > GAP_FLIGHT_SPEED_MS)
         }
         _ => d > GAP_MIN_M_UNTIMED,
@@ -139,6 +173,7 @@ pub fn hour_first_points(gpx: &Gpx, hours: &[[f64; 3]]) -> Vec<(i64, [f64; 2])> 
 
 /// Segmentleri kayıt boşluklarında parçalara böler.
 pub fn split_at_gaps<'a>(segments: &[&'a [Point]]) -> (Vec<&'a [Point]>, Vec<Gap>) {
+    let rule = GapRule::of(segments);
     let gap = |a: &Point, b: &Point| Gap {
         from: [round6(a.lon), round6(a.lat)],
         to: [round6(b.lon), round6(b.lat)],
@@ -156,14 +191,14 @@ pub fn split_at_gaps<'a>(segments: &[&'a [Point]]) -> (Vec<&'a [Point]>, Vec<Gap
         // her birkaç noktada yeni segment: uçuş iki segment arasına düşer).
         // Segmentler zaten ayrı çizildiğinden parça bölmeye gerek yok.
         if let (Some(a), Some(b)) = (prev_last, seg.first()) {
-            if is_gap(a, b) {
+            if rule.is_gap(a, b) {
                 gaps.push(gap(a, b));
             }
         }
         let mut start = 0;
         for i in 1..seg.len() {
             let (a, b) = (&seg[i - 1], &seg[i]);
-            if is_gap(a, b) {
+            if rule.is_gap(a, b) {
                 pieces.push(&seg[start..i]);
                 gaps.push(gap(a, b));
                 start = i;
