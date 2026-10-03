@@ -1332,3 +1332,31 @@ fn tcx_gives_every_point_a_time_and_kml_writes_single_points() {
     assert!(kml.contains("<name>a&lt;b</name>"));
     assert!(kml.contains("<Point><coordinates>29.01,41</coordinates></Point>"));
 }
+
+#[test]
+fn kml_keeps_sensor_data() {
+    let mut seg: Vec<Point> = (0..3)
+        .map(|k| Point {
+            hr: Some(120.0 + k as f32),
+            power: Some(200.0),
+            ..pt(41.0, 29.0 + k as f64 * 1e-4, 1_700_000_000 + k)
+        })
+        .collect();
+    seg[1].hr = None;
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let kml = formats::write_kml(&gpx);
+    assert!(!kml.contains("cadence"), "{kml}");
+    let back = formats::parse_kml(kml.as_bytes()).unwrap();
+    let pts = &back.tracks[0].segments[0];
+    let hr: Vec<_> = pts.iter().map(|p| p.hr).collect();
+    assert_eq!(hr, vec![Some(120.0), None, Some(122.0)]);
+    assert!(pts
+        .iter()
+        .all(|p| p.power == Some(200.0) && p.cad.is_none()));
+}

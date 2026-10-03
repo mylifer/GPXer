@@ -301,6 +301,9 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
     // okunamayan bir değer sıralamayı kaydırmasın diye ikisi de tutulur.
     let mut whens: Vec<Option<i64>> = Vec::new();
     let mut coords: Vec<Option<Point>> = Vec::new();
+    // gx:Track sensör dizileri (ExtendedData/SchemaData/gx:SimpleArrayData):
+    // ad ve nokta sırasıyla değerler.
+    let mut arrays: Vec<(String, Vec<Option<f32>>)> = Vec::new();
 
     loop {
         let ev = reader
@@ -318,6 +321,20 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
                     b"Track" => {
                         whens.clear();
                         coords.clear();
+                        arrays.clear();
+                    }
+                    b"SimpleArrayData" => {
+                        let name = e
+                            .attributes()
+                            .flatten()
+                            .find(|a| a.key.local_name().as_ref() == b"name")
+                            .and_then(|a| {
+                                std::str::from_utf8(&a.value)
+                                    .ok()
+                                    .map(str::to_ascii_lowercase)
+                            })
+                            .unwrap_or_default();
+                        arrays.push((name, Vec::new()));
                     }
                     _ => {}
                 }
@@ -327,6 +344,15 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
             Event::Text(t) => {
                 if let Ok(s) = t.decode() {
                     text.push_str(&s);
+                }
+            }
+            // Boş sensör değeri (<gx:value/>): sıra kaymasın diye yer tutar.
+            Event::Empty(e)
+                if e.local_name().as_ref() == b"value"
+                    && stack.last().map(|v| v.as_slice()) == Some(b"SimpleArrayData") =>
+            {
+                if let Some((_, vals)) = arrays.last_mut() {
+                    vals.push(None);
                 }
             }
             Event::End(_) => {
@@ -360,6 +386,11 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
                     }
                     b"when" if parent == Some(b"Track") => whens.push(parse_time(v)),
                     b"coord" if parent == Some(b"Track") => coords.push(kml_point(v)),
+                    b"value" if parent == Some(b"SimpleArrayData") => {
+                        if let Some((_, vals)) = arrays.last_mut() {
+                            vals.push(v.parse::<f32>().ok().filter(|x| x.is_finite()));
+                        }
+                    }
                     b"Track" => {
                         let seg: Vec<Point> = std::mem::take(&mut coords)
                             .into_iter()
@@ -367,6 +398,16 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
                             .filter_map(|(i, p)| {
                                 let mut p = p?;
                                 p.time = whens.get(i).copied().flatten();
+                                for (name, vals) in &arrays {
+                                    let v = vals.get(i).copied().flatten();
+                                    match name.as_str() {
+                                        "heartrate" | "heart_rate" | "hr" => p.hr = v,
+                                        "cadence" | "cad" => p.cad = v,
+                                        "power" | "watts" => p.power = v,
+                                        "temperature" | "temp" | "atemp" => p.temp = v,
+                                        _ => {}
+                                    }
+                                }
                                 Some(p)
                             })
                             .collect();
@@ -401,7 +442,38 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
 
 // ---------- Yazıcılar ----------
 
-/// KML 2.2; zaman bilgisi varsa gx:Track, yoksa LineString yazılır.
+/// gx:Track sensör dizileri (Google'ın KML uzantısı; My Tracks/Garmin adları).
+struct KmlSensor {
+    name: &'static str,
+    label: &'static str,
+    get: fn(&Point) -> Option<f32>,
+}
+
+const KML_SENSORS: [KmlSensor; 4] = [
+    KmlSensor {
+        name: "heartrate",
+        label: "Nabız",
+        get: |p| p.hr,
+    },
+    KmlSensor {
+        name: "cadence",
+        label: "Kadans",
+        get: |p| p.cad,
+    },
+    KmlSensor {
+        name: "power",
+        label: "Güç",
+        get: |p| p.power,
+    },
+    KmlSensor {
+        name: "temperature",
+        label: "Sıcaklık",
+        get: |p| p.temp,
+    },
+];
+
+/// KML 2.2; zaman bilgisi varsa gx:Track (sensör verisiyle), yoksa
+/// LineString yazılır.
 pub fn write_kml(gpx: &Gpx) -> String {
     let mut out = String::new();
     write_kml_into(gpx, &mut out);
@@ -432,6 +504,26 @@ fn write_kml_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
     out.push_str(
         "<Style id=\"iz\"><LineStyle><color>ff3d55e8</color><width>4</width></LineStyle></Style>\n",
     );
+    let segs = primary_segments(gpx);
+    let used: Vec<&KmlSensor> = KML_SENSORS
+        .iter()
+        .filter(|s| {
+            segs.iter()
+                .flat_map(|g| g.iter())
+                .any(|p| (s.get)(p).is_some())
+        })
+        .collect();
+    if !used.is_empty() {
+        out.push_str("<Schema id=\"sensors\">");
+        for s in &used {
+            let _ = write!(
+                out,
+                "<gx:SimpleArrayField name=\"{}\" type=\"float\"><displayName>{}</displayName></gx:SimpleArrayField>",
+                s.name, s.label
+            );
+        }
+        out.push_str("</Schema>\n");
+    }
     for w in &gpx.waypoints {
         let _ = writeln!(
             out,
@@ -447,7 +539,7 @@ fn write_kml_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
         "<Placemark><name>{}</name><styleUrl>#iz</styleUrl><MultiGeometry>",
         esc(&name)
     );
-    for seg in primary_segments(gpx) {
+    for seg in segs {
         // Tek noktalı çizgi KML'de geçersiz: nokta olarak yazılır.
         if let [p] = seg {
             let _ = writeln!(
@@ -473,6 +565,26 @@ fn write_kml_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
                     p.lat,
                     p.ele.map(|e| format!(" {e}")).unwrap_or_default()
                 );
+            }
+            let here: Vec<&&KmlSensor> = used
+                .iter()
+                .filter(|s| seg.iter().any(|p| (s.get)(p).is_some()))
+                .collect();
+            if !here.is_empty() {
+                out.push_str("<ExtendedData><SchemaData schemaUrl=\"#sensors\">\n");
+                for s in here {
+                    let _ = write!(out, "<gx:SimpleArrayData name=\"{}\">", s.name);
+                    for p in seg {
+                        match (s.get)(p) {
+                            Some(v) => {
+                                let _ = write!(out, "<gx:value>{v}</gx:value>");
+                            }
+                            None => out.push_str("<gx:value/>"),
+                        }
+                    }
+                    out.push_str("</gx:SimpleArrayData>\n");
+                }
+                out.push_str("</SchemaData></ExtendedData>\n");
             }
             out.push_str("</gx:Track>\n");
         } else {
