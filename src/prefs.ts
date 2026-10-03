@@ -116,7 +116,8 @@ const DEFAULTS: Prefs = {
   photoOffsetH: 0,
 };
 
-const KEY = "gpxer.prefs.v1";
+export const PREFS_KEY = "gpxer.prefs.v1";
+const KEY = PREFS_KEY;
 
 export function loadPrefs(): Prefs {
   let saved: unknown = {};
