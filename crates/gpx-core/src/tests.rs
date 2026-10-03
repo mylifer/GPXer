@@ -1296,3 +1296,39 @@ fn merge_and_trim_keep_tracks_and_routes() {
     assert_eq!(names, vec!["T1", "T2", "B"]);
     assert_eq!(m.routes.len(), 1);
 }
+
+#[test]
+fn tcx_gives_every_point_a_time_and_kml_writes_single_points() {
+    let t = 1_700_000_000;
+    let untimed = |lon: f64| Point {
+        time: None,
+        ..pt(41.0, lon, 0)
+    };
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: Some("a<b".into()),
+            segments: vec![
+                vec![untimed(29.0), pt(41.0, 29.001, t), untimed(29.002)],
+                vec![pt(41.0, 29.01, t + 100)],
+            ],
+        }],
+        ..Default::default()
+    };
+    let tcx = formats::write_tcx(&gpx);
+    assert_eq!(
+        tcx.matches("<Trackpoint>").count(),
+        tcx.matches("<Time>").count()
+    );
+    let back = formats::parse_tcx(tcx.as_bytes()).unwrap();
+    let times: Vec<i64> = back
+        .tracks
+        .iter()
+        .flat_map(|t| t.segments.iter().flatten())
+        .map(|p| p.time.unwrap() / 1000 - t)
+        .collect();
+    assert_eq!(times, vec![-1, 0, 1, 100]);
+
+    let kml = formats::write_kml(&gpx);
+    assert!(kml.contains("<name>a&lt;b</name>"));
+    assert!(kml.contains("<Point><coordinates>29.01,41</coordinates></Point>"));
+}

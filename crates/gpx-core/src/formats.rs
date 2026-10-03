@@ -418,7 +418,16 @@ fn write_kml_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<kml xmlns=\"http://www.opengis.net/kml/2.2\" \
          xmlns:gx=\"http://www.google.com/kml/ext/2.2\">\n<Document>\n",
     );
-    let name = gpx.name.clone().unwrap_or_else(|| "GPXer".into());
+    let name = gpx
+        .name
+        .clone()
+        .or_else(|| {
+            gpx.tracks
+                .iter()
+                .chain(&gpx.routes)
+                .find_map(|t| t.name.clone())
+        })
+        .unwrap_or_else(|| "GPXer".into());
     let _ = writeln!(out, "<name>{}</name>", esc(&name));
     out.push_str(
         "<Style id=\"iz\"><LineStyle><color>ff3d55e8</color><width>4</width></LineStyle></Style>\n",
@@ -439,6 +448,17 @@ fn write_kml_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
         esc(&name)
     );
     for seg in primary_segments(gpx) {
+        // Tek noktalı çizgi KML'de geçersiz: nokta olarak yazılır.
+        if let [p] = seg {
+            let _ = writeln!(
+                out,
+                "<Point><coordinates>{},{}{}</coordinates></Point>",
+                p.lon,
+                p.lat,
+                p.ele.map(|e| format!(",{e}")).unwrap_or_default()
+            );
+            continue;
+        }
         if seg.iter().all(|p| p.time.is_some()) {
             out.push_str("<gx:Track><altitudeMode>clampToGround</altitudeMode>\n");
             for p in seg {
@@ -484,13 +504,35 @@ pub fn write_tcx_to<W: std::io::Write>(gpx: &Gpx, w: &mut W) -> std::io::Result<
     crate::write::stream(w, |s| write_tcx_into(gpx, s))
 }
 
+/// Her noktanın zamanı; zamansız noktalar öncekinden bir saniye sonrasını
+/// alır, ilk zamanlı noktadan öncekiler ondan geriye doğru sayılır. Kayıtta
+/// hiç zaman yoksa `fallback`ten başlanır.
+fn filled_times(segs: &[&[Point]], fallback: i64) -> Vec<i64> {
+    let pts = || segs.iter().flat_map(|s| s.iter());
+    let lead = pts().take_while(|p| p.time.is_none()).count() as i64;
+    let mut last = match pts().find_map(|p| p.time) {
+        Some(t) => t - (lead + 1) * 1000,
+        None => fallback - 1000,
+    };
+    pts()
+        .map(|p| {
+            last = p.time.unwrap_or(last + 1000);
+            last
+        })
+        .collect()
+}
+
 fn write_tcx_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
     let segs = primary_segments(gpx);
-    let start = segs
-        .iter()
-        .flat_map(|s| s.iter())
-        .find_map(|p| p.time)
-        .or(gpx.time);
+    // TCX'te her noktada zaman zorunlu: eksikler doldurulur (hiç yoksa kaydın
+    // zamanından ya da şimdiden başlanır).
+    let fallback = gpx.time.unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64)
+    });
+    let filled = filled_times(&segs, fallback);
+    let start = filled.first().copied().or(gpx.time);
     out.push_str(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<TrainingCenterDatabase \
          xmlns=\"http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2\" \
@@ -501,6 +543,7 @@ fn write_tcx_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
         .map(format_time)
         .unwrap_or_else(|| "1970-01-01T00:00:00Z".into());
     // Tur özeti: toplam süre ve mesafe (segmentler arası atlama sayılmaz).
+    // Süre yalnızca gerçek zamanlardan (doldurulanlar katılmaz).
     let times = segs.iter().flat_map(|s| s.iter()).filter_map(|p| p.time);
     let total_s = match (times.clone().min(), times.max()) {
         (Some(a), Some(b)) => (b - a) as f64 / 1000.0,
@@ -522,6 +565,7 @@ fn write_tcx_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
     );
     // Kümülatif mesafe segmentten segmente sürer.
     let mut dist = 0.0;
+    let mut filled = filled.into_iter();
     for seg in segs {
         out.push_str("<Track>\n");
         for (i, p) in seg.iter().enumerate() {
@@ -529,7 +573,7 @@ fn write_tcx_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
                 dist += crate::haversine_m(&seg[i - 1], p);
             }
             out.push_str("<Trackpoint>");
-            if let Some(t) = p.time {
+            if let Some(t) = filled.next() {
                 let _ = write!(out, "<Time>{}</Time>", format_time(t));
             }
             let _ = write!(
