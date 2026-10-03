@@ -3,7 +3,8 @@ import type { LngLatBoundsLike } from "maplibre-gl";
 import type { Detail, FileSummary, NamedPlace } from "../api";
 import type { FileEntry } from "../types";
 import { fastDayKey, tzOf } from "../format";
-import type { BBox } from "../geo";
+import { nearLon, unwrapLines, type BBox } from "../geo";
+export { nearLon, unwrapLines };
 import { clipToRange, dayIn } from "../days";
 import { greatCircle, type Flight } from "../flights";
 import { namedPlaceAt } from "../places";
@@ -14,35 +15,6 @@ export const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", fea
 export interface DateWindow {
   from: string;
   to: string;
-}
-
-/** Boylamı bir öncekine en yakın dünya kopyasına taşır (±180° boylamını
- * geçen iz, haritayı boydan boya kesen bir çizgi olarak çizilmesin). */
-export const nearLon = (lon: number, prev: number) => lon + 360 * Math.round((prev - lon) / 360);
-
-type Line = [number, number][];
-const unwrapCache = new WeakMap<Line[], { lines: Line[]; bbox: [number, number, number, number] | null }>();
-
-/** Çizgileri sürekli boylamlarla döndürür; ±180°'yi geçmeyen (neredeyse
- * tüm) kayıtlarda aynı dizi ve sınır kutusu kullanılır. */
-export function unwrapLines(lines: Line[], bbox: [number, number, number, number] | null) {
-  const crosses = lines.some((l) => l.some((p, i) => i > 0 && Math.abs(p[0] - l[i - 1][0]) > 180));
-  if (!crosses) return { lines, bbox };
-  const hit = unwrapCache.get(lines);
-  if (hit) return hit;
-  let bb: [number, number, number, number] | null = null;
-  const out = lines.map((l) => {
-    let prev = l[0]?.[0] ?? 0;
-    return l.map(([x, y]): [number, number] => {
-      const lon = nearLon(x, prev);
-      prev = lon;
-      bb = bb ? [Math.min(bb[0], lon), Math.min(bb[1], y), Math.max(bb[2], lon), Math.max(bb[3], y)] : [lon, y, lon, y];
-      return [lon, y];
-    });
-  });
-  const res = { lines: out, bbox: bb };
-  unwrapCache.set(lines, res);
-  return res;
 }
 
 const geoOf = (f: FileEntry, win: DateWindow | null) => {

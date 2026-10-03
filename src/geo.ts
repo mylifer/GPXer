@@ -36,7 +36,14 @@ function segmentHits(a: [number, number], c: [number, number], b: BBox): boolean
 }
 
 /** İz dikdörtgenden geçiyor mu. */
-export function linesHitBox(lines: [number, number][][], b: BBox, bbox?: BBox | null): boolean {
+export function linesHitBox(lines: [number, number][][], box: BBox, bbox?: BBox | null): boolean {
+  // Haritanın komşu dünya kopyasında seçilen alan ±180°'nin ötesine taşabilir;
+  // 180°'yi geçen izler de sürekli boylamlarla denetlenir.
+  const u = unwrapLines(lines, bbox ?? null);
+  return [0, -360, 360].some((k) => hitsOnce(u.lines, [box[0] + k, box[1], box[2] + k, box[3]], u.bbox));
+}
+
+function hitsOnce(lines: [number, number][][], b: BBox, bbox: BBox | null): boolean {
   if (bbox && (bbox[2] < b[0] || bbox[0] > b[2] || bbox[3] < b[1] || bbox[1] > b[3])) return false;
   for (const line of lines) {
     if (line.length === 1 && inside(line[0], b)) return true;
@@ -63,4 +70,33 @@ export function resample(lines: [number, number][][], n: number): [number, numbe
     out.push([pts[j][0] + (pts[j + 1][0] - pts[j][0]) * t, pts[j][1] + (pts[j + 1][1] - pts[j][1]) * t]);
   }
   return out;
+}
+
+/** Boylamı bir öncekine en yakın dünya kopyasına taşır (±180° boylamını
+ * geçen iz, haritayı boydan boya kesen bir çizgi olarak çizilmesin). */
+export const nearLon = (lon: number, prev: number) => lon + 360 * Math.round((prev - lon) / 360);
+
+type Line = [number, number][];
+const unwrapCache = new WeakMap<Line[], { lines: Line[]; bbox: [number, number, number, number] | null }>();
+
+/** Çizgileri sürekli boylamlarla döndürür; ±180°'yi geçmeyen (neredeyse
+ * tüm) kayıtlarda aynı dizi ve sınır kutusu kullanılır. */
+export function unwrapLines(lines: Line[], bbox: [number, number, number, number] | null) {
+  const crosses = lines.some((l) => l.some((p, i) => i > 0 && Math.abs(p[0] - l[i - 1][0]) > 180));
+  if (!crosses) return { lines, bbox };
+  const hit = unwrapCache.get(lines);
+  if (hit) return hit;
+  let bb: [number, number, number, number] | null = null;
+  const out = lines.map((l) => {
+    let prev = l[0]?.[0] ?? 0;
+    return l.map(([x, y]): [number, number] => {
+      const lon = nearLon(x, prev);
+      prev = lon;
+      bb = bb ? [Math.min(bb[0], lon), Math.min(bb[1], y), Math.max(bb[2], lon), Math.max(bb[3], y)] : [lon, y, lon, y];
+      return [lon, y];
+    });
+  });
+  const res = { lines: out, bbox: bb };
+  unwrapCache.set(lines, res);
+  return res;
 }

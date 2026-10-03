@@ -48,3 +48,22 @@ describe("antimeridian", () => {
     expect(g.coordinates[1][0]).toBeCloseTo(180.1);
   });
 });
+
+describe("area filter near ±180°", () => {
+  it("matches boxes drawn on a neighbouring world copy and across the meridian", async () => {
+    const { linesHitBox } = await import("../geo");
+    const fiji: [number, number][][] = [
+      [
+        [179.8, -17],
+        [-179.8, -17],
+      ],
+    ];
+    // Doğu kopyasında çizilmiş alan (181..182).
+    expect(linesHitBox(fiji, [180.1, -18, 180.3, -16], [-179.8, -17, 179.8, -17])).toBe(true);
+    // 180°'nin hemen batısı.
+    expect(linesHitBox(fiji, [179.7, -18, 179.9, -16], null)).toBe(true);
+    // İstanbul izi uzaktaki alana düşmez.
+    expect(linesHitBox([[[29, 41], [29.1, 41]]], [179, -18, 181, -16], null)).toBe(false);
+    expect(linesHitBox([[[29, 41], [29.1, 41]]], [388.9, 40, 389.2, 42], null)).toBe(true);
+  });
+});
