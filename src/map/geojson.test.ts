@@ -67,3 +67,22 @@ describe("area filter near ±180°", () => {
     expect(linesHitBox([[[29, 41], [29.1, 41]]], [388.9, 40, 389.2, 42], null)).toBe(true);
   });
 });
+
+describe("long jumps in sparse records", () => {
+  it("are not drawn by the colored and range layers", async () => {
+    const { coloredGeoJSON, rangeGeoJSON } = await import("./geojson");
+    const min = 60_000;
+    // 1 dk / 100 m, sonra 12 dk / 5 km, sonra 1 dk / 100 m.
+    const d = {
+      lat: [41, 41, 41, 41],
+      lon: [29, 29.0012, 29.0612, 29.0624],
+      time: [0, min, 13 * min, 14 * min],
+      dist: [0, 100, 5100, 5200],
+      gapAfter: [],
+    } as unknown as import("../api").Detail;
+    const c = coloredGeoJSON(d, [1, 1, 1, 1], [0, 2], ["#000"]);
+    expect(c.features.length).toBe(2);
+    const r = rangeGeoJSON(d, [0, 3]).geometry as GeoJSON.MultiLineString;
+    expect(r.coordinates.length).toBe(2);
+  });
+});

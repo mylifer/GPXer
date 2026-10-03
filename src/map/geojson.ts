@@ -3,7 +3,7 @@ import type { LngLatBoundsLike } from "maplibre-gl";
 import type { Detail, FileSummary, NamedPlace } from "../api";
 import type { FileEntry } from "../types";
 import { fastDayKey, tzOf } from "../format";
-import { nearLon, unwrapLines, type BBox } from "../geo";
+import { metersBetween, nearLon, unwrapLines, type BBox } from "../geo";
 export { nearLon, unwrapLines };
 import { clipToRange, dayIn } from "../days";
 import { greatCircle, type Flight } from "../flights";
@@ -253,6 +253,16 @@ export function flightsGeoJSON(flights: Flight[] | null, color: (path: string) =
  *  gpx-core'da asıl noktalar üzerinde bulunur (Detail.gapAfter). */
 export const gapSteps = (d: Detail): Set<number> => new Set(d.gapAfter);
 
+/** Haritada çizilmeyen uzun atlama: 10 dakikadan ve 2 km'den uzun adım.
+ * Seyrek kayıtta (konum geçmişi) boşluk sayılmasa da düz çizgiyle
+ * birleştirilmez; iz çizgisindeki kuralın aynısı (gpx-core GapRule::fixed). */
+export function longJump(d: Detail, i: number): boolean {
+  const t0 = d.time[i];
+  const t1 = d.time[i + 1];
+  if (t0 == null || t1 == null || Math.abs(t1 - t0) <= 10 * 60_000) return false;
+  return metersBetween([d.lon[i], d.lat[i]], [d.lon[i + 1], d.lat[i + 1]]) > 2000;
+}
+
 /** Seçili izin ölçüye göre renklendirilmiş parçaları (boşluklarda kesilir). */
 export function coloredGeoJSON(
   detail: Detail,
@@ -266,7 +276,7 @@ export function coloredGeoJSON(
   const gaps = gapSteps(detail);
   for (let i = 0; i + 1 < detail.lat.length; i++) {
     const v = values[i];
-    if (v == null || gaps.has(i)) continue;
+    if (v == null || gaps.has(i) || longJump(detail, i)) continue;
     if (inWin && !(inWin(detail.time[i]) && inWin(detail.time[i + 1]))) continue;
     const t = (v - lo) / (hi - lo);
     const k = Math.max(0, Math.min(ramp.length - 1, Math.round(t * (ramp.length - 1))));
@@ -296,7 +306,7 @@ export function rangeGeoJSON(detail: Detail, range: [number, number]): GeoJSON.F
   for (let i = Math.max(0, range[0]); i <= last; i++) {
     prev = nearLon(detail.lon[i], prev);
     cur.push([prev, detail.lat[i]]);
-    if (i < last && gaps.has(i)) {
+    if (i < last && (gaps.has(i) || longJump(detail, i))) {
       if (cur.length > 1) lines.push(cur);
       cur = [];
     }
