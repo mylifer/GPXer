@@ -1,22 +1,21 @@
+mod edit;
+mod export;
+mod geo;
 mod library;
+mod menu;
 mod meta;
 mod photos;
 mod places;
 mod settings;
 
-use base64::Engine;
 use gpx_core::{Detail, Stats};
 use library::{is_track_file, Library, LoadResult, TrashItem};
 use meta::{FileMeta, MetaStore};
-use photos::PhotoInfo;
 use places::{NamedPlace, PlacesStore};
 use rayon::prelude::*;
-use serde::Deserialize;
 use settings::{Settings, SettingsStore};
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager};
 
 /// İşletim sisteminden gelen (çift tıklama, "Birlikte aç", ikinci örnek)
@@ -246,377 +245,6 @@ fn raw_index(p: &gpx_core::Prepared, i: usize) -> Result<usize, String> {
     p.raw_index(i).ok_or_else(|| "Geçersiz nokta".to_owned())
 }
 
-/// Yeni oluşturulan kaydı kütüphaneye yazıp özetler; kaynağın türü ve
-/// etiketleri yeni kayda geçer. İçeriği kütüphanede zaten varsa yazılan
-/// dosya silinir.
-fn store_new(
-    app: &AppHandle,
-    gpx: &gpx_core::parse::Gpx,
-    fallback: &str,
-    inherit: &FileMeta,
-) -> LoadResult {
-    let library = app.state::<Library>();
-    let cfg = app.state::<SettingsStore>().stats();
-    let name = gpx.name.clone().unwrap_or_else(|| fallback.to_owned());
-    let p = match library.write_new(&name, &gpx_core::write::write_gpx(gpx)) {
-        Ok(p) => p,
-        Err(e) => {
-            return LoadResult::Error {
-                path: name,
-                message: format!("Kaydedilemedi: {e}"),
-            }
-        }
-    };
-    let path = p.to_string_lossy().into_owned();
-    let meta = FileMeta {
-        tags: inherit.tags.clone(),
-        note: String::new(),
-        activity: inherit.activity,
-    };
-    if meta != FileMeta::default() {
-        if let Err(e) = app.state::<MetaStore>().set(&path, meta) {
-            eprintln!("Kayıt bilgileri kopyalanamadı: {e}");
-        }
-    }
-    let res = library.load(path.clone(), &cfg, inherit.activity);
-    if !matches!(res, LoadResult::Ok { .. }) {
-        let _ = std::fs::remove_file(&p);
-        let _ = app.state::<MetaStore>().set(&path, FileMeta::default());
-    }
-    res
-}
-
-/// Seçilen aralığı yeni bir kayıt olarak kütüphaneye ekler. Aralık grafikteki
-/// (hazırlanmış) sıralarla gelir; ham dosyadan kesilir.
-#[tauri::command]
-async fn trim_file(
-    app: AppHandle,
-    path: String,
-    start: usize,
-    end: usize,
-) -> Result<LoadResult, String> {
-    run_blocking(move || {
-        let cfg = app.state::<SettingsStore>().stats();
-        let p = prepared(&app, &path, &cfg)?;
-        if p.is_empty() || start > end || start >= p.len() {
-            return Err("Geçersiz aralık".into());
-        }
-        let (a, b) = (raw_index(&p, start)?, raw_index(&p, end.min(p.len() - 1))?);
-        let raw = read_raw(&app, &path)?;
-        let out = gpx_core::ops::trim(&raw, a, b).ok_or("Geçersiz aralık")?;
-        let meta = app.state::<MetaStore>().get(&path);
-        Ok(store_new(&app, &out, "Kırpılmış iz", &meta))
-    })
-    .await?
-}
-
-/// Kaydı `at` noktasından ikiye bölüp iki yeni kayıt olarak ekler.
-#[tauri::command]
-async fn split_file(app: AppHandle, path: String, at: usize) -> Result<Vec<LoadResult>, String> {
-    run_blocking(move || {
-        let cfg = app.state::<SettingsStore>().stats();
-        let p = prepared(&app, &path, &cfg)?;
-        let at = raw_index(&p, at)?;
-        let raw = read_raw(&app, &path)?;
-        let (a, b) = gpx_core::ops::split(&raw, at).ok_or("Bu noktadan bölünemez")?;
-        let meta = app.state::<MetaStore>().get(&path);
-        Ok(vec![
-            store_new(&app, &a, "1. kısım", &meta),
-            store_new(&app, &b, "2. kısım", &meta),
-        ])
-    })
-    .await?
-}
-
-/// Kayıtları (ham halleriyle) tek dosyada birleştirip kütüphaneye ekler.
-/// Etiketler birleşir; tür hepsinde aynıysa korunur.
-#[tauri::command]
-async fn merge_files(
-    app: AppHandle,
-    paths: Vec<String>,
-    name: String,
-) -> Result<LoadResult, String> {
-    run_blocking(move || {
-        let parts = paths
-            .iter()
-            .map(|p| read_raw(&app, p))
-            .collect::<Result<Vec<_>, _>>()?;
-        let store = app.state::<MetaStore>();
-        let metas: Vec<FileMeta> = paths.iter().map(|p| store.get(p)).collect();
-        let first = metas.first().and_then(|m| m.activity);
-        let inherit = FileMeta {
-            tags: metas.iter().flat_map(|m| m.tags.clone()).collect(),
-            note: String::new(),
-            activity: first.filter(|_| metas.iter().all(|m| m.activity == first)),
-        };
-        let merged = gpx_core::ops::merge(parts, Some(name.clone()));
-        Ok(store_new(&app, &merged, &name, &inherit))
-    })
-    .await?
-}
-
-/// Kaydetme penceresinde seçilen, yazılmasına izin verilmiş hedefler.
-/// Her izin bir yazmada kullanılır.
-#[derive(Default)]
-struct ApprovedPaths(Mutex<HashSet<String>>);
-
-#[derive(Deserialize)]
-struct DialogFilter {
-    name: String,
-    extensions: Vec<String>,
-}
-
-/// Kaydetme penceresini açar; seçilen yolu yazma izni verilmiş olarak
-/// kaydedip döndürür. Vazgeçilirse `None`.
-#[tauri::command]
-async fn pick_save_path(
-    app: AppHandle,
-    default_name: String,
-    filters: Vec<DialogFilter>,
-) -> Result<Option<String>, String> {
-    run_blocking(move || {
-        use tauri_plugin_dialog::DialogExt;
-        let mut dialog = app.dialog().file().set_file_name(&default_name);
-        if let Some(w) = app.get_webview_window("main") {
-            dialog = dialog.set_parent(&w);
-        }
-        for f in &filters {
-            let exts: Vec<&str> = f.extensions.iter().map(String::as_str).collect();
-            dialog = dialog.add_filter(&f.name, &exts);
-        }
-        let path = dialog.blocking_save_file()?.into_path().ok()?;
-        let path = path.to_string_lossy().into_owned();
-        app.state::<ApprovedPaths>()
-            .0
-            .lock()
-            .unwrap()
-            .insert(path.clone());
-        Some(path)
-    })
-    .await
-}
-
-/// Hedefin kaydetme penceresinde seçildiğini denetler; izni kullanır.
-fn take_approved(app: &AppHandle, path: &str) -> Result<(), String> {
-    let state = app.state::<ApprovedPaths>();
-    let mut approved = state.0.lock().unwrap();
-    if approved.remove(path) {
-        return Ok(());
-    }
-    // Pencerede uzantısız bir ad seçildiyse arayüz biçimin uzantısını ekler.
-    let p = Path::new(path);
-    let known = ["gpx", "kml", "tcx", "fit", "csv", "png"];
-    let base = p
-        .extension()
-        .and_then(|e| e.to_str())
-        .filter(|e| known.contains(&e.to_ascii_lowercase().as_str()))
-        .and_then(|_| p.with_extension("").to_str().map(str::to_owned));
-    if let Some(base) = base.filter(|b| Path::new(b).extension().is_none()) {
-        if approved.remove(&base) {
-            return Ok(());
-        }
-    }
-    Err("Bu konuma yazma izni yok; kaydetme yerini yeniden seçin".into())
-}
-
-/// İki yol aynı dosyayı mı gösteriyor (hedef henüz olmayabilir).
-fn same_file(a: &Path, b: &Path) -> bool {
-    let canon = |p: &Path| {
-        p.canonicalize().ok().or_else(|| {
-            let parent = p.parent()?.canonicalize().ok()?;
-            Some(parent.join(p.file_name()?))
-        })
-    };
-    match (canon(a), canon(b)) {
-        (Some(x), Some(y)) => x == y,
-        _ => a == b,
-    }
-}
-
-/// Kütüphanedeki dosyayı seçilen yere seçilen biçimde (gpx, kml, tcx) kaydeder.
-#[tauri::command]
-async fn export_as(
-    app: AppHandle,
-    src: String,
-    dest: String,
-    format: String,
-) -> Result<(), String> {
-    run_blocking(move || {
-        take_approved(&app, &dest)?;
-        app.state::<Library>().check(&src)?;
-        if same_file(Path::new(&src), Path::new(&dest)) {
-            return Err("Kayıt kendi üzerine kaydedilemez; başka bir yer seçin".into());
-        }
-        if format == "gpx" {
-            return std::fs::copy(&src, &dest)
-                .map(|_| ())
-                .map_err(|e| e.to_string());
-        }
-        let (gpx, _) = gpx_core::read_gpx_file(Path::new(&src)).map_err(|e| e.to_string())?;
-        let bytes = match format.as_str() {
-            "kml" => gpx_core::formats::write_kml(&gpx).into_bytes(),
-            "tcx" => gpx_core::formats::write_tcx(&gpx).into_bytes(),
-            "fit" => {
-                // FIT'te spor türü de yazılır: seçilen ya da özetteki gibi
-                // hazırlanmış (temizlenmiş) kayıttan tahmin edilen tür.
-                // Yazılan veri yine ham kayıttır.
-                let cfg = app.state::<SettingsStore>().stats();
-                let chosen = app.state::<MetaStore>().activity(&src);
-                let p = prepared(&app, &src, &cfg)?;
-                let (_, activity) = gpx_core::effective_config(&p.gpx, &cfg, chosen);
-                gpx_core::formats::write_fit(&gpx, activity)
-            }
-            other => return Err(format!("Bilinmeyen biçim: {other}")),
-        };
-        std::fs::write(&dest, bytes).map_err(|e| e.to_string())
-    })
-    .await?
-}
-
-/// Kütüphanedeki kayıtları (ham halleriyle) başlangıç zamanına göre
-/// sıralayıp tek bir izde birleştirir; her kayıt kendi segment(ler)ini korur.
-/// Kütüphaneye eklenmez, seçilen yere seçilen biçimde yazılır.
-fn merge_for_export(parts: Vec<gpx_core::parse::Gpx>) -> gpx_core::parse::Gpx {
-    let name = format!("GPXer – {} kayıt", parts.len());
-    let mut merged = gpx_core::ops::merge(parts, Some(name.clone()));
-    let segments = std::mem::take(&mut merged.tracks)
-        .into_iter()
-        .flat_map(|t| t.segments)
-        .collect();
-    merged.tracks = vec![gpx_core::parse::Track {
-        name: Some(name),
-        segments,
-    }];
-    merged
-}
-
-/// Seçilen kayıtları tek dosyada birleştirip seçilen yere seçilen biçimde
-/// (gpx, kml, tcx, fit) kaydeder.
-#[tauri::command]
-async fn export_many(
-    app: AppHandle,
-    paths: Vec<String>,
-    dest: String,
-    format: String,
-) -> Result<(), String> {
-    run_blocking(move || {
-        if !["gpx", "kml", "tcx", "fit"].contains(&format.as_str()) {
-            return Err(format!("Bilinmeyen biçim: {format}"));
-        }
-        if paths.is_empty() {
-            return Err("Dışa aktarılacak kayıt yok".into());
-        }
-        let library = app.state::<Library>();
-        for p in &paths {
-            library.check(p)?;
-        }
-        take_approved(&app, &dest)?;
-        if paths
-            .iter()
-            .any(|p| same_file(Path::new(p), Path::new(&dest)))
-        {
-            return Err("Kayıt kendi üzerine kaydedilemez; başka bir yer seçin".into());
-        }
-        // FIT'te spor türü yalnızca tüm kayıtlarda aynıysa yazılır. Tür,
-        // kayıtlar yeniden özetlenmeden seçilen türden ya da önbellekteki
-        // özetten alınır.
-        let activity = (format == "fit").then(|| {
-            let meta = app.state::<MetaStore>();
-            let kinds: Vec<gpx_core::Activity> = paths
-                .iter()
-                .map(|p| {
-                    meta.activity(p)
-                        .or_else(|| library.cached_activity(p))
-                        .unwrap_or_default()
-                })
-                .collect();
-            common_activity(&kinds)
-        });
-        let parts = paths
-            .iter()
-            .map(|p| read_raw(&app, p))
-            .collect::<Result<Vec<_>, _>>()?;
-        // Parçalar birleştirilirken taşınır (kopyalanmaz).
-        let merged = merge_for_export(parts);
-        write_export(&merged, &format, activity, Path::new(&dest))
-    })
-    .await?
-}
-
-/// Tüm türler aynıysa o tür, değilse bilinmiyor.
-fn common_activity(kinds: &[gpx_core::Activity]) -> gpx_core::Activity {
-    match kinds.first() {
-        Some(&first) if kinds.iter().all(|k| *k == first) => first,
-        _ => gpx_core::Activity::Unknown,
-    }
-}
-
-/// Birleştirilmiş kaydı hedefe yazar. Metin biçimleri bellekte tamamı
-/// oluşturulmadan akış halinde yazılır; FIT baytları bir kez oluşturulup
-/// doğrudan yazılır.
-fn write_export(
-    gpx: &gpx_core::parse::Gpx,
-    format: &str,
-    activity: Option<gpx_core::Activity>,
-    dest: &Path,
-) -> Result<(), String> {
-    use std::io::Write;
-    let file = std::fs::File::create(dest).map_err(|e| e.to_string())?;
-    let mut w = std::io::BufWriter::new(file);
-    let res = match format {
-        "gpx" => gpx_core::write::write_gpx_to(gpx, &mut w),
-        "kml" => gpx_core::formats::write_kml_to(gpx, &mut w),
-        "tcx" => gpx_core::formats::write_tcx_to(gpx, &mut w),
-        "fit" => {
-            let bytes = gpx_core::formats::write_fit(gpx, activity.unwrap_or_default());
-            w.write_all(&bytes).and_then(|_| w.flush())
-        }
-        other => Err(std::io::Error::other(format!("Bilinmeyen biçim: {other}"))),
-    };
-    let res = res.and_then(|_| w.into_inner().map_err(|e| e.into_error())?.sync_all());
-    if let Err(e) = res {
-        // Yarım dosya bırakılmaz.
-        let _ = std::fs::remove_file(dest);
-        return Err(e.to_string());
-    }
-    Ok(())
-}
-
-/// Bu oturumda `read_photos` ile döndürülen fotoğraf yolları; küçük resim
-/// yalnızca bunlar için okunur.
-#[derive(Default)]
-struct PhotoPaths(Mutex<HashSet<String>>);
-
-/// Fotoğrafların (dosyalar ya da klasörler) çekim zamanı ve konumu. Küçük
-/// resim (`thumb`) her zaman boştur; `photo_thumb` ile ayrıca istenir.
-#[tauri::command]
-async fn read_photos(app: AppHandle, paths: Vec<String>) -> Result<Vec<PhotoInfo>, String> {
-    run_blocking(move || {
-        let list = photos::read_all(&paths);
-        app.state::<PhotoPaths>()
-            .0
-            .lock()
-            .unwrap()
-            .extend(list.iter().map(|p| p.path.clone()));
-        list
-    })
-    .await
-}
-
-/// Fotoğrafın EXIF'e gömülü küçük resmi (data URL). Yalnızca daha önce
-/// `read_photos` ile döndürülmüş yollar için; diğerlerinde ve küçük resim
-/// yoksa `None`.
-#[tauri::command]
-async fn photo_thumb(app: AppHandle, path: String) -> Result<Option<String>, String> {
-    run_blocking(move || {
-        if !app.state::<PhotoPaths>().0.lock().unwrap().contains(&path) {
-            return None;
-        }
-        photos::thumb_data_url(Path::new(&path))
-    })
-    .await
-}
-
 /// Adlandırılmış yerler.
 #[tauri::command]
 fn get_places(store: tauri::State<'_, PlacesStore>) -> Vec<NamedPlace> {
@@ -629,28 +257,6 @@ async fn set_places(app: AppHandle, places: Vec<NamedPlace>) -> Result<(), Strin
         app.state::<PlacesStore>()
             .set(places)
             .map_err(|e| e.to_string())
-    })
-    .await?
-}
-
-#[tauri::command]
-async fn write_text_file(app: AppHandle, path: String, contents: String) -> Result<(), String> {
-    run_blocking(move || {
-        take_approved(&app, &path)?;
-        std::fs::write(&path, contents).map_err(|e| e.to_string())
-    })
-    .await?
-}
-
-/// Base64 ile gelen ikili veriyi (ör. PNG) dosyaya yazar.
-#[tauri::command]
-async fn write_base64_file(app: AppHandle, path: String, data: String) -> Result<(), String> {
-    run_blocking(move || {
-        take_approved(&app, &path)?;
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(data)
-            .map_err(|e| e.to_string())?;
-        std::fs::write(&path, bytes).map_err(|e| e.to_string())
     })
     .await?
 }
@@ -713,108 +319,6 @@ fn paths_from_args(args: impl IntoIterator<Item = String>, cwd: Option<&Path>) -
         .collect()
 }
 
-fn build_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    let open_files = MenuItemBuilder::with_id("open_files", "Dosya Aç…")
-        .accelerator("CmdOrCtrl+O")
-        .build(app)?;
-    let open_folder = MenuItemBuilder::with_id("open_folder", "Klasör Aç…")
-        .accelerator("CmdOrCtrl+Shift+O")
-        .build(app)?;
-    let close_all = MenuItemBuilder::with_id("close_all", "Kütüphaneyi Boşalt…")
-        .accelerator("CmdOrCtrl+Shift+W")
-        .build(app)?;
-    let fit_all = MenuItemBuilder::with_id("fit_all", "Tüm Kayıtlara Yakınlaştır")
-        .accelerator("CmdOrCtrl+0")
-        .build(app)?;
-    let check_updates =
-        MenuItemBuilder::with_id("check_updates", "Güncellemeleri Denetle…").build(app)?;
-    let toggle_sidebar = MenuItemBuilder::with_id("toggle_sidebar", "Kenar Çubuğunu Aç/Kapat")
-        .accelerator("CmdOrCtrl+B")
-        .build(app)?;
-    let summary = MenuItemBuilder::with_id("summary", "Özet…")
-        .accelerator("CmdOrCtrl+I")
-        .build(app)?;
-    let heatmap = MenuItemBuilder::with_id("toggle_heatmap", "Isı Haritası")
-        .accelerator("CmdOrCtrl+Shift+H")
-        .build(app)?;
-    let settings = MenuItemBuilder::with_id("settings", "Ayarlar…")
-        .accelerator("CmdOrCtrl+,")
-        .build(app)?;
-    let export_csv = MenuItemBuilder::with_id("export_csv", "Özet Tablosunu Dışa Aktar (CSV)…")
-        .accelerator("CmdOrCtrl+E")
-        .build(app)?;
-    let export_png = MenuItemBuilder::with_id("export_png", "Harita Görüntüsünü Kaydet (PNG)…")
-        .accelerator("CmdOrCtrl+Shift+E")
-        .build(app)?;
-    let export_gpx = MenuItemBuilder::with_id("export_gpx", "Seçili Kaydı Farklı Kaydet…")
-        .accelerator("CmdOrCtrl+S")
-        .build(app)?;
-    let merge = MenuItemBuilder::with_id("merge", "Seçilenleri Birleştir…").build(app)?;
-
-    let mut file = SubmenuBuilder::new(app, "Dosya")
-        .item(&open_files)
-        .item(&open_folder)
-        .separator()
-        .item(&export_gpx)
-        .item(&export_csv)
-        .item(&export_png)
-        .separator()
-        .item(&merge)
-        .separator()
-        .item(&close_all);
-    if !cfg!(target_os = "macos") {
-        file = file
-            .separator()
-            .item(&settings)
-            .separator()
-            .quit_with_text("Çıkış");
-    }
-    let file = file.build()?;
-
-    // macOS'ta arama kutusunda Cmd+C/V çalışması için Düzen menüsü gereklidir.
-    let edit = SubmenuBuilder::new(app, "Düzen")
-        .undo_with_text("Geri Al")
-        .redo_with_text("Yinele")
-        .separator()
-        .cut_with_text("Kes")
-        .copy_with_text("Kopyala")
-        .paste_with_text("Yapıştır")
-        .select_all_with_text("Tümünü Seç")
-        .build()?;
-    let view = SubmenuBuilder::new(app, "Görünüm")
-        .item(&fit_all)
-        .item(&toggle_sidebar)
-        .item(&heatmap)
-        .separator()
-        .item(&summary)
-        .build()?;
-
-    let mut menu = MenuBuilder::new(app);
-    if cfg!(target_os = "macos") {
-        let app_menu = SubmenuBuilder::new(app, "GPXer")
-            .about_with_text("GPXer Hakkında", None)
-            .item(&check_updates)
-            .separator()
-            .item(&settings)
-            .separator()
-            .hide_with_text("GPXer'ı Gizle")
-            .hide_others_with_text("Diğerlerini Gizle")
-            .show_all_with_text("Tümünü Göster")
-            .separator()
-            .quit_with_text("GPXer'dan Çık")
-            .build()?;
-        menu = menu.item(&app_menu);
-    }
-    menu = menu.item(&file).item(&edit).item(&view);
-    if !cfg!(target_os = "macos") {
-        let help = SubmenuBuilder::new(app, "Yardım")
-            .item(&check_updates)
-            .build()?;
-        menu = menu.item(&help);
-    }
-    menu.build()
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -828,8 +332,8 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(PendingPaths::default())
-        .manage(ApprovedPaths::default())
-        .manage(PhotoPaths::default())
+        .manage(export::ApprovedPaths::default())
+        .manage(photos::PhotoPaths::default())
         .setup(|app| {
             let handle = app.handle();
             let root = app.path().app_data_dir()?;
@@ -841,7 +345,7 @@ pub fn run() {
             app.manage(SettingsStore::open(&root));
             app.manage(meta);
             app.manage(PlacesStore::open(&root));
-            app.set_menu(build_menu(handle)?)?;
+            app.set_menu(menu::build_menu(handle)?)?;
             for e in start_watcher(handle) {
                 eprintln!("{e}");
             }
@@ -866,20 +370,20 @@ pub fn run() {
             restore_files,
             flush_cache,
             range_stats,
-            trim_file,
-            split_file,
-            merge_files,
-            export_as,
-            export_many,
-            pick_save_path,
+            edit::trim_file,
+            edit::split_file,
+            edit::merge_files,
+            export::export_as,
+            export::export_many,
+            export::pick_save_path,
             get_meta,
             set_meta,
-            write_text_file,
-            write_base64_file,
+            export::write_text_file,
+            export::write_base64_file,
             get_settings,
             set_settings,
-            read_photos,
-            photo_thumb,
+            photos::read_photos,
+            photos::photo_thumb,
             get_places,
             set_places
         ])
@@ -898,68 +402,4 @@ pub fn run() {
             queue_paths(_app, paths);
         }
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn gpx(text: &str) -> gpx_core::parse::Gpx {
-        gpx_core::parse_gpx(text.as_bytes()).unwrap()
-    }
-
-    #[test]
-    fn export_merge_keeps_sources_as_segments() {
-        let late = gpx(
-            r#"<gpx><trk><trkseg><trkpt lat="41" lon="29"><time>2024-05-02T06:00:00Z</time></trkpt><trkpt lat="41.01" lon="29"><time>2024-05-02T06:01:00Z</time></trkpt></trkseg></trk></gpx>"#,
-        );
-        let early = gpx(
-            r#"<gpx><trk><trkseg><trkpt lat="40" lon="29"><time>2024-05-01T06:00:00Z</time></trkpt></trkseg><trkseg><trkpt lat="40.1" lon="29"><time>2024-05-01T07:00:00Z</time></trkpt></trkseg></trk></gpx>"#,
-        );
-        let m = merge_for_export(vec![late, early]);
-        assert_eq!(m.name.as_deref(), Some("GPXer – 2 kayıt"));
-        assert_eq!(m.tracks.len(), 1);
-        assert_eq!(m.tracks[0].name.as_deref(), Some("GPXer – 2 kayıt"));
-        let firsts: Vec<f64> = m.tracks[0].segments.iter().map(|s| s[0].lat).collect();
-        // Başlangıç zamanına göre sıralı; kaynakların segmentleri korunur.
-        assert_eq!(firsts, [40.0, 40.1, 41.0]);
-        let text = gpx_core::write::write_gpx(&m);
-        assert_eq!(text.matches("<trkseg>").count(), 3);
-        assert!(!gpx_core::formats::write_fit(&m, gpx_core::Activity::Unknown).is_empty());
-    }
-
-    #[test]
-    fn export_streams_to_file_and_picks_activity() {
-        use gpx_core::Activity;
-        let dir = std::env::temp_dir().join(format!("gpxer-export-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let src = r#"<gpx><trk><trkseg><trkpt lat="41" lon="29"><time>2024-05-02T06:00:00Z</time></trkpt><trkpt lat="41.01" lon="29"><time>2024-05-02T06:01:00Z</time></trkpt></trkseg></trk></gpx>"#;
-        let m = merge_for_export(vec![gpx(src), gpx(src)]);
-        for f in ["gpx", "kml", "tcx", "fit"] {
-            let dest = dir.join(format!("out.{f}"));
-            write_export(&m, f, Some(Activity::Walk), &dest).unwrap();
-            let bytes = std::fs::read(&dest).unwrap();
-            let expected = match f {
-                "gpx" => gpx_core::write::write_gpx(&m).into_bytes(),
-                "kml" => gpx_core::formats::write_kml(&m).into_bytes(),
-                "tcx" => gpx_core::formats::write_tcx(&m).into_bytes(),
-                _ => gpx_core::formats::write_fit(&m, Activity::Walk),
-            };
-            assert_eq!(bytes, expected, "{f}");
-        }
-        let bad = dir.join("out.xyz");
-        assert!(write_export(&m, "xyz", None, &bad).is_err());
-        assert!(!bad.exists());
-        assert_eq!(
-            common_activity(&[Activity::Bike, Activity::Bike]),
-            Activity::Bike
-        );
-        assert_eq!(
-            common_activity(&[Activity::Bike, Activity::Run]),
-            Activity::Unknown
-        );
-        assert_eq!(common_activity(&[]), Activity::Unknown);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }

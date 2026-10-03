@@ -1,12 +1,15 @@
 //! Fotoğrafların EXIF bilgileri: çekim zamanı, GPS konumu ve gömülü küçük
 //! resim. Fotoğraflar kütüphaneye kopyalanmaz; yalnızca okunur.
 
+use crate::run_blocking;
 use base64::Engine;
 use exif::{In, Tag, Value};
 use rayon::prelude::*;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use tauri::{AppHandle, Manager};
 
 /// Bir seferde okunan en fazla fotoğraf sayısı.
 pub const MAX_PHOTOS: usize = 5000;
@@ -319,6 +322,44 @@ fn thumbnail(exif: &exif::Exif) -> Option<&[u8]> {
     }
     let bytes = exif.buf().get(off..off.checked_add(len)?)?;
     bytes.starts_with(&[0xFF, 0xD8]).then_some(bytes)
+}
+
+/// Bu oturumda `read_photos` ile döndürülen fotoğraf yolları; küçük resim
+/// yalnızca bunlar için okunur.
+#[derive(Default)]
+pub(crate) struct PhotoPaths(Mutex<HashSet<String>>);
+
+/// Fotoğrafların (dosyalar ya da klasörler) çekim zamanı ve konumu. Küçük
+/// resim (`thumb`) her zaman boştur; `photo_thumb` ile ayrıca istenir.
+#[tauri::command]
+pub(crate) async fn read_photos(
+    app: AppHandle,
+    paths: Vec<String>,
+) -> Result<Vec<PhotoInfo>, String> {
+    run_blocking(move || {
+        let list = read_all(&paths);
+        app.state::<PhotoPaths>()
+            .0
+            .lock()
+            .unwrap()
+            .extend(list.iter().map(|p| p.path.clone()));
+        list
+    })
+    .await
+}
+
+/// Fotoğrafın EXIF'e gömülü küçük resmi (data URL). Yalnızca daha önce
+/// `read_photos` ile döndürülmüş yollar için; diğerlerinde ve küçük resim
+/// yoksa `None`.
+#[tauri::command]
+pub(crate) async fn photo_thumb(app: AppHandle, path: String) -> Result<Option<String>, String> {
+    run_blocking(move || {
+        if !app.state::<PhotoPaths>().0.lock().unwrap().contains(&path) {
+            return None;
+        }
+        thumb_data_url(Path::new(&path))
+    })
+    .await
 }
 
 #[cfg(test)]
