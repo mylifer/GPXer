@@ -1117,3 +1117,52 @@ fn jumps_between_segments_are_gaps() {
     // Mesafeye katılmaz.
     assert!(s.stats.distance_m < 1.0);
 }
+
+#[test]
+fn removes_segments_teleported_far_away() {
+    // İstanbul'da kayıt; 3 segment boyunca önce okyanusta, sonra Boston'da
+    // (GPS hatası); sonra yine İstanbul.
+    let ist = |k: i64| pt(41.06, 28.98 + k as f64 * 1e-4, k * 60);
+    let a: Vec<Point> = (0..30).map(ist).collect();
+    let pac: Vec<Point> = (0..3)
+        .map(|k| pt(42.34, -175.59, 1800 + 120 + k * 10))
+        .collect();
+    let bos1: Vec<Point> = (0..2)
+        .map(|k| pt(42.366, -71.02, 1800 + 135 + k * 30))
+        .collect();
+    let bos2: Vec<Point> = (0..150)
+        .map(|k| pt(42.366, -71.019, 1800 + 200 + k * 60))
+        .collect();
+    let back: Vec<Point> = (0..30).map(|k| ist(200 + k)).collect();
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![a, pac, bos1, bos2, back],
+        }],
+        ..Default::default()
+    };
+    let p = prepare(gpx, &StatsConfig::default());
+    let segs = &p.gpx.tracks[0].segments;
+    // Ortadaki üç segment atılır (uçtakiler duraklama sadeleştirmesiyle
+    // kısalabilir ama boşalmaz).
+    let lens: Vec<usize> = segs.iter().map(|s| s.len()).collect();
+    assert_eq!(&lens[1..4], &[0, 0, 0], "{lens:?}");
+    assert!(lens[0] > 0 && lens[4] > 0, "{lens:?}");
+    assert_eq!(p.removed, 155);
+    let s = summarize(&p.gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
+    let b = s.stats.bbox.unwrap();
+    assert!(b[0] > 28.0, "{b:?}");
+
+    // Gerçek uçuş (gidip orada kalınan) silinmez.
+    let there: Vec<Point> = (0..30)
+        .map(|k| pt(50.9, 7.0 + k as f64 * 1e-4, 9000 + k * 60))
+        .collect();
+    let fly = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![(0..30).map(ist).collect(), there],
+        }],
+        ..Default::default()
+    };
+    assert_eq!(prepare(fly, &StatsConfig::default()).removed, 0);
+}

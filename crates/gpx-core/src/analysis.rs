@@ -341,6 +341,63 @@ pub fn clean_spikes(gpx: &mut Gpx) -> usize {
     primary_mut(gpx).map(clean_segment).sum()
 }
 
+/// Uçakla bile ulaşılamayacak hız: bundan hızlı sıçrama GPS hatasıdır.
+const TELEPORT_MS: f64 = 1200.0 / 3.6;
+/// Sıçramanın en az bu kadar uzağa olması gerekir ...
+const TELEPORT_MIN_M: f64 = 100_000.0;
+/// ... ve yanlış yerde en fazla bu kadar segment / süre kalınmış olmalı.
+const TELEPORT_MAX_SEGMENTS: usize = 6;
+const TELEPORT_MAX_MS: i64 = 24 * 3_600_000;
+
+/// Bütünüyle yanlış yerde kalan segment dizileri: önceki noktadan uçakla
+/// bile ulaşılamayan bir yere gidip, oradan yine öyle bir sıçramayla
+/// başlangıca dönen segmentler (ör. telefonun saatlerce Boston'da ya da
+/// okyanusta görünmesi). Segment içi temizlik bunları göremez. Atılacak
+/// segmentlerin sırası döner.
+pub fn teleport_segments(segs: &[&[Point]]) -> Vec<usize> {
+    let jump = |a: &Point, b: &Point| -> Option<f64> {
+        let dt = (b.time? - a.time?).abs().max(1000) as f64 / 1000.0;
+        let d = haversine_m(a, b);
+        (d > TELEPORT_MIN_M && d / dt > TELEPORT_MS).then_some(d)
+    };
+    let non_empty: Vec<usize> = (0..segs.len()).filter(|&i| !segs[i].is_empty()).collect();
+    let mut out = Vec::new();
+    let mut k = 1;
+    while k + 1 < non_empty.len() {
+        let prev = *segs[non_empty[k - 1]].last().unwrap();
+        let first = &segs[non_empty[k]][0];
+        let Some(d_in) = jump(&prev, first) else {
+            k += 1;
+            continue;
+        };
+        let mut found = None;
+        for e in k..(k + TELEPORT_MAX_SEGMENTS).min(non_empty.len() - 1) {
+            let last = segs[non_empty[e]].last().unwrap();
+            if last
+                .time
+                .zip(first.time)
+                .is_some_and(|(b, a)| b - a > TELEPORT_MAX_MS)
+            {
+                break;
+            }
+            let next = &segs[non_empty[e + 1]][0];
+            // Dönüş: oradan yine ulaşılamaz hızla, başlangıca yakın bir yere.
+            if jump(last, next).is_some() && haversine_m(&prev, next) < 0.2 * d_in {
+                found = Some(e);
+                break;
+            }
+        }
+        match found {
+            Some(e) => {
+                out.extend(non_empty[k..=e].iter().copied());
+                k = e + 2;
+            }
+            None => k += 1,
+        }
+    }
+    out
+}
+
 /// Duraklama sayılması için en az bu kadar süre ...
 const STAY_MIN_MS: i64 = 10 * 60 * 1000;
 /// ... bu yarıçap içinde kalınmalı.

@@ -99,12 +99,31 @@ pub fn prepare(mut gpx: Gpx, cfg: &StatsConfig) -> Prepared {
     } else {
         &mut gpx.tracks
     };
+    // Önce bütünüyle yanlış yerdeki segmentler (ham veride: segment içi
+    // temizlik onları kısaltmadan).
+    let teleported: Vec<usize> = if cfg.clean_spikes {
+        let view: Vec<&[Point]> = source
+            .iter()
+            .flat_map(|t| t.segments.iter().map(|s| s.as_slice()))
+            .collect();
+        analysis::teleport_segments(&view)
+    } else {
+        Vec::new()
+    };
     let mut map = Vec::new();
     let mut raw_lens = Vec::new();
-    for seg in source.iter_mut().flat_map(|t| t.segments.iter_mut()) {
+    for (i, seg) in source
+        .iter_mut()
+        .flat_map(|t| t.segments.iter_mut())
+        .enumerate()
+    {
         raw_lens.push(seg.len());
         let mut idx: Vec<u32> = (0..seg.len() as u32).collect();
-        if cfg.clean_spikes {
+        if teleported.contains(&i) {
+            removed += seg.len();
+            seg.clear();
+            idx.clear();
+        } else if cfg.clean_spikes {
             removed += analysis::clean_segment_indexed(seg, &mut idx);
             if cfg.collapse_stays {
                 collapsed += analysis::collapse_segment_stays_indexed(seg, &mut idx);
