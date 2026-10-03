@@ -53,6 +53,9 @@ export function useSelectedDetail({
     setDetailError(null);
     setRange(null);
     setPlaying(false);
+    // Başka kayda ait, kullanılmamış "Tarihe git" isteği sonra o kayıt
+    // açılınca imleci beklenmedik bir ana götürmesin.
+    if (seek && seek.path !== selected) setSeek(null);
   }
   useEffect(() => {
     cursor.set(null);
@@ -60,7 +63,11 @@ export function useSelectedDetail({
     let cancelled = false;
     loadDetail(selected)
       .then((d) => !cancelled && setDetail(d))
-      .catch((e) => !cancelled && setDetailError(String(e)));
+      .catch((e) => {
+        if (cancelled) return;
+        setDetailError(String(e));
+        setSeek(null);
+      });
     return () => {
       cancelled = true;
     };
