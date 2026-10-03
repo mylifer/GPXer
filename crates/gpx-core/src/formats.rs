@@ -551,57 +551,79 @@ fn write_kml_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
             );
             continue;
         }
-        if seg.iter().all(|p| p.time.is_some()) {
-            out.push_str("<gx:Track><altitudeMode>clampToGround</altitudeMode>\n");
-            for p in seg {
-                let _ = writeln!(out, "<when>{}</when>", format_time(p.time.unwrap()));
+        // Zamanlı noktalar gx:Track, zamansızlar LineString olarak yazılır;
+        // karışık segment parçalara bölünür (eskiden tüm zamanlar atılıyordu).
+        // Zamansız parça komşu noktaları da içerir ki çizgi kopmasın.
+        let mut a = 0;
+        while a < seg.len() {
+            let timed = seg[a].time.is_some();
+            let mut b = a;
+            while b < seg.len() && seg[b].time.is_some() == timed {
+                b += 1;
             }
-            for p in seg {
-                // Yükseklik bilinmiyorsa yazılmaz (0 m sanılmasın).
-                let _ = writeln!(
-                    out,
-                    "<gx:coord>{} {}{}</gx:coord>",
-                    p.lon,
-                    p.lat,
-                    p.ele.map(|e| format!(" {e}")).unwrap_or_default()
-                );
+            if timed && b - a >= 2 {
+                kml_track(out, &seg[a..b], &used);
+            } else {
+                kml_line(out, &seg[a.saturating_sub(1)..(b + 1).min(seg.len())]);
             }
-            let here: Vec<&&KmlSensor> = used
-                .iter()
-                .filter(|s| seg.iter().any(|p| (s.get)(p).is_some()))
-                .collect();
-            if !here.is_empty() {
-                out.push_str("<ExtendedData><SchemaData schemaUrl=\"#sensors\">\n");
-                for s in here {
-                    let _ = write!(out, "<gx:SimpleArrayData name=\"{}\">", s.name);
-                    for p in seg {
-                        match (s.get)(p) {
-                            Some(v) => {
-                                let _ = write!(out, "<gx:value>{v}</gx:value>");
-                            }
-                            None => out.push_str("<gx:value/>"),
-                        }
-                    }
-                    out.push_str("</gx:SimpleArrayData>\n");
-                }
-                out.push_str("</SchemaData></ExtendedData>\n");
-            }
-            out.push_str("</gx:Track>\n");
-        } else {
-            out.push_str("<LineString><tessellate>1</tessellate><coordinates>\n");
-            for p in seg {
-                let _ = writeln!(
-                    out,
-                    "{},{}{}",
-                    p.lon,
-                    p.lat,
-                    p.ele.map(|e| format!(",{e}")).unwrap_or_default()
-                );
-            }
-            out.push_str("</coordinates></LineString>\n");
+            a = b;
         }
     }
     out.push_str("</MultiGeometry></Placemark>\n</Document>\n</kml>\n");
+}
+
+/// gx:Track: zamanlar, koordinatlar ve sensör dizileri.
+fn kml_track<S: Sink + ?Sized>(out: &mut S, seg: &[Point], used: &[&KmlSensor]) {
+    out.push_str("<gx:Track><altitudeMode>clampToGround</altitudeMode>\n");
+    for p in seg {
+        let _ = writeln!(out, "<when>{}</when>", format_time(p.time.unwrap()));
+    }
+    for p in seg {
+        // Yükseklik bilinmiyorsa yazılmaz (0 m sanılmasın).
+        let _ = writeln!(
+            out,
+            "<gx:coord>{} {}{}</gx:coord>",
+            p.lon,
+            p.lat,
+            p.ele.map(|e| format!(" {e}")).unwrap_or_default()
+        );
+    }
+    let here: Vec<&&KmlSensor> = used
+        .iter()
+        .filter(|s| seg.iter().any(|p| (s.get)(p).is_some()))
+        .collect();
+    if !here.is_empty() {
+        out.push_str("<ExtendedData><SchemaData schemaUrl=\"#sensors\">\n");
+        for s in here {
+            let _ = write!(out, "<gx:SimpleArrayData name=\"{}\">", s.name);
+            for p in seg {
+                match (s.get)(p) {
+                    Some(v) => {
+                        let _ = write!(out, "<gx:value>{v}</gx:value>");
+                    }
+                    None => out.push_str("<gx:value/>"),
+                }
+            }
+            out.push_str("</gx:SimpleArrayData>\n");
+        }
+        out.push_str("</SchemaData></ExtendedData>\n");
+    }
+    out.push_str("</gx:Track>\n");
+}
+
+/// Zamansız noktalar için LineString.
+fn kml_line<S: Sink + ?Sized>(out: &mut S, seg: &[Point]) {
+    out.push_str("<LineString><tessellate>1</tessellate><coordinates>\n");
+    for p in seg {
+        let _ = writeln!(
+            out,
+            "{},{}{}",
+            p.lon,
+            p.lat,
+            p.ele.map(|e| format!(",{e}")).unwrap_or_default()
+        );
+    }
+    out.push_str("</coordinates></LineString>\n");
 }
 
 /// Garmin TCX (Training Center); her segment bir Track olur.

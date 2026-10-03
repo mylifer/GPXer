@@ -1424,3 +1424,39 @@ fn range_stats_use_the_whole_record_gap_rule() {
         chart
     );
 }
+
+#[test]
+fn kml_keeps_times_of_partly_timed_segments() {
+    let t = 1_700_000_000;
+    let untimed = |lon: f64| Point {
+        time: None,
+        ..pt(41.0, lon, 0)
+    };
+    let seg = vec![
+        pt(41.0, 29.000, t),
+        pt(41.0, 29.001, t + 1),
+        pt(41.0, 29.002, t + 2),
+        untimed(29.003),
+        untimed(29.004),
+        pt(41.0, 29.005, t + 5),
+        pt(41.0, 29.006, t + 6),
+    ];
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let kml = formats::write_kml(&gpx);
+    assert_eq!(kml.matches("<gx:Track>").count(), 2, "{kml}");
+    assert_eq!(kml.matches("<LineString>").count(), 1);
+    let back = formats::parse_kml(kml.as_bytes()).unwrap();
+    let timed = back.tracks[0]
+        .segments
+        .iter()
+        .flatten()
+        .filter(|p| p.time.is_some())
+        .count();
+    assert_eq!(timed, 5);
+}
