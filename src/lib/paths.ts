@@ -13,5 +13,8 @@ export function formatOf(path: string): { format: ExportFormat; hasExt: boolean 
   const name = baseName(path);
   const dot = name.lastIndexOf(".");
   const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-  return { format: ext === "kml" || ext === "tcx" || ext === "fit" ? ext : "gpx", hasExt: !!ext };
+  // Yalnızca bilinen iz uzantıları uzantı sayılır: "12.05.2024 Yürüyüş"
+  // ya da "a.csv" adına .gpx eklenir (uzantısız dosya yazılıyordu).
+  const known = ext === "gpx" || ext === "kml" || ext === "tcx" || ext === "fit";
+  return { format: known && ext !== "gpx" ? (ext as ExportFormat) : "gpx", hasExt: known };
 }
