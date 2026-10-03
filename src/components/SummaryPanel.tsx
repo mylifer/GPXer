@@ -224,14 +224,17 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
 
   // Grafik ölçüleri
   const slot = period === "month" ? 34 : 64;
-  const padL = 56;
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((t) => t * max);
+  // Sol boşluk en uzun eksen yazısına göre ("20.000 km" kesiliyordu); üstte
+  // en yüksek çubuğun değer yazısına yer kalır.
+  const padL = Math.max(56, 12 + Math.max(...ticks.map((t) => m.axis(t).length)) * 6.6);
   const padB = 26;
-  const padT = 18;
+  const padT = 24;
   const h = 220;
-  const w = Math.max(560, padL + buckets.length * slot + 8);
+  // Sağda son çubuğun değer yazısına yer kalır (kesiliyordu).
+  const w = Math.max(560, padL + buckets.length * slot + 28);
   const barW = Math.min(24, slot * 0.7);
   const y = (v: number) => padT + (h - padT - padB) * (1 - v / max);
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((t) => t * max);
 
   const pick = (b: Bucket) => {
     const [yy, mm] = b.key.split("-").map(Number);
