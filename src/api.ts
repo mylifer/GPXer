@@ -37,6 +37,9 @@ export interface Gap {
   start: number | null;
   end: number | null;
   distanceM: number;
+  /** Uzun boşlukların uçlarındaki yerleşim adları (eski önbellekte yok). */
+  fromPlace?: string | null;
+  toPlace?: string | null;
 }
 
 export interface FileSummary {
