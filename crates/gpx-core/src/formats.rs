@@ -692,7 +692,7 @@ const FIT_RECORD: FitMesg = FitMesg {
     local: 2,
     global: 20,
     // timestamp, lat, lon, distance (cm), enhanced_altitude (5/m, +500),
-    // heart_rate, cadence, power, temperature
+    // heart_rate, cadence, power, temperature, fractional_cadence (1/128)
     fields: &[
         (253, U32),
         (0, S32),
@@ -703,6 +703,7 @@ const FIT_RECORD: FitMesg = FitMesg {
         (4, U8),
         (7, U16),
         (13, S8),
+        (53, U8),
     ],
 };
 const FIT_LAP: FitMesg = FitMesg {
@@ -781,6 +782,7 @@ pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
         .filter(|s| !s.is_empty())
         .collect();
     let gap_rule = crate::GapRule::of(&segs);
+    let running = fit_sport(activity) == 1;
     // FIT'te gösterilemeyen (1998 öncesi) zamanlar yok sayılır.
     let valid = |ms: i64| ms.div_euclid(1000) - FIT_EPOCH_S >= FIT_MIN_TS;
     let now_ms = || {
@@ -836,6 +838,17 @@ pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
             }
             last_ms = ms;
             prev = Some(p);
+            // Koşuda FIT kadansı tek bacağın adımıdır: kayıttaki adım/dk
+            // ikiye bölünür, buçuk kısmı fractional_cadence'a yazılır
+            // (okurken ikiyle çarpılıyor).
+            let cad = p.cad.map(|c| {
+                if running {
+                    let half = f64::from(c) / 2.0;
+                    (half.floor(), Some((half.fract() * 128.0).round()))
+                } else {
+                    (f64::from(c), None)
+                }
+            });
             FIT_RECORD.write(
                 &mut body,
                 &[
@@ -845,9 +858,10 @@ pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
                     Some(dist * 100.0),
                     p.ele.map(|e| (e as f64 + 500.0) * 5.0),
                     p.hr.map(f64::from),
-                    p.cad.map(f64::from),
+                    cad.map(|c| c.0),
                     p.power.map(f64::from),
                     p.temp.map(f64::from),
+                    cad.and_then(|c| c.1),
                 ],
             );
         }

@@ -1213,3 +1213,28 @@ fn detail_keeps_every_recorded_hour() {
         .collect();
     assert_eq!(days.len(), 11);
 }
+
+#[test]
+fn fit_running_cadence_round_trips() {
+    // Kayıtta adım/dk (171); FIT'e tek bacak (85 + 0,5) yazılır, okununca
+    // yine 171 olur.
+    let seg: Vec<Point> = (0..5)
+        .map(|k| Point {
+            cad: Some(171.0),
+            ..pt(41.0, 29.0 + k as f64 * 1e-4, 1_700_000_000 + k)
+        })
+        .collect();
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let back = formats::parse_fit(&formats::write_fit(&gpx, Activity::Run)).unwrap();
+    let cads: Vec<Option<f32>> = back.tracks[0].segments[0].iter().map(|p| p.cad).collect();
+    assert!(cads.iter().all(|c| *c == Some(171.0)), "{cads:?}");
+    // Bisiklette kadans olduğu gibi yazılır.
+    let back = formats::parse_fit(&formats::write_fit(&gpx, Activity::Bike)).unwrap();
+    assert_eq!(back.tracks[0].segments[0][0].cad, Some(171.0));
+}
