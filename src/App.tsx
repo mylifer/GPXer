@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getMeta } from "./api";
 import type { MapHandle } from "./components/MapView";
 import { Sidebar } from "./components/Sidebar";
 import { UpdateNotice } from "./components/UpdateNotice";
@@ -154,11 +155,17 @@ export default function App() {
     say,
     fail,
   });
+  const refreshMeta = useCallback(
+    () =>
+      getMeta()
+        .then(setMetaState)
+        .catch(() => {}),
+    [setMetaState],
+  );
   const { trim, split, merge, openMerge } = useTrackEdits({
     selected,
     detail,
     range,
-    shown,
     multi,
     setMulti,
     setDialog,
@@ -166,6 +173,7 @@ export default function App() {
     pick,
     say,
     fail,
+    refreshMeta,
   });
   const { fitAll, showFlight, findAt, goTo, compareWith, zoomTo, selectAndZoom, startCompare } = useNavigation({
     filesRef,

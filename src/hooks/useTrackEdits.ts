@@ -8,7 +8,6 @@ export function useTrackEdits({
   selected,
   detail,
   range,
-  shown,
   multi,
   setMulti,
   setDialog,
@@ -16,11 +15,11 @@ export function useTrackEdits({
   pick,
   say,
   fail,
+  refreshMeta,
 }: {
   selected: string | null;
   detail: Detail | null;
   range: [number, number] | null;
-  shown: FileEntry[];
   multi: Set<string>;
   setMulti: Dispatch<SetStateAction<Set<string>>>;
   setDialog: SetDialog;
@@ -28,34 +27,46 @@ export function useTrackEdits({
   pick(path: string | null): void;
   say(msg: string): void;
   fail(message: string): void;
+  /** Yeni kayda arka uçta taşınan etiket ve türü arayüze de getirir (yoksa
+   * görünmüyor, ilk düzenlemede de siliniyordu). */
+  refreshMeta(): Promise<void>;
 }) {
   const trim = useCallback(async () => {
     if (!selected || !detail || !range) return;
     try {
       const added = addResults([await trimFile(selected, detail.idx[range[0]], detail.idx[range[1]])]);
+      await refreshMeta();
       if (added[0]) pick(added[0].summary.path);
     } catch (e) {
       fail(String(e));
     }
-  }, [selected, detail, range, addResults, fail, pick]);
+  }, [selected, detail, range, addResults, fail, pick, refreshMeta]);
 
   const split = useCallback(async () => {
     if (!selected || !detail || !range) return;
     try {
       const added = addResults(await splitFile(selected, detail.idx[range[0]]));
+      await refreshMeta();
       if (added.length === 2) say("Kayıt ikiye bölündü; iki yeni kayıt eklendi (orijinal duruyor).");
       if (added[1]) pick(added[1].summary.path);
     } catch (e) {
       fail(String(e));
     }
-  }, [selected, detail, range, addResults, fail, say, pick]);
+  }, [selected, detail, range, addResults, fail, say, pick, refreshMeta]);
 
   const merge = useCallback(
     async (name: string) => {
       setDialog(null);
-      const paths = shown.filter((f) => multi.has(f.summary.path)).map((f) => f.summary.path);
+      // Seçilenlerin tümü birleştirilir; bu arada süzgeçle gizlenenler de
+      // (yalnızca görünenler alınıyordu). Sıra arka uçta zamana göre.
+      const paths = [...multi];
+      if (paths.length < 2) {
+        say("Birleştirmek için en az iki kayıt seçin.");
+        return;
+      }
       try {
         const added = addResults([await mergeFiles(paths, name)]);
+        await refreshMeta();
         if (added[0]) {
           setMulti(new Set());
           pick(added[0].summary.path);
@@ -65,7 +76,7 @@ export function useTrackEdits({
         fail(String(e));
       }
     },
-    [shown, multi, addResults, say, fail, pick],
+    [multi, addResults, say, fail, pick, refreshMeta],
   );
 
   const openMerge = useCallback(() => {
