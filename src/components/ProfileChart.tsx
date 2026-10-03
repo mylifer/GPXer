@@ -56,6 +56,8 @@ export function ProfileChart({ detail, color, metrics, xAxis, tz, hoverIdx, rang
   cb.current = { onHover, onRange };
   const syncKey = useRef(`gpxer-${Math.random().toString(36).slice(2)}`);
 
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
   // Eksen ve çizgi renkleri temadan okunur: tema değişince yeniden kurulur.
   const dark = usePrefersDark();
   useEffect(() => {
@@ -176,6 +178,8 @@ export function ProfileChart({ detail, color, metrics, xAxis, tz, hoverIdx, rang
 
     const ro = new ResizeObserver(() => {
       for (const u of created) u.setSize({ width: el.clientWidth, height: rowHeight() });
+      // Boyut değişimi seçimi siliyordu (ör. eksen değişince ilk yerleşimde).
+      showRange(created, x, rangeRef.current);
     });
     ro.observe(el);
     return () => {
@@ -205,18 +209,23 @@ export function ProfileChart({ detail, color, metrics, xAxis, tz, hoverIdx, rang
 
   // Seçili aralığı tüm şeritlerde göster.
   useEffect(() => {
-    for (const u of plots.current) {
-      const n = xs.current.length;
-      if (!range || n === 0) {
-        u.setSelect({ left: 0, width: 0, top: 0, height: 0 }, false);
-        continue;
-      }
-      const left = u.valToPos(xs.current[Math.min(range[0], n - 1)], "x");
-      const right = u.valToPos(xs.current[Math.min(range[1], n - 1)], "x");
-      u.setSelect({ left, width: right - left, top: 0, height: u.over.clientHeight }, false);
-    }
+    showRange(plots.current, xs.current, range);
     // Bağımlılıklar grafiği kuran efektle aynı olmalı: yeniden kurulumda seçim kaybolmasın.
-  }, [range, detail, color, metrics, xAxis, tz]);
+  }, [range, detail, color, metrics, xAxis, tz, dark]);
 
   return <div ref={host} className="chart" />;
+}
+
+/** Seçili aralığı (örnek sıraları) şeritlerde gölgeler; aralık yoksa siler. */
+function showRange(plots: uPlot[], xs: number[], range: [number, number] | null) {
+  const n = xs.length;
+  for (const u of plots) {
+    if (!range || n === 0) {
+      u.setSelect({ left: 0, width: 0, top: 0, height: 0 }, false);
+      continue;
+    }
+    const left = u.valToPos(xs[Math.min(range[0], n - 1)], "x");
+    const right = u.valToPos(xs[Math.min(range[1], n - 1)], "x");
+    u.setSelect({ left, width: right - left, top: 0, height: u.over.clientHeight }, false);
+  }
 }
