@@ -89,7 +89,16 @@ async fn load_files(
                     return (p, None, Err(r));
                 }
                 let chosen = meta.activity(&p);
-                let res = library.summarize(&p, &cfg, chosen);
+                // Ayrıştırıcıda beklenmeyen bir çökme yalnızca o dosyayı
+                // hatalı sayar; partideki diğer dosyalar yüklenir.
+                let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    library.summarize(&p, &cfg, chosen)
+                }))
+                .unwrap_or_else(|_| {
+                    Err(library::SummaryError::Failed(
+                        "Dosya okunurken beklenmeyen bir hata oluştu".into(),
+                    ))
+                });
                 (p, chosen, Ok(res))
             })
             .collect();

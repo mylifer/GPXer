@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Önbellek biçimi ya da özet hesaplaması değiştiğinde artırılır; eski
@@ -422,7 +422,7 @@ impl Library {
             cfg: *cfg,
         };
         {
-            let mut list = self.prepared.lock().unwrap();
+            let mut list = self.prepared.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(pos) = list.iter().position(|(k, _)| *k == key) {
                 let hit = list.remove(pos).unwrap();
                 let p = hit.1.clone();
@@ -432,7 +432,7 @@ impl Library {
         }
         let (p, _) = gpx_core::read_prepared(Path::new(path), cfg).map_err(|e| e.to_string())?;
         let p = Arc::new(p);
-        let mut list = self.prepared.lock().unwrap();
+        let mut list = self.prepared.lock().unwrap_or_else(PoisonError::into_inner);
         list.retain(|(k, _)| k.path != key.path);
         list.push_front((key, p.clone()));
         list.truncate(PREPARED_KEEP);
@@ -441,7 +441,10 @@ impl Library {
 
     /// Silinen bir kaydın parmak izi mi (izlenen klasörden yeniden eklenmez).
     pub fn is_dismissed(&self, fingerprint: u64) -> bool {
-        self.dismissed.lock().unwrap().contains_key(&fingerprint)
+        self.dismissed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(&fingerprint)
     }
 
     /// Yükleme silinen kayıt yüzünden atlanmalı mı: yalnızca kendiliğinden
@@ -452,7 +455,10 @@ impl Library {
 
     /// Kaydı silinenlerden çıkarır (kullanıcı yeniden açtı ya da geri aldı).
     pub fn undismiss(&self, fingerprint: u64) {
-        let mut map = self.dismissed.lock().unwrap();
+        let mut map = self
+            .dismissed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         if map.remove(&fingerprint).is_some() {
             self.save_dismissed(&map);
         }
@@ -478,7 +484,13 @@ impl Library {
         let meta = std::fs::metadata(path)
             .map_err(|e| SummaryError::Failed(format!("Dosya okunamadı: {e}")))?;
         let (size, mtime) = (meta.len(), mtime_ms(&meta));
-        if let Some(e) = self.cache.lock().unwrap().entries.get(path) {
+        if let Some(e) = self
+            .cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entries
+            .get(path)
+        {
             if e.size == size && e.mtime == mtime && e.cfg == *cfg && e.chosen == chosen {
                 return Ok((e.summary.clone(), e.fingerprint));
             }
@@ -503,7 +515,7 @@ impl Library {
         } else {
             visits(&prepared.gpx, &summary.hours)
         };
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
         if self.contains(Path::new(path)) {
             cache.entries.insert(
                 path.to_owned(),
@@ -534,7 +546,7 @@ impl Library {
     /// yeniden okunmaz.
     pub fn cached_activity(&self, path: &str) -> Option<Activity> {
         let meta = std::fs::metadata(path).ok()?;
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
         let e = cache.entries.get(path)?;
         (e.size == meta.len() && e.mtime == mtime_ms(&meta)).then_some(e.summary.activity)
     }
@@ -544,7 +556,7 @@ impl Library {
         // Disk denetimleri ve yazma kilit dışında: ağ sürücüsündeki yollar
         // yavaş olabilir, bu sırada özet hesaplayan işler beklemesin.
         let paths: Vec<String> = {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
             cache
                 .entries
                 .keys()
@@ -557,7 +569,7 @@ impl Library {
             .filter(|p| !Path::new(p).exists())
             .collect();
         let bytes = {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
             for p in &gone {
                 cache.entries.remove(p);
                 cache.seen.remove(p);
@@ -576,7 +588,10 @@ impl Library {
         };
         let res = crate::store::write_atomic(&self.cache_path, &bytes);
         if res.is_err() {
-            self.cache.lock().unwrap().dirty = true;
+            self.cache
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .dirty = true;
         }
         res
     }
@@ -590,7 +605,7 @@ impl Library {
         }
         let meta = std::fs::metadata(path).ok()?;
         let fp = {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
             let e = cache.seen.get(path)?;
             (e.size == meta.len() && e.mtime == mtime_ms(&meta)).then_some(e.fingerprint)?
         };
@@ -600,7 +615,12 @@ impl Library {
                 path: path.to_owned(),
             });
         }
-        let existing = self.known.lock().unwrap().get(&fp).cloned()?;
+        let existing = self
+            .known
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&fp)
+            .cloned()?;
         (existing != path).then(|| LoadResult::Duplicate {
             path: path.to_owned(),
             existing,
@@ -617,7 +637,7 @@ impl Library {
         cfg: &StatsConfig,
         chosen: Option<Activity>,
     ) -> LoadResult {
-        let mut known = self.known.lock().unwrap();
+        let mut known = self.known.lock().unwrap_or_else(PoisonError::into_inner);
         // Özet hesaplanırken kütüphaneden silinmiş (çöp kutusuna taşınmış)
         // olabilir: silinen dosya yeniden kaydedilmez. Taşıma aynı kilit
         // altında yapıldığından bu denetim yarışmaz.
@@ -662,7 +682,7 @@ impl Library {
             // Kopya aynı içerikte: bir sonraki açılışta yeniden okunmasın.
             if let Ok(meta) = std::fs::metadata(&stored) {
                 file.file_size = meta.len();
-                let mut cache = self.cache.lock().unwrap();
+                let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
                 cache.entries.insert(
                     stored.clone(),
                     CacheEntry {
@@ -693,7 +713,7 @@ impl Library {
     /// Kütüphanedeki dosyaları çöp kutusuna taşır. Taşınamayanlar atlanır;
     /// hiçbiri taşınamadıysa hata döner.
     pub fn trash(&self, paths: &[String]) -> Result<Vec<TrashItem>, String> {
-        let mut known = self.known.lock().unwrap();
+        let mut known = self.known.lock().unwrap_or_else(PoisonError::into_inner);
         let mut out = Vec::new();
         let mut errors = Vec::new();
         let mut dismissed = Vec::new();
@@ -714,7 +734,13 @@ impl Library {
                 .filter(|(_, v)| *v == p)
                 .map(|(k, _)| *k)
                 .collect();
-            if let Some(e) = self.cache.lock().unwrap().entries.get(p) {
+            if let Some(e) = self
+                .cache
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entries
+                .get(p)
+            {
                 fps.push(e.fingerprint);
             }
             known.retain(|_, v| v != p);
@@ -726,7 +752,10 @@ impl Library {
         }
         drop(known);
         if !dismissed.is_empty() {
-            let mut map = self.dismissed.lock().unwrap();
+            let mut map = self
+                .dismissed
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
             for (fp, trashed) in dismissed {
                 map.entry(fp).or_default().insert(trashed);
             }
@@ -784,7 +813,10 @@ impl Library {
         // Aynı içeriğin herhangi bir kopyası geri gelince kayıt artık silinmiş
         // sayılmaz.
         let restored: Vec<&String> = out.iter().map(|(t, _)| t).collect();
-        let mut map = self.dismissed.lock().unwrap();
+        let mut map = self
+            .dismissed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         let before = map.len();
         map.retain(|_, v| !v.is_empty() && !restored.iter().any(|t| v.contains(*t)));
         if map.len() != before {
