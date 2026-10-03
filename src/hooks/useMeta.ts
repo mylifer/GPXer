@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import type { SetDialog } from "./dialog";
-import { setMeta as saveMeta, type FileMeta } from "../api";
+import { addTag, setMeta as saveMeta, type FileMeta } from "../api";
 import { fmtNumber } from "../format";
 import type { FileEntry } from "../types";
 
@@ -47,13 +47,17 @@ export function useMeta({
     async (tag: string) => {
       setDialog(null);
       const paths = [...multi];
-      for (const p of paths) {
-        const m = meta[p] ?? EMPTY_META;
-        if (!m.tags.includes(tag)) await updateMeta(p, { ...m, tags: [...m.tags, tag] });
+      // Tek istek, tek yeniden çizim (kayıt başına kaydetmek binlerce kayıtta
+      // onlarca saniye sürüyordu).
+      try {
+        const changed = await addTag(paths, tag);
+        setMetaState((prev) => ({ ...prev, ...changed }));
+        say(`${fmtNumber(paths.length)} kayda “${tag}” etiketi eklendi.`);
+      } catch (e) {
+        fail(String(e));
       }
-      say(`${fmtNumber(paths.length)} kayda “${tag}” etiketi eklendi.`);
     },
-    [multi, meta, updateMeta, say],
+    [multi, say, fail],
   );
 
   return { meta, setMetaState, allTags, updateMeta, tagMany };

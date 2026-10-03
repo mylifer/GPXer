@@ -74,6 +74,33 @@ impl MetaStore {
         Ok(old)
     }
 
+    /// Kayıtlara etiket ekler; dosya bir kez yazılır. Değişen kayıtların
+    /// yeni bilgilerini döndürür.
+    pub fn add_tag(
+        &self,
+        paths: &[String],
+        tag: &str,
+    ) -> std::io::Result<HashMap<String, FileMeta>> {
+        let mut map = self.map.lock().unwrap();
+        let mut next = map.clone();
+        let mut changed = HashMap::new();
+        for p in paths {
+            let mut m = next.get(p).cloned().unwrap_or_default();
+            let before = m.tags.len();
+            m.tags.push(tag.to_owned());
+            m.tags = clean_tags(m.tags);
+            if m.tags.len() != before {
+                next.insert(p.clone(), m.clone());
+                changed.insert(p.clone(), m);
+            }
+        }
+        if !changed.is_empty() {
+            self.save(&next)?;
+            *map = next;
+        }
+        Ok(changed)
+    }
+
     pub fn get(&self, path: &str) -> FileMeta {
         self.map
             .lock()
@@ -201,5 +228,27 @@ mod tests {
         );
         assert!(r.is_err());
         assert!(m.all().is_empty());
+    }
+
+    #[test]
+    fn adds_tag_to_many_in_one_write() {
+        let root = std::env::temp_dir().join(format!("gpxer-meta-many-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let m = MetaStore::open(&root);
+        m.set(
+            "a",
+            FileMeta {
+                tags: vec!["İş".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let changed = m.add_tag(&["a".into(), "b".into()], "iş").unwrap();
+        // "a" zaten etiketli (büyük/küçük harf Türkçe kurallarıyla).
+        assert_eq!(changed.keys().collect::<Vec<_>>(), vec!["b"]);
+        let again = MetaStore::open(&root);
+        assert_eq!(again.get("b").tags, vec!["iş"]);
+        assert_eq!(again.get("a").tags, vec!["İş"]);
     }
 }

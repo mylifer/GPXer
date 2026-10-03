@@ -202,6 +202,27 @@ async fn set_meta(
     .await?
 }
 
+/// Seçili kayıtlara tek seferde etiket ekler; değişen kayıtların bilgilerini
+/// döndürür.
+#[tauri::command]
+async fn add_tag(
+    app: AppHandle,
+    paths: Vec<String>,
+    tag: String,
+) -> Result<std::collections::HashMap<String, FileMeta>, String> {
+    run_blocking(move || {
+        let library = app.state::<Library>();
+        let paths: Vec<String> = paths
+            .into_iter()
+            .filter(|p| library.check(p).is_ok())
+            .collect();
+        app.state::<MetaStore>()
+            .add_tag(&paths, &tag)
+            .map_err(|e| e.to_string())
+    })
+    .await?
+}
+
 /// Asıl noktaların `[start, end]` aralığının tam çözünürlüklü istatistiği.
 #[tauri::command]
 async fn range_stats(
@@ -370,6 +391,7 @@ pub fn run() {
             expand_paths,
             load_files,
             load_detail,
+            add_tag,
             take_pending_paths,
             library_files,
             remove_files,

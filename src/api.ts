@@ -184,6 +184,8 @@ export const exportAs = (src: string, dest: string, format: ExportFormat) =>
 export const getMeta = () => invoke<Record<string, FileMeta>>("get_meta");
 /** Tür değiştiyse yeniden hesaplanan özet döner. */
 export const setMeta = (path: string, value: FileMeta) => invoke<LoadResult | null>("set_meta", { path, value });
+/** Kayıtlara tek seferde etiket ekler; değişen kayıtların yeni bilgileri döner. */
+export const addTag = (paths: string[], tag: string) => invoke<Record<string, FileMeta>>("add_tag", { paths, tag });
 interface SaveFilter {
   name: string;
   extensions: string[];
