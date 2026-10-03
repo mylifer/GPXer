@@ -185,8 +185,9 @@ pub fn summarize_with(
         stats.bbox = Some(b);
     }
 
-    let (pieces, gaps) = split_at_gaps(&segments);
-    let hours = hourly_buckets(&pieces, &eff);
+    let rule = GapRule::of(&segments);
+    let (pieces, gaps) = segments::split_with(&segments, &rule);
+    let hours = hourly_buckets(&pieces, &eff, rule.max_moving_ms());
     let simplified: Vec<Vec<Point>> = pieces
         .iter()
         .map(|seg| simplify::douglas_peucker(seg, MAP_TOLERANCE_M))
@@ -264,9 +265,13 @@ pub fn summarize_with(
 /// Asıl noktaların `[start, end]` (dahil) aralığının istatistiği. Sıra
 /// numaraları [`Detail::idx`] ile aynıdır.
 pub fn range_stats(gpx: &Gpx, start: usize, end: usize, cfg: &StatsConfig) -> Stats {
-    let parts = ops::slice_segments(&primary_segments(gpx), start, end);
+    let all = primary_segments(gpx);
+    // Boşluklar tüm kaydın kuralıyla belirlenir (grafikle aynı); dilimin kendi
+    // nokta sıklığı başka sonuç verebiliyordu.
+    let rule = GapRule::of(&all);
+    let parts = ops::slice_segments(&all, start, end);
     let parts: Vec<&[Point]> = parts.iter().map(|s| s.as_slice()).collect();
-    track_stats(&parts, cfg)
+    segments::track_stats_with(&parts, cfg, &rule)
 }
 
 /// Dosyanın içeriğine göre parmak izi: iz/rota noktalarının konum ve

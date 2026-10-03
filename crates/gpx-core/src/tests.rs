@@ -1380,3 +1380,47 @@ fn parses_iso_8601_variants() {
     assert_eq!(parse::parse_time("2024-01-01T07:00"), utc7);
     assert_eq!(parse::parse_time("dün"), None);
 }
+
+#[test]
+fn sparse_steps_count_as_moving_time() {
+    // 15 dakikada bir nokta, adım başına ~1 km: yürüyüş.
+    let seg: Vec<Point> = (0..20)
+        .map(|k| pt(41.0 + k as f64 * 0.009, 29.0, k * 900))
+        .collect();
+    let s = track_stats(&[&seg], &StatsConfig::default());
+    let moving_h = s.moving_ms.unwrap_or(0) as f64 / 3_600_000.0;
+    assert!((moving_h - 4.75).abs() < 0.01, "{moving_h}");
+    let v = s.avg_moving_speed_ms.unwrap() * 3.6;
+    assert!((3.5..4.5).contains(&v), "{v}");
+}
+
+#[test]
+fn range_stats_use_the_whole_record_gap_rule() {
+    // 1 sn'lik 300 nokta, 12 dk / 3 km'lik bir adım, sonra 5 dk'da bir 400
+    // nokta: kaydın kuralında (15 dk) o adım boşluk değil; grafikle aynı.
+    let mut seg: Vec<Point> = (0..300)
+        .map(|k| pt(41.0, 29.0 + k as f64 * 1e-5, k))
+        .collect();
+    let last = seg[299];
+    seg.push(pt(41.027, last.lon, 299 + 720));
+    for k in 1..400 {
+        seg.push(pt(41.027 + k as f64 * 1e-3, last.lon, 299 + 720 + k * 300));
+    }
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let d = build_detail(&gpx);
+    let k = d.idx.iter().position(|&i| i >= 310).unwrap();
+    let chart = d.dist[k] - d.dist[0];
+    let st = range_stats(&gpx, 0, d.idx[k] as usize, &StatsConfig::default());
+    assert!(
+        (st.distance_m - chart).abs() < 1.0,
+        "{} {}",
+        st.distance_m,
+        chart
+    );
+}

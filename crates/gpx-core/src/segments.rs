@@ -1,7 +1,7 @@
 //! Asıl segmentler, kayıt boşlukları ve saatlik toplamlar.
 
 use crate::parse::{Gpx, Point};
-use crate::stats::{self, compute_stats, Stats, StatsConfig};
+use crate::stats::{self, Stats, StatsConfig};
 use crate::Gap;
 
 /// Dosyanın asıl verisi olarak kullanılacak segmentler: iz (track) varsa
@@ -58,6 +58,13 @@ impl GapRule {
         }
     }
 
+    /// Hareket süresine sayılabilecek en uzun adım: boşluk sayılmayan her
+    /// adım (seyrek kayıtta 10 dakikadan uzun olanlar da) hareket olabilir;
+    /// yoksa mesafesi sayılıp süresi sayılmıyor, hız şişiyordu.
+    pub(crate) fn max_moving_ms(&self) -> i64 {
+        self.min_ms
+    }
+
     pub(crate) fn is_gap(&self, a: &Point, b: &Point) -> bool {
         is_gap_with(a, b, self.min_ms)
     }
@@ -80,7 +87,11 @@ pub(crate) const HOUR_MS: i64 = 3_600_000;
 /// Boşluklarda bölünmüş parçalardan saatlik mesafe ve hareket süresi.
 /// Bir adım, başladığı saate yazılır. Zamanlı noktası olan her saat listede
 /// bulunur.
-pub(crate) fn hourly_buckets(pieces: &[&[Point]], cfg: &StatsConfig) -> Vec<[f64; 3]> {
+pub(crate) fn hourly_buckets(
+    pieces: &[&[Point]],
+    cfg: &StatsConfig,
+    max_moving_ms: i64,
+) -> Vec<[f64; 3]> {
     let mut map: std::collections::BTreeMap<i64, (f64, i64)> = Default::default();
     for piece in pieces {
         for w in piece.windows(2) {
@@ -92,10 +103,7 @@ pub(crate) fn hourly_buckets(pieces: &[&[Point]], cfg: &StatsConfig) -> Vec<[f64
             let e = map.entry(hour).or_default();
             e.0 += step;
             let dt = t1 - t0;
-            if dt > 0
-                && dt <= stats::MAX_MOVING_GAP_MS
-                && step / (dt as f64 / 1000.0) >= cfg.moving_speed_ms
-            {
+            if dt > 0 && dt <= max_moving_ms && step / (dt as f64 / 1000.0) >= cfg.moving_speed_ms {
                 e.1 += dt;
             }
         }
@@ -173,7 +181,15 @@ pub fn hour_first_points(gpx: &Gpx, hours: &[[f64; 3]]) -> Vec<(i64, [f64; 2])> 
 
 /// Segmentleri kayıt boşluklarında parçalara böler.
 pub fn split_at_gaps<'a>(segments: &[&'a [Point]]) -> (Vec<&'a [Point]>, Vec<Gap>) {
-    let rule = GapRule::of(segments);
+    split_with(segments, &GapRule::of(segments))
+}
+
+/// [`split_at_gaps`], verilen boşluk kuralıyla (aralık istatistiği tüm
+/// kaydın kuralını kullanır).
+pub(crate) fn split_with<'a>(
+    segments: &[&'a [Point]],
+    rule: &GapRule,
+) -> (Vec<&'a [Point]>, Vec<Gap>) {
     let gap = |a: &Point, b: &Point| Gap {
         from: [round6(a.lon), round6(a.lat)],
         to: [round6(b.lon), round6(b.lat)],
@@ -218,8 +234,12 @@ pub(crate) fn round6(v: f64) -> f64 {
 /// sınırı sayılır: mesafeye, hareket süresine ve hıza katılmaz. Segment
 /// sayısı dosyadaki segmentlerindir.
 pub fn track_stats(segments: &[&[Point]], cfg: &StatsConfig) -> Stats {
-    let (pieces, _) = split_at_gaps(segments);
-    let mut s = compute_stats(pieces.iter().copied(), cfg);
+    track_stats_with(segments, cfg, &GapRule::of(segments))
+}
+
+pub(crate) fn track_stats_with(segments: &[&[Point]], cfg: &StatsConfig, rule: &GapRule) -> Stats {
+    let (pieces, _) = split_with(segments, rule);
+    let mut s = stats::compute_stats_capped(pieces.iter().copied(), cfg, rule.max_moving_ms());
     s.segment_count = segments.iter().filter(|s| !s.is_empty()).count();
     s
 }

@@ -105,6 +105,16 @@ pub fn compute_stats<'a>(
     segments: impl IntoIterator<Item = &'a [Point]>,
     cfg: &StatsConfig,
 ) -> Stats {
+    compute_stats_capped(segments, cfg, MAX_MOVING_GAP_MS)
+}
+
+/// [`compute_stats`]; `max_moving_ms`tan uzun adımlar hareket süresine ve
+/// en yüksek hıza katılmaz (seyrek kayıtta daha uzun olabilir).
+pub(crate) fn compute_stats_capped<'a>(
+    segments: impl IntoIterator<Item = &'a [Point]>,
+    cfg: &StatsConfig,
+    max_moving_ms: i64,
+) -> Stats {
     let mut s = Stats::default();
     let (mut hr, mut cad, mut power, mut temp) = (
         Acc::default(),
@@ -180,7 +190,7 @@ pub fn compute_stats<'a>(
                     if dt > 0 {
                         has_time_pairs = true;
                         let speed = step / (dt as f64 / 1000.0);
-                        if speed >= cfg.moving_speed_ms && dt <= MAX_MOVING_GAP_MS {
+                        if speed >= cfg.moving_speed_ms && dt <= max_moving_ms {
                             moving_ms += dt;
                         }
                     }
@@ -207,7 +217,7 @@ pub fn compute_stats<'a>(
                 break;
             }
             let dt = (seg[j].time.unwrap() - ti) as f64 / 1000.0;
-            if dt > 0.0 && dt * 1000.0 <= MAX_MOVING_GAP_MS as f64 {
+            if dt > 0.0 && dt * 1000.0 <= max_moving_ms as f64 {
                 let v = (cum[j] - cum[i]) / dt;
                 max_speed = Some(max_speed.map_or(v, |m: f64| m.max(v)));
             }
