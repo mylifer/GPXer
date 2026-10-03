@@ -1186,6 +1186,9 @@ fn sparse_records_get_a_longer_gap_threshold() {
     let s = summarize(&gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
     assert_eq!(s.gaps.len(), 1);
     assert!(s.stats.distance_m > 180_000.0);
+    // Ama haritada 12 dakikalık 5 km'lik adımlar düz çizgiyle birleştirilmez
+    // (şehri kat eden çizgiler).
+    assert!(s.lines.iter().all(|l| l.len() < 2), "{:?}", s.lines.len());
 }
 
 #[test]

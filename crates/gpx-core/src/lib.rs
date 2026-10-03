@@ -188,7 +188,9 @@ pub fn summarize_with(
     let rule = GapRule::of(&segments);
     let (pieces, gaps) = segments::split_with(&segments, &rule);
     let hours = hourly_buckets(&pieces, &eff, rule.max_moving_ms());
-    let simplified: Vec<Vec<Point>> = pieces
+    // Harita çizgisi uzun atlamalarda ayrıca kesilir (bkz. GapRule::fixed).
+    let (drawn, _) = segments::split_with(&pieces, &GapRule::fixed());
+    let simplified: Vec<Vec<Point>> = drawn
         .iter()
         .map(|seg| simplify::douglas_peucker(seg, MAP_TOLERANCE_M))
         .filter(|l| l.len() >= 2)

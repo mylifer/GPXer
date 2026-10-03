@@ -38,6 +38,14 @@ pub(crate) struct GapRule {
 }
 
 impl GapRule {
+    /// Nokta sıklığından bağımsız kural (10 dakika ve 2 km): harita çizgisi
+    /// bununla kesilir. Seyrek kayıtta uyarlanmış kural mesafe ve süre için
+    /// doğru, ama 10-15 dakikalık her sürüş adımı haritada şehri kat eden düz
+    /// bir çizgi olarak görünüyordu.
+    pub(crate) fn fixed() -> Self {
+        GapRule { min_ms: GAP_MIN_MS }
+    }
+
     pub(crate) fn of(segments: &[&[Point]]) -> Self {
         // Olağan aralık: zaman adımlarının ortancası (en çok 20 bin örnek).
         let mut steps: Vec<i64> = segments
