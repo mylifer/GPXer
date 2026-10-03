@@ -287,12 +287,15 @@ export function coloredGeoJSON(
   values: (number | null)[],
   [lo, hi]: [number, number],
   ramp: string[],
+  /** Tarih filtresi: aralık dışındaki parçalar çizilmez. */
+  inWin?: (t: number | null) => boolean,
 ): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   const gaps = gapSteps(detail);
   for (let i = 0; i + 1 < detail.lat.length; i++) {
     const v = values[i];
     if (v == null || gaps.has(i)) continue;
+    if (inWin && !(inWin(detail.time[i]) && inWin(detail.time[i + 1]))) continue;
     const t = (v - lo) / (hi - lo);
     const k = Math.max(0, Math.min(ramp.length - 1, Math.round(t * (ramp.length - 1))));
     features.push({

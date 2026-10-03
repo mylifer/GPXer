@@ -5,6 +5,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // çalışmadığı için worker'ı Vite'a ayrı parça olarak paketletip adresini veriyoruz.
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import type { FileEntry } from "../types";
+import { tzOf } from "../format";
 import { STYLE, addOverlayLayers, type BaseLayer } from "../map/style";
 import { boundsOf, type DateWindow } from "../map/geojson";
 import type { MapRefs, MapViewProps } from "../map/context";
@@ -184,7 +185,11 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
   const dark = baseLayer === "dark" || baseLayer === "satellite";
   useTrackLayers(refs, { files, selected, win, heatmap, dark, showGaps, highlight, places, stopsLayer, flights, area });
   useAreaSelect(refs, areaMode, box);
-  useDetailLayers(refs, { detail, trackColorBy, dark, range, hoverIdx, followCursor, cursors });
+  const zone = useMemo(() => {
+    const f = files.find((x) => x.summary.path === selected);
+    return f ? tzOf(f.summary) : undefined;
+  }, [files, selected]);
+  useDetailLayers(refs, { detail, trackColorBy, dark, range, hoverIdx, followCursor, cursors, win, zone });
   useBaseLayerSwitch(refs, baseLayer, vectorState);
   usePhotoMarkers(refs, photos);
 

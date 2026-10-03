@@ -9,6 +9,8 @@ import type { TrackColorBy } from "../prefs";
 import type { BBox } from "../geo";
 import type { Flight } from "../flights";
 import { runWhenReady, setData, type MapRefs } from "./context";
+import { dayIn } from "../days";
+import { fastDayKey } from "../format";
 import {
   EMPTY,
   areaGeoJSON,
@@ -222,6 +224,8 @@ export function useDetailLayers(
     hoverIdx,
     followCursor,
     cursors,
+    win,
+    zone,
   }: {
     detail: Detail | null;
     trackColorBy: TrackColorBy;
@@ -230,6 +234,9 @@ export function useDetailLayers(
     hoverIdx: number | null;
     followCursor: boolean;
     cursors: { lon: number; lat: number; color: string }[];
+    /** Tarih filtresi ve seçili kaydın saat dilimi: renklendirme aralık dışını çizmez. */
+    win: DateWindow | null;
+    zone: string | undefined;
   },
 ) {
   const whenReady = (fn: (map: maplibregl.Map) => void) => runWhenReady(r, fn);
@@ -243,9 +250,12 @@ export function useDetailLayers(
         setData(map, "colored", EMPTY);
         return;
       }
-      setData(map, "colored", coloredGeoJSON(detail, values, domain, dark ? SEQ_DARK : SEQ_LIGHT));
+      const inWin = win
+        ? (t: number | null) => t == null || dayIn(fastDayKey(t, zone), win.from, win.to)
+        : undefined;
+      setData(map, "colored", coloredGeoJSON(detail, values, domain, dark ? SEQ_DARK : SEQ_LIGHT, inWin));
     });
-  }, [detail, trackColorBy, dark]);
+  }, [detail, trackColorBy, dark, win, zone]);
 
   useEffect(() => {
     whenReady((map) => {
