@@ -18,6 +18,20 @@ const SAVE_FILTERS = [
 ];
 
 /** Dışa aktarma: CSV özeti, harita görüntüsü, tek kayıt ve birden çok kayıt. */
+/** Çoklu seçimdeki kayıtlar: görünenler liste sırasıyla, ardından süzgeçle
+ * gizlenmiş seçili kayıtlar (yalnızca görünenler alınıyordu). */
+function selectedEntries(multi: Set<string>, shown: FileEntry[], all: FileEntry[]): FileEntry[] {
+  const seen = new Set<string>();
+  const out: FileEntry[] = [];
+  for (const f of [...shown, ...all]) {
+    if (multi.has(f.summary.path) && !seen.has(f.summary.path)) {
+      seen.add(f.summary.path);
+      out.push(f);
+    }
+  }
+  return out;
+}
+
 export function useExports({
   multi,
   shown,
@@ -38,7 +52,7 @@ export function useExports({
   fail(message: string): void;
 }) {
   const exportCsv = useCallback(async () => {
-    const list = multi.size > 1 ? shown.filter((f) => multi.has(f.summary.path)) : shown;
+    const list = multi.size > 1 ? selectedEntries(multi, shown, filesRef.current) : shown;
     if (list.length === 0) return;
     try {
       const path = await pickSavePath("gpxer-ozet.csv", [{ name: "CSV", extensions: ["csv"] }]);
@@ -48,7 +62,7 @@ export function useExports({
     } catch (e) {
       fail(String(e));
     }
-  }, [multi, shown, say, fail, meta]);
+  }, [multi, shown, say, fail, meta, filesRef]);
 
   const exportPng = useCallback(async () => {
     try {
@@ -121,8 +135,8 @@ export function useExports({
   );
   const exportFiltered = useCallback(() => exportPaths(shown.map((f) => f.summary.path)), [exportPaths, shown]);
   const exportMulti = useCallback(
-    () => exportPaths(shown.filter((f) => multi.has(f.summary.path)).map((f) => f.summary.path)),
-    [exportPaths, shown, multi],
+    () => exportPaths(selectedEntries(multi, shown, filesRef.current).map((f) => f.summary.path)),
+    [exportPaths, shown, multi, filesRef],
   );
 
   return { exportCsv, exportPng, exportSelectedGpx, exportFiltered, exportMulti };
