@@ -195,10 +195,25 @@ export const pickSavePath = (defaultName: string, filters: SaveFilter[]) =>
 export const writeTextFile = (path: string, contents: string) => invoke<void>("write_text_file", { path, contents });
 export const writeBase64File = (path: string, data: string) => invoke<void>("write_base64_file", { path, data });
 export const getSettings = () => invoke<Settings>("get_settings");
+
+/** Tüm listeyi yazan kayıtlar arka uçta ayrı iş parçacıklarında sırasız
+ * çalışabilir; eski liste en son yazılmasın diye her kayıt öncekini bekler. */
+export function inOrder<A extends unknown[], R>(fn: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
+  let last: Promise<unknown> = Promise.resolve();
+  return (...args) => {
+    const next = last.then(
+      () => fn(...args),
+      () => fn(...args),
+    );
+    last = next.catch(() => {});
+    return next;
+  };
+}
+
 /** Kaydeder; izlenemeyen klasörler için hata mesajları döner. */
-export const setSettings = (settings: Settings) => invoke<string[]>("set_settings", { settings });
+export const setSettings = inOrder((settings: Settings) => invoke<string[]>("set_settings", { settings }));
 export const getPlaces = () => invoke<NamedPlace[] | null>("get_places");
-export const setPlaces = (places: NamedPlace[]) => invoke<void>("set_places", { places });
+export const setPlaces = inOrder((places: NamedPlace[]) => invoke<void>("set_places", { places }));
 /** Dosya ya da klasör yolları; klasörlerdeki fotoğraflar arka uçta bulunur. */
 export const readPhotos = (paths: string[]) => invoke<PhotoInfo[] | null>("read_photos", { paths });
 /** Fotoğrafın küçük resmi (data: adresi); okunamazsa null. */
