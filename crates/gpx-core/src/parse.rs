@@ -367,11 +367,7 @@ fn close_element(
                             t.name = Some(value);
                         }
                     }
-                    Some(b"metadata" | b"gpx") => {
-                        if gpx.name.is_none() {
-                            gpx.name = Some(value);
-                        }
-                    }
+                    Some(b"metadata" | b"gpx") if gpx.name.is_none() => gpx.name = Some(value),
                     _ => {}
                 }
             }

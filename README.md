@@ -213,8 +213,15 @@ cargo run --release -p gpx-core --example dump -- ozet.json klasor/*.gpx
 ```
 crates/gpx-core/   GPX/FIT/TCX/KML okuma ve yazma, istatistik, sıçrama temizleme,
                    duraklar, tür tahmini, sadeleştirme, kırpma/bölme/birleştirme
-src-tauri/         Masaüstü uygulaması: komutlar, kütüphane ve önbellek, klasör izleme, menü
-src/               React arayüzü (harita, liste, grafik, özet, ayarlar)
+src-tauri/         Masaüstü uygulaması: komutlar (lib.rs), kütüphane ve önbellek (library.rs),
+                   yer adları (geo.rs), dışa aktarma (export.rs), kırp/böl/birleştir
+                   (edit.rs), fotoğraflar, menü, ayarlar ve klasör izleme
+src/               React arayüzü
+  components/      Görünümler (liste, kayıt paneli, grafik, özet, pencereler)
+  hooks/           Uygulama durumu: yükleme, filtreler, dışa aktarma, klavye…
+  map/             Harita katmanları, GeoJSON, açılır pencereler, altlıklar
+  lib/, *.ts       Saf mantık (günler, uçuşlar, çakışmalar, güzergâhlar,
+                   fotoğraflar, biçimlendirme); *.test.ts birim testleri
 assets/icon.svg    Uygulama simgesi kaynağı (`npx tauri icon assets/icon.png`)
 ```
 

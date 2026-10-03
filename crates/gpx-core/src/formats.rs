@@ -363,10 +363,8 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
                             segments.push(seg);
                         }
                     }
-                    b"Placemark" => {
-                        if segments.len() > placemark_segments && track_name.is_none() {
-                            track_name = placemark_name.clone();
-                        }
+                    b"Placemark" if segments.len() > placemark_segments && track_name.is_none() => {
+                        track_name = placemark_name.clone();
                     }
                     _ => {}
                 }

@@ -1,485 +1,125 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ComponentProps,
-} from "react";
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { ask, open } from "@tauri-apps/plugin-dialog";
-import {
-  exportAs,
-  exportMany,
-  expandPaths,
-  getPlaces,
-  readPhotos,
-  setPlaces as savePlaces,
-  getMeta,
-  setMeta as saveMeta,
-  flushCache,
-  getSettings,
-  libraryFiles,
-  loadDetail,
-  loadFiles,
-  mergeFiles,
-  pickSavePath,
-  rangeStats,
-  removeFiles,
-  restoreFiles,
-  setSettings as saveSettings,
-  splitFile,
-  takePendingPaths,
-  trimFile,
-  writeBase64File,
-  writeTextFile,
-  type Detail,
-  type ExportFormat,
-  type FileMeta,
-  type FileSummary,
-  type LoadResult,
-  type NamedPlace,
-  type PhotoInfo,
-  type Settings,
-  type Stats,
-  type TrashItem,
-} from "./api";
-import { BASE_LAYERS, MapView, metricDomain, type BaseLayer, type MapHandle } from "./components/MapView";
-import { Sidebar, type Group, type RowModifiers } from "./components/Sidebar";
-import { DetailPanel } from "./components/DetailPanel";
+import { useEffect, useRef, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import type { MapHandle } from "./components/MapView";
+import { Sidebar } from "./components/Sidebar";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SummaryPanel } from "./components/SummaryPanel";
 import { PromptModal } from "./components/Modal";
 import { RouteModal } from "./components/RouteModal";
-import { CompareView, type Cursor } from "./components/CompareView";
-import { findRoutes, type Route } from "./routes";
-import { linesHitBox } from "./geo";
-import { METRICS, SEQ_DARK, SEQ_LIGHT, defaultColor, placeLabel, rampColor, type FileEntry } from "./types";
-import { loadPrefs, savePrefs, type Filters, type Prefs } from "./prefs";
+import { CompareView } from "./components/CompareView";
 import { HelpDialog } from "./components/HelpDialog";
-import { dayBuckets, detailDays, rangeShare, touchesRange } from "./days";
-import {
-  dayKey,
-  fmtDate,
-  fmtDuration,
-  fmtNumber,
-  fmtTimestamp,
-  fmtUnit,
-  monthLabel,
-  setTzMode,
-  tzOf,
-  wallToUtc,
-  type TzMode,
-} from "./format";
-import { csvFor } from "./csv";
-import { findOverlaps } from "./overlaps";
-import { flightsOf, greatCircle, type Flight } from "./flights";
-import { DEFAULT_RADIUS_M, namedPlaceAt, newPlaceId, setNamedPlaces } from "./places";
-import { isImagePath, placePhotos } from "./photos";
-import { visitAt, countryName } from "./visits";
-import { GoToDialog, type GoToResult } from "./components/GoToDialog";
-import { PhotoControl } from "./components/PhotoControl";
+import { GoToDialog } from "./components/GoToDialog";
+import { HoverDetailPanel, HoverMapView } from "./components/HoverViews";
+import { MapToolbar } from "./components/MapToolbar";
+import { MapLegends } from "./components/MapLegends";
+import { Toasts } from "./components/Toasts";
+import type { Route } from "./routes";
+import { fmtNumber, type TzMode } from "./format";
+import { createIdxStore } from "./lib/idxStore";
+import type { Dialog } from "./hooks/dialog";
+import { useBaseLayer, usePrefs } from "./hooks/usePrefs";
+import { useNotices } from "./hooks/useNotices";
+import { useFileLoader } from "./hooks/useFileLoader";
+import { usePlaces } from "./hooks/usePlaces";
+import { EMPTY_META, useMeta } from "./hooks/useMeta";
+import { useFilteredFiles } from "./hooks/useFilteredFiles";
+import { usePhotos } from "./hooks/usePhotos";
+import { useCompareDetails, useSelectedDetail } from "./hooks/useSelectedDetail";
+import { useExports } from "./hooks/useExports";
+import { useTrackEdits } from "./hooks/useTrackEdits";
+import { useNavigation } from "./hooks/useNavigation";
+import { useStartup } from "./hooks/useStartup";
+import { useMenuHandlers } from "./hooks/useMenuHandlers";
+import { useListActions } from "./hooks/useListActions";
+import { useKeyboard } from "./hooks/useKeyboard";
 
-/** Tek seferde Rust tarafına gönderilen dosya sayısı; ilerleme çubuğunun
- * akıcı güncellenmesi için küçük tutulur. */
-const CHUNK = 24;
-const UNDO_MS = 12_000;
-
-interface LoadError {
-  path: string;
-  message: string;
-}
-
-interface Duplicate {
-  path: string;
-  /** Kütüphanedeki aynı içerikli dosyanın adı. */
-  existing: string;
-}
-
-interface OpenOptions {
-  /** Kopya bildirimleri gösterilmesin (kütüphane, izlenen klasörler). */
-  quiet?: boolean;
-  /** Yükleme bitince haritayı yeni kayıtlara yakınlaştırma. */
-  noFit?: boolean;
-  /** Tek kayıt eklendiğinde onu seçme. */
-  noSelect?: boolean;
-  /** "Yeni kayıt eklendi" bildirimi gösterilmesin. */
-  silent?: boolean;
-  /** Kullanıcı dosyaları kendisi açtı (kütüphaneden çıkarılmışlar da eklenir). */
-  explicit?: boolean;
-}
-
-/** Yeniden yükleme sürerken kullanıcı kendisi bir kayıt seçti (ya da seçimi
- * kaldırdı): yükleme bitince eski seçim geri getirilmez. */
-const KEEP_SELECTION = Symbol("keep");
-
-/** Oynatmada kayıttaki bu uzunluktan büyük zaman boşlukları (duraklama,
- * sinyal kaybı) beklenmez; kısa bir sıçramayla geçilir. */
-const PLAY_MAX_GAP_MS = 60_000;
-const PLAY_GAP_AS_MS = 1_000;
-
-const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
-/** Yolun üst klasörü (son ayraçtan öncesi). */
-function parentDir(p: string): string {
-  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  return i > 0 ? p.slice(0, i) : i === 0 ? p.slice(0, 1) : p;
-}
-/** Aynı klasörden bundan çok fotoğraf bırakılırsa ayarlara klasör yazılır. */
-const PHOTO_FOLDER_MIN = 50;
-/** Ayarlarda saklanan en fazla fotoğraf yolu. */
-const PHOTO_STORE_MAX = 200;
-const EMPTY_META: FileMeta = { tags: [], note: "", activity: null };
-const OPEN_EXTS = ["gpx", "GPX", "fit", "FIT", "tcx", "TCX", "kml", "KML"];
-const PHOTO_EXTS = ["jpg", "jpeg", "JPG", "JPEG", "heic", "HEIC", "heif", "png", "PNG", "tif", "tiff", "dng", "DNG", "webp"];
-/** "Tarihe git": kayıt yoksa en fazla bu kadar uzaktaki kayda gidilir. */
-const GOTO_NEAR_MS = 6 * 3_600_000;
-/** Bu sayıdan çok kayıt tek dosyaya aktarılacaksa onay sorulur. */
-const EXPORT_CONFIRM = 500;
-
-const SAVE_FILTERS = [
-  { name: "GPX", extensions: ["gpx"] },
-  { name: "KML (Google Earth)", extensions: ["kml"] },
-  { name: "TCX (Garmin)", extensions: ["tcx"] },
-  { name: "FIT (Garmin, Strava)", extensions: ["fit"] },
-];
-
-/** Kaydetme penceresinde seçilen yolun uzantısından biçim. */
-function formatOf(path: string): { format: ExportFormat; hasExt: boolean } {
-  const name = baseName(path);
-  const dot = name.lastIndexOf(".");
-  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-  return { format: ext === "kml" || ext === "tcx" || ext === "fit" ? ext : "gpx", hasExt: !!ext };
-}
-
-/**
- * İmleç konumu (grafik/harita üzerindeki nokta) için küçük dış depo: fare
- * hareketi ve oynatma her karede güncellenir; yalnızca bu değeri kullanan
- * bileşenler yeniden çizilir, uygulamanın tamamı değil.
+/*
+ * Uygulama: durum ve iş mantığı src/hooks altındaki kancalarda; burada
+ * birleştirilip arayüze bağlanır. Kancaların çağrılma sırası efektlerin
+ * çalışma sırasını belirler; sırayı değiştirirken dikkat.
  */
-interface IdxStore {
-  get(): number | null;
-  set(i: number | null): void;
-  subscribe(fn: () => void): () => void;
-}
-
-function createIdxStore(): IdxStore {
-  let value: number | null = null;
-  let notifying = false;
-  const subs = new Set<() => void>();
-  return {
-    get: () => value,
-    set(i) {
-      if (i === value) return;
-      value = i;
-      // Bildirim mikro görevde: efektlerin içinden yapılan sıfırlamalar (seçim
-      // değişince) işlemeyle (commit) iç içe eşzamanlı güncelleme zinciri
-      // oluşturmasın; ↑/↓ basılı tutulunca React'in güncelleme sınırına takılıyordu.
-      if (notifying) return;
-      notifying = true;
-      queueMicrotask(() => {
-        notifying = false;
-        subs.forEach((fn) => fn());
-      });
-    },
-    subscribe(fn) {
-      subs.add(fn);
-      return () => {
-        subs.delete(fn);
-      };
-    },
-  };
-}
-
-const useIdx = (store: IdxStore) => useSyncExternalStore(store.subscribe, store.get);
-
-function HoverMapView({ cursor, ...rest }: Omit<ComponentProps<typeof MapView>, "hoverIdx"> & { cursor: IdxStore }) {
-  return <MapView {...rest} hoverIdx={useIdx(cursor)} />;
-}
-
-function HoverDetailPanel({ cursor, ...rest }: Omit<ComponentProps<typeof DetailPanel>, "hoverIdx"> & { cursor: IdxStore }) {
-  return <DetailPanel {...rest} hoverIdx={useIdx(cursor)} />;
-}
-
 export default function App() {
-  const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
-  const prefsRef = useRef(prefs);
-  prefsRef.current = prefs;
-  /** Kaydedilecek seçim: seçim her değiştiğinde App'i yeniden çizmemek için
-   * durumda değil, burada tutulur (hızlı ↑/↓ basışlarında güncelleme zinciri oluşmasın). */
-  const persistedSel = useRef(prefs.selected);
-  const up = useCallback((patch: Partial<Prefs>) => {
-    setPrefs((p) => {
-      const next = { ...p, ...patch, selected: persistedSel.current };
-      savePrefs(next);
-      return next;
-    });
-  }, []);
-  setTzMode(prefs.tzMode);
+  const { prefs, prefsRef, persistedSel, up } = usePrefs();
+  const [baseLayer, setBaseLayer] = useBaseLayer();
+  const { errors, setErrors, duplicates, setDuplicates, info, setInfo, say, fail } = useNotices();
 
-  const [files, setFiles] = useState<FileEntry[]>([]);
-  const [selected, setSelected] = useState<string | null>(prefs.selected);
   const [multi, setMulti] = useState<Set<string>>(new Set());
-  const anchor = useRef<string | null>(null);
-  const [detail, setDetail] = useState<Detail | null>(null);
-  const [detailError, setDetailError] = useState<string | null>(null);
   /** İmleç (fare ya da oynatma); App'i her karede yeniden çizmemek için state değil. */
   const [cursor] = useState(createIdxStore);
-  const [range, setRange] = useState<[number, number] | null>(null);
-  /** Aralık istatistiği, hesaplandığı aralık ve ayrıntıyla birlikte: başka bir
-   * aralığa aitse gösterilmez (efektte sıfırlamaya gerek kalmaz). */
-  const [rangeRes, setRangeRes] = useState<{ range: [number, number]; detail: Detail; st: Stats } | null>(null);
-  const rangeSt = rangeRes && rangeRes.range === range && rangeRes.detail === detail ? rangeRes.st : null;
-  const [playing, setPlaying] = useState(false);
-  const playingRef = useRef(playing);
-  playingRef.current = playing;
-  const [loading, setLoading] = useState<{ done: number; total: number } | null>(null);
-  const [errors, setErrors] = useState<LoadError[]>([]);
-  const [duplicates, setDuplicates] = useState<Duplicate[]>([]);
-  const [info, setInfo] = useState<string | null>(null);
-  const [undo, setUndo] = useState<{ items: TrashItem[]; count: number } | null>(null);
-  const [watchOffer, setWatchOffer] = useState<string[] | null>(null);
-  const [settings, setSettingsState] = useState<Settings | null>(null);
-  const [dialog, setDialog] = useState<"settings" | "summary" | "merge" | "tag" | "help" | "goto" | null>(null);
-  const [places, setPlacesState] = useState<NamedPlace[]>([]);
-  setNamedPlaces(places);
-  /** Ad verilecek yer (duraklama/sık durulan yer); yer zaten adlıysa o yer. */
-  const [namePrompt, setNamePrompt] = useState<{ lon: number; lat: number; place: NamedPlace | null } | null>(null);
-  const [photoInfo, setPhotoInfo] = useState<PhotoInfo[]>([]);
-  /** "Tarihe git": ayrıntı yüklenince imlecin konacağı an. */
-  const [seek, setSeek] = useState<{ path: string; t: number } | null>(null);
-  const [meta, setMetaState] = useState<Record<string, FileMeta>>({});
+  const [dialog, setDialog] = useState<Dialog>(null);
   const [areaMode, setAreaMode] = useState(false);
   const [compare, setCompare] = useState<[string, string] | null>(null);
-  const [compareDetails, setCompareDetails] = useState<[Detail | null, Detail | null]>([null, null]);
-  const [cursors, setCursors] = useState<Cursor[]>([]);
   const [routeModal, setRouteModal] = useState<Route | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [baseLayer, setBaseLayer] = useState<BaseLayer>(() => {
-    try {
-      const v = localStorage.getItem("baseLayer.v2") as BaseLayer | null;
-      return v && BASE_LAYERS.some((l) => l.id === v) ? v : "light";
-    } catch {
-      return "light";
-    }
-  });
-
   const mapRef = useRef<MapHandle>(null);
-  const filesRef = useRef(files);
-  filesRef.current = files;
-  const settingsRef = useRef(settings);
-  settingsRef.current = settings;
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
-  const loadQueue = useRef<Promise<void>>(Promise.resolve());
-  /** Yeniden yükleme (ayar değişikliği) sayacı: eski ayarlarla süren yüklemeler
-   * her beklemeden sonra bunu denetler ve sonuçlarını bırakır. */
-  const loadGen = useRef(0);
-  /** Yeniden yükleme bitince geri seçilecek kayıt (undefined: bekleyen yok;
-   * KEEP_SELECTION: kullanıcı bu arada kendisi seçti, dokunulmaz). */
-  const restoreSel = useRef<string | null | undefined | typeof KEEP_SELECTION>(undefined);
-  /** Yeniden yükleme sürerken yeni özetler burada birikir; liste ve harita
-   * eski kayıtları gösterir, yükleme bitince bir kerede değiştirilir. */
-  const reloadBuf = useRef<FileEntry[] | null>(null);
-  const [reloading, setReloading] = useState(false);
-  const initialLoad = useRef(true);
-  /** Açılışta kayıtlı bir harita konumu var mıydı (harita kendi ilk konumunu da kaydeder). */
-  const hadView = useRef(prefs.mapView != null);
+  const routeInfoRef = useRef<{ routes: Route[]; byPath: Map<string, Route> } | null>(null);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem("baseLayer.v2", baseLayer);
-    } catch {
-      /* önemli değil */
-    }
-  }, [baseLayer]);
-  useEffect(() => {
-    // Yeniden yükleme sürerken geçici boş seçim kaydedilmez; kayıtlı seçim geri getirilene kadar korunur.
-    const r = restoreSel.current;
-    if (r !== undefined && r !== KEEP_SELECTION) return;
-    persistedSel.current = selected;
-    savePrefs({ ...prefsRef.current, selected });
-  }, [selected]);
+  // ---------- Kütüphane ve yükleme ----------
 
-  /** Kullanıcının yaptığı seçim: süren bir yeniden yükleme bunu ezmesin. */
-  const pick = useCallback((path: string | null) => {
-    if (restoreSel.current !== undefined) restoreSel.current = KEEP_SELECTION;
-    setSelected(path);
-  }, []);
-
-  /** Dosya listesini değiştirir; yeniden yükleme sürüyorsa biriken yeni listeye de uygular. */
-  const patchFiles = useCallback((fn: (list: FileEntry[]) => FileEntry[]) => {
-    setFiles(fn);
-    if (reloadBuf.current) reloadBuf.current = fn(reloadBuf.current);
-  }, []);
-
-  const say = useCallback((msg: string) => {
-    setInfo(msg);
-    setTimeout(() => setInfo((m) => (m === msg ? null : m)), 5000);
-  }, []);
-  const fail = useCallback((message: string, path = "") => setErrors((prev) => [...prev, { path, message }]), []);
+  const {
+    files,
+    filesRef,
+    selected,
+    setSelected,
+    pick,
+    patchFiles,
+    loading,
+    reloading,
+    initialLoad,
+    restoreSel,
+    settings,
+    settingsRef,
+    setSettingsState,
+    applySettings,
+    watchOffer,
+    setWatchOffer,
+    undo,
+    doUndo,
+    openPaths,
+    addResults,
+    pickFiles,
+    pickFolder,
+    removePaths,
+    closeAll,
+  } = useFileLoader({ prefsRef, persistedSel, up, say, fail, setErrors, setDuplicates, mapRef, setCompare, setMulti, routeInfoRef });
+  const { places, setPlacesState, namePrompt, setNamePrompt, updatePlaces, onNamePlace, namePlace } = usePlaces(say, fail);
+  const { meta, setMetaState, allTags, updateMeta, tagMany } = useMeta({ fail, say, patchFiles, multi, setDialog });
 
   // ---------- Türetilen veriler ----------
 
   const dark = baseLayer === "dark" || baseLayer === "satellite";
-
-  /** Tarihe göre renk kipinde her dosyanın rengi. */
-  const colored = useMemo(() => {
-    if (prefs.colorMode !== "date") return files;
-    const dated = files
-      .filter((f) => f.summary.stats.startTime != null)
-      .sort((a, b) => a.summary.stats.startTime! - b.summary.stats.startTime!);
-    const rank = new Map(dated.map((f, i) => [f.summary.path, dated.length > 1 ? i / (dated.length - 1) : 1]));
-    const ramp = dark ? SEQ_DARK : SEQ_LIGHT;
-    return files.map((f) => {
-      const t = rank.get(f.summary.path);
-      return { ...f, color: t == null ? "#9aa1a8" : rampColor(ramp, t) };
-    });
-  }, [files, prefs.colorMode, dark]);
-
-  /** Özetlerin listesi; yalnızca özetler değişince yeni dizi (görünürlük, renk
-   * gibi değişiklikler güzergâh hesabını tetiklemesin). */
-  const summariesRef = useRef<FileSummary[]>([]);
-  const summaries = useMemo(() => {
-    const prev = summariesRef.current;
-    if (prev.length === files.length && files.every((f, i) => f.summary === prev[i])) return prev;
-    return (summariesRef.current = files.map((f) => f.summary));
-  }, [files]);
-
-  /** Tekrarlanan güzergâhlar (tüm kütüphane üzerinden). */
-  const routeInfo = useMemo(() => findRoutes(summaries), [summaries]);
-  const routeInfoRef = useRef(routeInfo);
-  routeInfoRef.current = routeInfo;
-  /** Güzergâh filtresi: kayıtlı yolu içeren güzergâh (yoksa null). */
-  const activeRoute = prefs.filters.route ? (routeInfo.byPath.get(prefs.filters.route) ?? null) : null;
-
-  /** Zamanı çakışan kayıtlar (tüm kütüphane üzerinden). */
-  const overlapInfo = useMemo(() => findOverlaps(summaries), [summaries]);
-
-  const allTags = useMemo(
-    () => [...new Set(Object.values(meta).flatMap((m) => m.tags))].sort((a, b) => a.localeCompare(b, "tr-TR")),
-    [meta],
-  );
-
-  const shown = useMemo(() => {
-    const fl = prefs.filters;
-    const q = fl.query.trim().toLocaleLowerCase("tr-TR");
-    const dateOn = !!(fl.from || fl.to);
-    const list = colored.filter((f) => {
-      const s = f.summary;
-      const m = meta[s.path];
-      if (q) {
-        const hay = `${s.name ?? ""} ${s.fileName} ${s.startPlace ?? ""} ${s.endPlace ?? ""} ${places.length ? (placeLabel(s) ?? "") : ""} ${m?.tags.join(" ") ?? ""} ${m?.note ?? ""}`;
-        if (!hay.toLocaleLowerCase("tr-TR").includes(q)) return false;
-      }
-      if (fl.activity && s.activity !== fl.activity) return false;
-      if (fl.tag && !m?.tags.includes(fl.tag)) return false;
-      if (fl.route && (!activeRoute || routeInfo.byPath.get(s.path) !== activeRoute)) return false;
-      if (fl.overlap && !overlapInfo.has(s.path)) return false;
-      if (fl.area && !linesHitBox(s.lines, fl.area, s.stats.bbox)) return false;
-      if (!dateOn) return true;
-      if (s.stats.startTime == null) return fl.includeUndated;
-      // Birden çok güne yayılan kayıt, günlerinden biri aralıktaysa uyar.
-      return touchesRange(s, fl.from, fl.to);
-    });
-    // Tarihsiz kayıtlar tarih sıralamasında her zaman en sonda.
-    const byDate = (a: FileEntry, b: FileEntry, dir: number) => {
-      const ta = a.summary.stats.startTime;
-      const tb = b.summary.stats.startTime;
-      if (ta == null || tb == null) return ta == null ? (tb == null ? 0 : 1) : -1;
-      return (ta - tb) * dir;
-    };
-    const byName = (a: FileEntry, b: FileEntry) =>
-      (a.summary.name || a.summary.fileName).localeCompare(b.summary.name || b.summary.fileName, "tr-TR", {
-        numeric: true,
-      });
-    switch (fl.sort) {
-      case "date-desc":
-        return list.sort((a, b) => byDate(a, b, -1));
-      case "date-asc":
-        return list.sort((a, b) => byDate(a, b, 1));
-      case "name":
-        return list.sort(byName);
-      case "distance":
-        return list.sort((a, b) => b.summary.stats.distanceM - a.summary.stats.distanceM);
-    }
-  }, [colored, prefs.filters, meta, routeInfo, activeRoute, prefs.tzMode, overlapInfo, places]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const groups = useMemo<Group[]>(() => {
-    if (prefs.groupBy === "none") return [];
-    const map = new Map<string, Group>();
-    for (const f of shown) {
-      const t = f.summary.stats.startTime;
-      const key =
-        t == null ? "undated" : prefs.groupBy === "month" ? dayKey(t, tzOf(f.summary)).slice(0, 7) : dayKey(t, tzOf(f.summary)).slice(0, 4);
-      let g = map.get(key);
-      if (!g) {
-        const label = key === "undated" ? "Tarihsiz" : prefs.groupBy === "month" ? monthLabel(key) : key;
-        g = { key, label, items: [], distanceM: 0, movingMs: 0 };
-        map.set(key, g);
-      }
-      g.items.push(f);
-      const part = rangeShare(f.summary, prefs.filters.from, prefs.filters.to);
-      g.distanceM += part.distanceM;
-      g.movingMs += part.movingMs;
-    }
-    return [...map.values()];
-  }, [shown, prefs.groupBy, prefs.tzMode, prefs.filters.from, prefs.filters.to]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const collapsed = useMemo(() => new Set(prefs.collapsed), [prefs.collapsed]);
-
-  /** Listede görünen satırlar, ekrandaki sırayla (klavye ve Shift+tık için). */
-  const rows = useMemo(
-    () =>
-      prefs.groupBy === "none" ? shown : groups.flatMap((g) => (collapsed.has(g.key) ? [] : g.items)),
-    [shown, groups, collapsed, prefs.groupBy],
-  );
-
-  const years = useMemo(() => {
-    const ys = new Set<number>();
-    for (const f of files) {
-      for (const d of dayBuckets(f.summary)) ys.add(Number(d.day.slice(0, 4)));
-    }
-    return [...ys].sort((a, b) => b - a);
-  }, [files, prefs.tzMode]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const onMap = useMemo(() => shown.filter((f) => f.visible), [shown]);
-  const dateWindow = useMemo(
-    () => (prefs.filters.from || prefs.filters.to ? { from: prefs.filters.from, to: prefs.filters.to } : null),
-    [prefs.filters.from, prefs.filters.to],
-  );
-  const onMapRef = useRef(onMap);
-  onMapRef.current = onMap;
-
-  /** Haritada uçuş yayları: gösterilen kayıtların (tarih filtresine düşen) uçuşları. */
-  const mapFlights = useMemo(() => {
-    if (!prefs.flightsLayer) return null;
-    const out: Flight[] = [];
-    for (const f of onMap) {
-      const zone = tzOf(f.summary);
-      for (const x of flightsOf(f.summary)) {
-        if (dateWindow) {
-          const d = dayKey(x.start, zone);
-          if ((dateWindow.from && d < dateWindow.from) || (dateWindow.to && d > dateWindow.to)) continue;
-        }
-        out.push(x);
-      }
-    }
-    return out;
-  }, [onMap, prefs.flightsLayer, dateWindow, prefs.tzMode]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  /** Fotoğrafların haritadaki yerleri (GPS ya da çekim zamanına göre iz). */
-  const placedPhotos = useMemo(
-    () => placePhotos(photoInfo, summaries, prefs.photoOffsetH),
-    [photoInfo, summaries, prefs.photoOffsetH],
-  );
-  const mapPhotos = prefs.photosLayer && placedPhotos.placed.length ? placedPhotos.placed : null;
-  const selectedEntry = useMemo(
-    () => (selected ? (colored.find((f) => f.summary.path === selected) ?? null) : null),
-    [colored, selected],
-  );
+  const {
+    colored,
+    summaries,
+    routeInfo,
+    overlapInfo,
+    shown,
+    shownRef,
+    groups,
+    collapsed,
+    rows,
+    years,
+    onMap,
+    onMapRef,
+    dateWindow,
+    mapFlights,
+    selectedEntry,
+    dateLegend,
+    routeLabel,
+    coloredByPath,
+    summaryOf,
+    libraryFlights,
+    selOverlaps,
+  } = useFilteredFiles({ files, prefs, meta, places, dark, selected, routeInfoRef });
+  const { setPhotoInfo, placedPhotos, mapPhotos, pickPhotos, clearPhotos, addPhotosRef } = usePhotos({
+    prefs,
+    prefsRef,
+    up,
+    say,
+    fail,
+    summaries,
+    filesRef,
+  });
 
   // Dosya listesi değişince artık var olmayan kayıtlara bağlı durumu temizle
   // (açılış ve yeniden yükleme sürerken liste henüz eksik olabilir; beklenir).
@@ -495,828 +135,70 @@ export default function App() {
 
   // ---------- Seçili kayıt ----------
 
-  // Seçim değişince bağlı durum çizim sırasında sıfırlanır (efektte sıfırlamak her
-  // seçimde fazladan bir eşzamanlı güncelleme zinciri doğuruyordu; ↑/↓ basılı
-  // tutulunca React'in güncelleme sınırına takılıyordu).
-  const [detailOf, setDetailOf] = useState(selected);
-  if (detailOf !== selected) {
-    setDetailOf(selected);
-    setDetail(null);
-    setDetailError(null);
-    setRange(null);
-    setPlaying(false);
-  }
-  useEffect(() => {
-    cursor.set(null);
-    if (!selected) return;
-    let cancelled = false;
-    loadDetail(selected)
-      .then((d) => !cancelled && setDetail(d))
-      .catch((e) => !cancelled && setDetailError(String(e)));
-    return () => {
-      cancelled = true;
-    };
-  }, [selected, cursor]);
+  // Tarih filtresi tek güne ayarlıysa (ör. takvimde güne tıklama) çok günlü
+  // kaydın o günü kendiliğinden seçilir.
+  const oneDay = prefs.filters.from && prefs.filters.from === prefs.filters.to ? prefs.filters.from : "";
+  const { detail, detailError, range, setRange, rangeSt, playing, setPlaying, setSeek, onHoverIdx, zoomRange, pickDay } =
+    useSelectedDetail({ selected, cursor, mapRef, prefsRef, oneDay, selSummary: selectedEntry?.summary ?? null });
+  const { compareDetails, cursors, setCursors } = useCompareDetails(compare, fail);
 
-  // "Tarihe git": ayrıntı gelince o ana en yakın örneğe imleç konur ve harita ortalanır.
-  useEffect(() => {
-    if (!seek || !detail || selected !== seek.path) return;
-    let best = -1;
-    let bestDt = Infinity;
-    const times = detail.time;
-    for (let i = 0; i < times.length; i++) {
-      const t = times[i];
-      if (t == null) continue;
-      const dt = Math.abs(t - seek.t);
-      if (dt < bestDt) {
-        bestDt = dt;
-        best = i;
-      }
-    }
-    setSeek(null);
-    if (best < 0) return;
-    setPlaying(false);
-    cursor.set(best);
-    mapRef.current?.centerOn([detail.lon[best], detail.lat[best]]);
-  }, [seek, detail, selected, cursor]);
+  // ---------- Dışa aktarma, düzenleme, gezinme ----------
 
-  // Karşılaştırılan iki kaydın grafik verisi.
-  useEffect(() => {
-    setCompareDetails([null, null]);
-    setCursors([]);
-    if (!compare) return;
-    let cancelled = false;
-    Promise.all(compare.map((p) => loadDetail(p)))
-      .then(([a, b]) => !cancelled && setCompareDetails([a, b]))
-      .catch((e) => !cancelled && setErrors((prev) => [...prev, { path: "", message: String(e) }]));
-    return () => {
-      cancelled = true;
-    };
-  }, [compare]);
+  const { exportCsv, exportPng, exportSelectedGpx, exportFiltered, exportMulti } = useExports({
+    multi,
+    shown,
+    meta,
+    selected,
+    filesRef,
+    mapRef,
+    say,
+    fail,
+  });
+  const { trim, split, merge, openMerge } = useTrackEdits({
+    selected,
+    detail,
+    range,
+    shown,
+    multi,
+    setMulti,
+    setDialog,
+    addResults,
+    pick,
+    say,
+    fail,
+  });
+  const { fitAll, showFlight, findAt, goTo, compareWith, zoomTo, selectAndZoom, startCompare } = useNavigation({
+    filesRef,
+    onMapRef,
+    prefsRef,
+    mapRef,
+    multi,
+    pick,
+    say,
+    setDialog,
+    setMulti,
+    setCompare,
+    setRange,
+    setSeek,
+  });
 
-  // Seçili aralığın tam çözünürlüklü istatistiği.
-  useEffect(() => {
-    if (!range || !detail || !selected) return;
-    const [a, b] = [detail.idx[range[0]], detail.idx[range[1]]];
-    let cancelled = false;
-    const t = setTimeout(() => {
-      rangeStats(selected, a, b)
-        .then((st) => !cancelled && setRangeRes({ range, detail, st }))
-        .catch(() => {});
-    }, 120);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [range, detail, selected]);
+  // ---------- Başlangıç, sürükle-bırak, menü, klavye ----------
 
-  // Oynatma: imleci kaydın gerçek zamanına göre (hızlandırılmış) ilerletir.
-  useEffect(() => {
-    if (!playing || !detail) return;
-    const n = detail.lat.length;
-    if (n < 2) {
-      setPlaying(false);
-      return;
-    }
-    const times = detail.time;
-    const timed = times.every((t, i) => t != null && (i === 0 || t >= times[i - 1]!));
-    // Oynatma zaman çizelgesi (ms): uzun boşluklar kısaltılır ki imleç
-    // duraklamalarda donup kalmasın. Zamansız kayıtlarda 15 km/sa varsayılır.
-    const clock = new Float64Array(n);
-    for (let i = 1; i < n; i++) {
-      const d = timed ? times[i]! - times[i - 1]! : ((detail.dist[i] - detail.dist[i - 1]) / 4.17) * 1000;
-      clock[i] = clock[i - 1] + (d > PLAY_MAX_GAP_MS ? PLAY_GAP_AS_MS : Math.max(0, d));
-    }
-    const h = cursor.get();
-    let i0 = h != null && h < n - 1 ? h : 0;
-    let v = clock[i0];
-    const end = clock[n - 1];
-    let raf = 0;
-    let last: number | null = null;
-    const step = (now: number) => {
-      // Hız her karede okunur: oynatma sırasında değiştirilebilir.
-      if (last != null) v += Math.min(now - last, 250) * prefsRef.current.playSpeed;
-      last = now;
-      while (i0 < n - 1 && clock[i0 + 1] <= v) i0++;
-      cursor.set(i0);
-      if (v >= end) {
-        setPlaying(false);
-        return;
-      }
-      raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [playing, detail, cursor]);
+  const { dragging } = useStartup({
+    openPaths,
+    fail,
+    addPhotosRef,
+    setSettingsState,
+    setMetaState,
+    setPlacesState,
+    setPhotoInfo,
+    setSelected,
+    prefsRef,
+    filesRef,
+    initialLoad,
+  });
 
-  /** Fareyle gezinme; oynatma sürerken imleç oynatmanındır. */
-  const onHoverIdx = useCallback(
-    (i: number | null) => {
-      if (!playingRef.current) cursor.set(i);
-    },
-    [cursor],
-  );
-
-  // ---------- Yükleme ----------
-
-  const entryFor = useCallback(
-    (file: FileEntry["summary"]): FileEntry => ({
-      summary: file,
-      color: prefsRef.current.colors[file.path] ?? defaultColor(file.path),
-      visible: !prefsRef.current.hidden.includes(file.path),
-    }),
-    [],
-  );
-
-  /** İşi yükleme kuyruğuna ekler; üst üste gelen istekler sırayla işlenir. */
-  const enqueue = useCallback(
-    (job: () => Promise<void>) => {
-      loadQueue.current = loadQueue.current.then(job).catch((e) => {
-        setLoading(null);
-        fail(String(e));
-      });
-      return loadQueue.current;
-    },
-    [fail],
-  );
-
-  /**
-   * Yolları yükler (kuyruğun içinden çağrılır). Bu sırada ayarlar değişip
-   * kütüphane yeniden yüklenmeye başlarsa (loadGen) eski ayarlarla hesaplanan
-   * sonuçlar bırakılır; `requeue` verilmişse yollar yeniden kuyruğa alınır.
-   * Eklenen kayıtları döner.
-   */
-  const loadJob = useCallback(
-    async (paths: string[], opts: OpenOptions, requeue?: () => void): Promise<FileEntry[]> => {
-      const gen = loadGen.current;
-      const stale = () => {
-        if (gen === loadGen.current) return false;
-        setLoading(null);
-        requeue?.();
-        return true;
-      };
-      const expanded = await expandPaths(paths);
-      if (stale()) return [];
-      /** Yeniden yüklemede yeni liste ayrı birikir; aksi halde doğrudan listeye eklenir. */
-      const current = () => reloadBuf.current ?? filesRef.current;
-      const known = new Set(current().map((f) => f.summary.path));
-      const todo = expanded.filter((p) => !known.has(p));
-      if (todo.length === 0) {
-        // Zaten açık tek bir dosya tekrar açıldıysa onu seç.
-        if (expanded.length === 1 && !opts.noSelect) pick(expanded[0]);
-        return [];
-      }
-      const wasEmpty = current().length === 0;
-      const added: FileEntry[] = [];
-      const newErrors: LoadError[] = [];
-      const newDuplicates: Duplicate[] = [];
-      let selectExisting: string | null = null;
-      const existingOf = (path: string) => {
-        const f = [...current(), ...added].find((x) => x.summary.path === path);
-        return f ? f.summary.name || f.summary.fileName : baseName(path);
-      };
-      setLoading({ done: 0, total: todo.length });
-      for (let i = 0; i < todo.length; i += CHUNK) {
-        const results = await loadFiles(todo.slice(i, i + CHUNK), !!opts.explicit);
-        // Eski ayarlarla hesaplandı: listeye eklenmez.
-        if (stale()) return [];
-        const batch: FileEntry[] = [];
-        for (const r of results) {
-          if (r.status === "ok") {
-            if (!known.has(r.file.path)) {
-              known.add(r.file.path);
-              batch.push(entryFor(r.file));
-            }
-          } else if (r.status === "duplicate") {
-            newDuplicates.push({ path: r.path, existing: existingOf(r.existing) });
-            // Tek bir dosya açıldıysa ve zaten kütüphanedeyse onu seç.
-            if (todo.length === 1 && !opts.noSelect) selectExisting = r.existing;
-          } else {
-            newErrors.push({ path: r.path, message: r.message });
-          }
-        }
-        added.push(...batch);
-        if (reloadBuf.current) {
-          reloadBuf.current = [...reloadBuf.current, ...batch];
-        } else {
-          filesRef.current = [...filesRef.current, ...batch];
-          setFiles((prev) => [...prev, ...batch]);
-        }
-        setLoading({ done: Math.min(todo.length, i + CHUNK), total: todo.length });
-      }
-      setLoading(null);
-      flushCache().catch(() => {});
-      if (selectExisting) pick(selectExisting);
-      if (newErrors.length) setErrors((prev) => [...prev, ...newErrors]);
-      if (newDuplicates.length && !opts.quiet) setDuplicates((prev) => [...prev, ...newDuplicates]);
-      if (added.length === 1 && !opts.noSelect) pick(added[0].summary.path);
-      if (added.length > 0 && !opts.noFit) {
-        // İlk yüklemede hepsini, sonradan eklemede yalnızca yenileri göster.
-        requestAnimationFrame(() => mapRef.current?.fitFiles(wasEmpty ? filesRef.current : added));
-      }
-      if (opts.quiet && !opts.silent && added.length > 0 && !initialLoad.current) {
-        say(`${fmtNumber(added.length)} yeni kayıt kütüphaneye eklendi.`);
-      }
-      return added;
-    },
-    [entryFor, say, pick],
-  );
-
-  const openPaths = useCallback(
-    function openPaths(paths: string[], opts: OpenOptions = {}): Promise<void> {
-      if (paths.length === 0) return loadQueue.current;
-      return enqueue(async () => {
-        // Yeniden yüklemeyle kesilirse, o bittikten sonra baştan denenir
-        // (zaten yüklenmiş olanlar atlanır).
-        await loadJob(paths, opts, () => void openPaths(paths, opts));
-      });
-    },
-    [enqueue, loadJob],
-  );
-
-  /** Kütüphaneyi (ve izlenen klasörleri) güncel ayarlarla baştan yükler. */
-  const reloadAll = useCallback(() => {
-    const gen = ++loadGen.current;
-    // Üst üste yeniden yüklemelerde ilk seçim korunur; kullanıcı bu arada
-    // kendisi seçtiyse yeni yükleme bittiğinde onun seçimi geri gelir.
-    if (restoreSel.current === undefined || restoreSel.current === KEEP_SELECTION) {
-      restoreSel.current = selectedRef.current;
-    }
-    setSelected(null);
-    setCompare(null);
-    setReloading(true);
-    return enqueue(async () => {
-      if (gen !== loadGen.current) return;
-      try {
-        // Eski liste yükleme bitene kadar görünür kalır.
-        reloadBuf.current = [];
-        const lib = await libraryFiles();
-        if (gen !== loadGen.current) return;
-        const quiet: OpenOptions = { quiet: true, noFit: true, noSelect: true, silent: true };
-        await loadJob(lib, quiet);
-        const folders = settingsRef.current?.watchedFolders ?? [];
-        if (gen !== loadGen.current) return;
-        if (folders.length) await loadJob(folders, quiet);
-      } finally {
-        // Daha yeni bir yeniden yükleme başladıysa seçimi o geri getirir.
-        if (gen === loadGen.current) {
-          const next = reloadBuf.current ?? filesRef.current;
-          reloadBuf.current = null;
-          filesRef.current = next;
-          setFiles(next);
-          setReloading(false);
-          const sel = restoreSel.current;
-          restoreSel.current = undefined;
-          // Kullanıcı bu arada kendisi seçtiyse onun seçimine dokunulmaz.
-          if (sel !== KEEP_SELECTION) setSelected(sel && next.some((f) => f.summary.path === sel) ? sel : null);
-          else setSelected((cur) => (cur && next.some((f) => f.summary.path === cur) ? cur : null));
-        }
-      }
-    });
-  }, [enqueue, loadJob]);
-
-  /** Yeni oluşturulan kayıtları (kırpma, bölme, birleştirme) listeye ekler. */
-  const addResults = useCallback(
-    (results: LoadResult[]) => {
-      const added: FileEntry[] = [];
-      for (const r of results) {
-        if (r.status === "ok") added.push(entryFor(r.file));
-        else if (r.status === "error") fail(r.message, r.path);
-        else say(`Bu kayıt zaten kütüphanede: ${baseName(r.existing)}`);
-      }
-      if (added.length) {
-        patchFiles((prev) => [...prev, ...added]);
-        flushCache().catch(() => {});
-      }
-      return added;
-    },
-    [entryFor, fail, say, patchFiles],
-  );
-
-  const pickFiles = useCallback(async () => {
-    const res = await open({
-      multiple: true,
-      filters: [{ name: "İz dosyaları (GPX, FIT, TCX, KML)", extensions: OPEN_EXTS }],
-    });
-    if (res) openPaths(Array.isArray(res) ? res : [res], { explicit: true });
-  }, [openPaths]);
-
-  const pickFolder = useCallback(async () => {
-    const res = await open({ directory: true, multiple: true });
-    if (!res) return;
-    const folders = Array.isArray(res) ? res : [res];
-    openPaths(folders, { explicit: true });
-    const watched = new Set(settingsRef.current?.watchedFolders ?? []);
-    const offer = folders.filter((f) => !watched.has(f));
-    if (offer.length) setWatchOffer(offer);
-  }, [openPaths]);
-
-  const applySettings = useCallback(
-    async (next: Settings) => {
-      const prev = settingsRef.current;
-      settingsRef.current = next;
-      setSettingsState(next);
-      try {
-        const problems = await saveSettings(next);
-        problems.forEach((m) => fail(m));
-      } catch (e) {
-        fail(String(e));
-        settingsRef.current = prev;
-        setSettingsState(prev);
-        return;
-      }
-      const statsChanged =
-        !prev ||
-        prev.stats.movingSpeedMs !== next.stats.movingSpeedMs ||
-        prev.stats.elevationThresholdM !== next.stats.elevationThresholdM ||
-        prev.stats.cleanSpikes !== next.stats.cleanSpikes ||
-        prev.stats.perType !== next.stats.perType ||
-        prev.stats.collapseStays !== next.stats.collapseStays;
-      if (statsChanged) {
-        // İstatistikleri yeni eşiklerle yeniden hesapla (izlenen klasörler dahil).
-        reloadAll();
-        return;
-      }
-      const newFolders = next.watchedFolders.filter((f) => !prev?.watchedFolders.includes(f));
-      if (newFolders.length) openPaths(newFolders, { quiet: true, noSelect: true });
-    },
-    [fail, openPaths, reloadAll],
-  );
-
-  const removePaths = useCallback(
-    async (paths: string[]) => {
-      if (paths.length === 0) return;
-      const set = new Set(paths);
-      let items: TrashItem[];
-      try {
-        items = await removeFiles(paths);
-      } catch (e) {
-        // Kaldırılamadı: liste olduğu gibi kalır.
-        fail(String(e));
-        return;
-      }
-      // Geri alma penceresi içindeki ardışık kaldırmalar birlikte geri alınır.
-      setUndo((u) => (u ? { items: [...u.items, ...items], count: u.count + paths.length } : { items, count: paths.length }));
-      // Güzergâh filtresi kaldırılan kayda bağlıysa güzergâhın kalan bir kaydına taşı.
-      const fr = prefsRef.current.filters.route;
-      if (fr && set.has(fr)) {
-        const keep = routeInfoRef.current.byPath.get(fr)?.paths.find((p) => !set.has(p)) ?? null;
-        up({ filters: { ...prefsRef.current.filters, route: keep } });
-      }
-      filesRef.current = filesRef.current.filter((f) => !set.has(f.summary.path));
-      patchFiles((prev) => prev.filter((f) => !set.has(f.summary.path)));
-      setSelected((s) => (s && set.has(s) ? null : s));
-      setCompare((c) => (c && c.some((p) => set.has(p)) ? null : c));
-      setMulti((m) => new Set([...m].filter((p) => !set.has(p))));
-    },
-    [fail, up, patchFiles],
-  );
-
-  useEffect(() => {
-    if (!undo) return;
-    const t = setTimeout(() => setUndo(null), UNDO_MS);
-    return () => clearTimeout(t);
-  }, [undo]);
-
-  const doUndo = useCallback(async () => {
-    if (!undo) return;
-    setUndo(null);
-    let restored: string[];
-    try {
-      restored = await restoreFiles(undo.items);
-    } catch (e) {
-      fail(String(e));
-      return;
-    }
-    // Geri getirme kullanıcının isteği: kaldırılanlar listesinden de çıkarılsınlar.
-    await openPaths(restored, { quiet: true, silent: true, noFit: true, noSelect: restored.length !== 1, explicit: true });
-    say(`${fmtNumber(restored.length)} kayıt geri getirildi.`);
-  }, [undo, openPaths, say, fail]);
-
-  const closeAll = useCallback(async () => {
-    const all = filesRef.current.map((f) => f.summary.path);
-    if (all.length === 0) return;
-    const ok = await ask(
-      `Kütüphanedeki ${all.length} kaydın tamamı kaldırılsın mı? Orijinal dosyalarınız etkilenmez; hemen ardından “Geri al” ile geri getirebilirsiniz.`,
-      { title: "Kütüphaneyi boşalt", kind: "warning", okLabel: "Boşalt", cancelLabel: "Vazgeç" },
-    );
-    if (!ok) return;
-    await removePaths(all);
-    setErrors([]);
-    setDuplicates([]);
-  }, [removePaths]);
-
-  /** Listede (filtreye uyan) ve haritada görünen kayıtlara yakınlaştırır. */
-  const fitAll = useCallback(() => {
-    mapRef.current?.fitFiles(onMapRef.current);
-  }, []);
-
-  // ---------- Dışa aktarma ve düzenleme ----------
-
-  const exportCsv = useCallback(async () => {
-    const list = multi.size > 1 ? shown.filter((f) => multi.has(f.summary.path)) : shown;
-    if (list.length === 0) return;
-    try {
-      const path = await pickSavePath("gpxer-ozet.csv", [{ name: "CSV", extensions: ["csv"] }]);
-      if (!path) return;
-      await writeTextFile(path, csvFor(list, meta));
-      say(`${fmtNumber(list.length)} kaydın özeti kaydedildi.`);
-    } catch (e) {
-      fail(String(e));
-    }
-  }, [multi, shown, say, fail, meta]);
-
-  const exportPng = useCallback(async () => {
-    try {
-      const data = await mapRef.current!.exportPng();
-      const path = await pickSavePath("gpxer-harita.png", [{ name: "PNG", extensions: ["png"] }]);
-      if (!path) return;
-      await writeBase64File(path, data);
-      say("Harita görüntüsü kaydedildi.");
-    } catch (e) {
-      fail(`Harita görüntüsü alınamadı: ${e}`);
-    }
-  }, [say, fail]);
-
-  const exportSelectedGpx = useCallback(async () => {
-    const f = filesRef.current.find((x) => x.summary.path === selected);
-    if (!f) return;
-    try {
-      // Varsayılan biçim GPX; biçim seçilen yolun uzantısından belirlenir.
-      const stem = f.summary.fileName.replace(/\.[^.]+$/, "") || f.summary.fileName;
-      const path = await pickSavePath(`${stem}.gpx`, [
-        { name: "GPX", extensions: ["gpx"] },
-        { name: "KML (Google Earth)", extensions: ["kml"] },
-        { name: "TCX (Garmin)", extensions: ["tcx"] },
-        { name: "FIT (Garmin, Strava)", extensions: ["fit"] },
-      ]);
-      if (!path) return;
-      const name = baseName(path);
-      const dot = name.lastIndexOf(".");
-      const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-      const format: ExportFormat = ext === "kml" || ext === "tcx" || ext === "fit" ? ext : "gpx";
-      if (ext) {
-        await exportAs(f.summary.path, path, format);
-      } else {
-        // Uzantısız ad: ".gpx" eklenir. Arka uç yalnızca pencerede seçilen yolu
-        // kabul ediyorsa seçilen ad olduğu gibi kullanılır.
-        try {
-          await exportAs(f.summary.path, `${path}.gpx`, "gpx");
-        } catch {
-          await exportAs(f.summary.path, path, "gpx");
-        }
-      }
-      say(`${format.toUpperCase()} dosyası kaydedildi.`);
-    } catch (e) {
-      fail(String(e));
-    }
-  }, [selected, say, fail]);
-
-  const trim = useCallback(async () => {
-    if (!selected || !detail || !range) return;
-    try {
-      const added = addResults([await trimFile(selected, detail.idx[range[0]], detail.idx[range[1]])]);
-      if (added[0]) pick(added[0].summary.path);
-    } catch (e) {
-      fail(String(e));
-    }
-  }, [selected, detail, range, addResults, fail, pick]);
-
-  const split = useCallback(async () => {
-    if (!selected || !detail || !range) return;
-    try {
-      const added = addResults(await splitFile(selected, detail.idx[range[0]]));
-      if (added.length === 2) say("Kayıt ikiye bölündü; iki yeni kayıt eklendi (orijinal duruyor).");
-      if (added[1]) pick(added[1].summary.path);
-    } catch (e) {
-      fail(String(e));
-    }
-  }, [selected, detail, range, addResults, fail, say, pick]);
-
-  const merge = useCallback(
-    async (name: string) => {
-      setDialog(null);
-      const paths = shown.filter((f) => multi.has(f.summary.path)).map((f) => f.summary.path);
-      try {
-        const added = addResults([await mergeFiles(paths, name)]);
-        if (added[0]) {
-          setMulti(new Set());
-          pick(added[0].summary.path);
-          say(`${paths.length} kayıt birleştirildi (orijinaller duruyor).`);
-        }
-      } catch (e) {
-        fail(String(e));
-      }
-    },
-    [shown, multi, addResults, say, fail, pick],
-  );
-
-  const openMerge = useCallback(() => {
-    if (multi.size < 2) {
-      say("Birleştirmek için listede Ctrl/⌘ ile tıklayarak en az iki kayıt seçin.");
-      return;
-    }
-    setDialog("merge");
-  }, [multi, say]);
-
-  /** Birden çok kaydı tek dosyada dışa aktarır. */
-  const exportPaths = useCallback(
-    async (paths: string[]) => {
-      if (paths.length === 0) return;
-      if (paths.length > EXPORT_CONFIRM) {
-        const ok = await ask(
-          `${fmtNumber(paths.length)} kayıt tek bir dosyada dışa aktarılsın mı? Dosya çok büyük olabilir ve biraz sürebilir.`,
-          { title: "Toplu dışa aktarma", kind: "warning", okLabel: "Dışa aktar", cancelLabel: "Vazgeç" },
-        );
-        if (!ok) return;
-      }
-      try {
-        const path = await pickSavePath(`GPXer-${paths.length}-kayit.gpx`, SAVE_FILTERS);
-        if (!path) return;
-        const { format, hasExt } = formatOf(path);
-        say(`${fmtNumber(paths.length)} kayıt dışa aktarılıyor…`);
-        if (hasExt) await exportMany(paths, path, format);
-        else {
-          try {
-            await exportMany(paths, `${path}.gpx`, "gpx");
-          } catch {
-            await exportMany(paths, path, "gpx");
-          }
-        }
-        say(`${fmtNumber(paths.length)} kayıt tek ${format.toUpperCase()} dosyasına kaydedildi.`);
-      } catch (e) {
-        fail(String(e));
-      }
-    },
-    [say, fail],
-  );
-  const exportFiltered = useCallback(() => exportPaths(shown.map((f) => f.summary.path)), [exportPaths, shown]);
-  const exportMulti = useCallback(
-    () => exportPaths(shown.filter((f) => multi.has(f.summary.path)).map((f) => f.summary.path)),
-    [exportPaths, shown, multi],
-  );
-
-  // ---------- Adlandırılmış yerler ----------
-
-  const updatePlaces = useCallback(
-    (next: NamedPlace[]) => {
-      setPlacesState(next);
-      savePlaces(next).catch((e) => fail(`Yerler kaydedilemedi: ${e}`));
-    },
-    [fail],
-  );
-  const onNamePlace = useCallback((lon: number, lat: number, place: NamedPlace | null) => {
-    setNamePrompt({ lon, lat, place: place ?? namedPlaceAt(lon, lat) });
-  }, []);
-  const namePlace = useCallback(
-    (name: string) => {
-      const np = namePrompt;
-      setNamePrompt(null);
-      if (!np) return;
-      if (np.place) {
-        updatePlaces(places.map((p) => (p.id === np.place!.id ? { ...p, name } : p)));
-        say(`Yerin adı “${name}” olarak değiştirildi.`);
-      } else {
-        updatePlaces([...places, { id: newPlaceId(), name, lat: np.lat, lon: np.lon, radiusM: DEFAULT_RADIUS_M }]);
-        say(`“${name}” eklendi (${DEFAULT_RADIUS_M} m yarıçap; Ayarlar'dan değiştirilebilir).`);
-      }
-    },
-    [namePrompt, places, updatePlaces, say],
-  );
-
-  // ---------- Fotoğraflar ----------
-
-  const addPhotoPaths = useCallback(
-    async (paths: string[]) => {
-      if (!paths.length) return;
-      const prev = prefsRef.current.photos;
-      const known = new Set(prev);
-      const fresh = paths.filter((p) => !known.has(p));
-      // Çok sayıda dosya ayarlara tek tek yazılmasın: hepsi aynı klasördense
-      // klasör saklanır (read_photos klasörleri okur); değilse sınırlanır.
-      const dirs = new Set(fresh.map(parentDir));
-      const dir = fresh.length > PHOTO_FOLDER_MIN && dirs.size === 1 ? [...dirs][0] : null;
-      let capNote = "";
-      if (dir) {
-        const inside = (p: string) => p === dir || parentDir(p) === dir;
-        up({ photos: [...prev.filter((p) => !inside(p)), dir], photosLayer: true });
-      } else {
-        const all = [...prev, ...fresh];
-        if (all.length > PHOTO_STORE_MAX) {
-          up({ photos: all.slice(0, PHOTO_STORE_MAX), photosLayer: true });
-          capNote = ` En fazla ${fmtNumber(PHOTO_STORE_MAX)} fotoğraf hatırlanır: ${fmtNumber(all.length - PHOTO_STORE_MAX)} tanesi bir sonraki açılışta gösterilmeyecek (klasör olarak eklemek daha iyi olur).`;
-        } else up({ photos: all, photosLayer: true });
-      }
-      try {
-        const list = (await readPhotos(paths)) ?? [];
-        setPhotoInfo((prev) => {
-          const byPath = new Map(prev.map((x) => [x.path, x]));
-          for (const x of list) byPath.set(x.path, x);
-          return [...byPath.values()];
-        });
-        const placed = placePhotos(list, filesRef.current.map((f) => f.summary), prefsRef.current.photoOffsetH);
-        say(
-          (list.length
-            ? `${fmtNumber(list.length)} fotoğraf eklendi; ${fmtNumber(placed.placed.length)} tanesi haritada${
-                placed.unplaced ? ` (${fmtNumber(placed.unplaced)} tanesinin konumu ya da o saatte kaydı yok)` : ""
-              }.`
-            : "Fotoğraf bulunamadı.") + capNote,
-        );
-      } catch (e) {
-        fail(`Fotoğraflar okunamadı: ${e}`);
-      }
-    },
-    [up, say, fail],
-  );
-  const pickPhotos = useCallback(
-    async (folder: boolean) => {
-      const res = folder
-        ? await open({ directory: true, multiple: true })
-        : await open({ multiple: true, filters: [{ name: "Fotoğraflar", extensions: PHOTO_EXTS }] });
-      if (res) addPhotoPaths(Array.isArray(res) ? res : [res]);
-    },
-    [addPhotoPaths],
-  );
-  const clearPhotos = useCallback(() => {
-    up({ photos: [] });
-    setPhotoInfo([]);
-  }, [up]);
-  const addPhotosRef = useRef(addPhotoPaths);
-  addPhotosRef.current = addPhotoPaths;
-
-  // ---------- Uçuşlar, tarihe git, çakışmalar ----------
-
-  const showFlight = useCallback(
-    (f: Flight) => {
-      setDialog(null);
-      setMulti(new Set());
-      setCompare(null);
-      pick(f.path);
-      mapRef.current?.fitPoints(greatCircle(f.from, f.to, 16));
-    },
-    [pick],
-  );
-
-  /** Duvar saatindeki (gg.aa.yyyy ss:dd) ana en yakın kayıt. */
-  const findAt = useCallback(
-    (wall: number): GoToResult => {
-      const record = prefsRef.current.tzMode === "record";
-      let cover: { s: FileSummary; t: number; active: boolean; span: number } | null = null;
-      let near: { s: FileSummary; t: number; dt: number } | null = null;
-      for (const f of filesRef.current) {
-        const s = f.summary;
-        const a = s.stats.startTime;
-        const b = s.stats.endTime;
-        if (a == null || b == null) continue;
-        const t = wallToUtc(wall, record ? s.timeZone : null);
-        if (t >= a && t <= b) {
-          const h = Math.floor(t / 3_600_000) * 3_600_000;
-          const active = !Array.isArray(s.hours) || s.hours.some((x) => x[0] === h);
-          const span = b - a;
-          // Verisi olan saatteki kayıt, sonra kısa kayıt tercih edilir.
-          if (!cover || (active && !cover.active) || (active === cover.active && span < cover.span)) cover = { s, t, active, span };
-        } else {
-          const dt = t < a ? t - a : t - b;
-          if (!near || Math.abs(dt) < Math.abs(near.dt)) near = { s, t: t < a ? a : b, dt };
-        }
-      }
-      if (cover) return { kind: "cover", path: cover.s.path, t: cover.t };
-      if (near) return { kind: "near", path: near.s.path, t: near.t, dt: near.dt, go: Math.abs(near.dt) <= GOTO_NEAR_MS };
-      return { kind: "none" };
-    },
-    [],
-  );
-
-  /** Kaydın `t` anına en yakın noktası (özetteki iz) ve o yerin adı. */
-  const placeAtTime = useCallback((s: FileSummary, t: number): { name: string | null; at: number | null } => {
-    let best: [number, number] | null = null;
-    let at: number | null = null;
-    s.lines.forEach((line, li) => {
-      const ts = s.times[li] ?? [];
-      for (let i = 0; i < line.length; i++) {
-        const x = ts[i];
-        if (x != null && (at == null || Math.abs(x - t) < Math.abs(at - t))) {
-          at = x;
-          best = line[i];
-        }
-      }
-    });
-    const pt = best as [number, number] | null;
-    const named = pt ? namedPlaceAt(pt[0], pt[1]) : null;
-    if (named) return { name: named.name, at };
-    const v = visitAt(s, at ?? t);
-    if (v) return { name: v.name ? `${v.name}${v.cc ? `, ${countryName(v.cc)}` : ""}` : countryName(v.cc), at };
-    return { name: s.startPlace ?? null, at };
-  }, []);
-
-  const goTo = useCallback(
-    (r: GoToResult) => {
-      if (r.kind === "none") return;
-      const f = filesRef.current.find((x) => x.summary.path === r.path);
-      if (!f) return;
-      const s = f.summary;
-      setDialog(null);
-      setMulti(new Set());
-      setCompare(null);
-      setRange(null);
-      pick(s.path);
-      setSeek({ path: s.path, t: r.t });
-      const { name: place, at } = placeAtTime(s, r.t);
-      const name = s.name || s.fileName;
-      const ago = (dt: number) => `${fmtDuration(Math.abs(dt))} ${dt < 0 ? "sonra" : "önce"}`;
-      if (r.kind === "cover") {
-        // Kaydın süresi içinde ama o saatte nokta yok (ör. aylarca süren kayıtta ara gün).
-        if (at != null && Math.abs(at - r.t) > 30 * 60_000)
-          say(`Bu anda ${name} kaydında veri yok (en yakın nokta: ${ago(r.t - at)} · ${fmtTimestamp(at, tzOf(s))}${place ? ` · ${place}` : ""})`);
-        else say(`Bu anda: ${place ? `${place}, ` : ""}${name}`);
-      } else say(`Kayıt yok (en yakın: ${name}, ${ago(r.dt)} · ${fmtTimestamp(r.t, tzOf(s))}${place ? ` · ${place}` : ""})`);
-    },
-    [pick, say, placeAtTime],
-  );
-
-  const compareWith = useCallback(
-    (a: string, b: string) => {
-      const t = (p: string) => filesRef.current.find((f) => f.summary.path === p)?.summary.stats.startTime ?? 0;
-      const pair: [string, string] = t(a) <= t(b) ? [a, b] : [b, a];
-      setCompare(pair);
-      pick(null);
-      mapRef.current?.fitFiles(filesRef.current.filter((f) => pair.includes(f.summary.path)));
-    },
-    [pick],
-  );
-
-  // ---------- Başlangıç, sürükle-bırak, menü ----------
-
-  useEffect(() => {
-    const unlisten: Promise<() => void>[] = [];
-    const drainPending = () =>
-      takePendingPaths()
-        .then((p) => openPaths(p, { explicit: true }))
-        .catch((e) => fail(String(e)));
-
-    unlisten.push(
-      getCurrentWebview().onDragDropEvent((e) => {
-        const t = e.payload.type;
-        if (t === "enter" || t === "over") setDragging(true);
-        else if (t === "leave") setDragging(false);
-        else if (t === "drop") {
-          setDragging(false);
-          // Fotoğraflar haritaya, iz dosyaları ve klasörler kütüphaneye.
-          const photos = e.payload.paths.filter(isImagePath);
-          const rest = e.payload.paths.filter((p) => !isImagePath(p));
-          if (photos.length) addPhotosRef.current(photos);
-          if (rest.length) openPaths(rest, { explicit: true });
-        }
-      }),
-    );
-    unlisten.push(listen("pending-paths", drainPending));
-    unlisten.push(listen<string[]>("watched-paths", (e) => openPaths(e.payload, { quiet: true, noFit: true, noSelect: true })));
-    return () => unlisten.forEach((p) => p.then((fn) => fn()));
-  }, [openPaths, fail]);
-
-  // Açılış: kütüphane, izlenen klasörlerdeki yeni dosyalar, işletim sisteminden gelenler.
-  useEffect(() => {
-    let done = false;
-    (async () => {
-      const s = await getSettings().catch(() => null);
-      if (done) return;
-      if (s) setSettingsState(s);
-      getMeta()
-        .then(setMetaState)
-        .catch(() => {});
-      getPlaces()
-        .then((p) => Array.isArray(p) && setPlacesState(p))
-        .catch(() => {});
-      try {
-        await openPaths(await libraryFiles(), { quiet: true, noFit: hadView.current, noSelect: true });
-        if (s?.watchedFolders.length) await openPaths(s.watchedFolders, { quiet: true, noFit: true, noSelect: true });
-      } catch (e) {
-        fail(`Kütüphane yüklenemedi: ${e}`);
-      } finally {
-        initialLoad.current = false;
-        // Kayıtlı seçim artık yoksa bırak.
-        setSelected((sel) => (sel && filesRef.current.some((f) => f.summary.path === sel) ? sel : null));
-      }
-      // Kayıtlı fotoğraflar kütüphaneden sonra, arka planda okunur.
-      const photoPaths = prefsRef.current.photos;
-      if (photoPaths.length) {
-        readPhotos(photoPaths)
-          .then((list) => Array.isArray(list) && setPhotoInfo(list))
-          .catch((e) => fail(`Fotoğraflar okunamadı: ${e}`));
-      }
-      try {
-        await openPaths(await takePendingPaths(), { explicit: true });
-      } catch (e) {
-        fail(String(e));
-      }
-    })();
-    return () => {
-      done = true;
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handlers = useRef<Record<string, () => void>>({});
-  handlers.current = {
+  useMenuHandlers({
     open_files: pickFiles,
     open_folder: pickFolder,
     close_all: closeAll,
@@ -1330,266 +212,47 @@ export default function App() {
     export_gpx: exportSelectedGpx,
     merge: openMerge,
     help: () => setDialog("help"),
-  };
-  useEffect(() => {
-    const u = listen<string>("menu", (e) => handlers.current[e.payload]?.());
-    return () => {
-      u.then((fn) => fn());
-    };
-  }, []);
+  });
 
-  // ---------- Liste etkileşimi ----------
+  const {
+    anchor,
+    onRowClick,
+    setVisible,
+    toggle,
+    setColor,
+    setFilters,
+    onGroupBy,
+    onToggleGroup,
+    onToggleAll,
+    openSettings,
+    openHelp,
+    openGoTo,
+    dismissMultiHint,
+    openSummary,
+    openTag,
+    clearMulti,
+  } = useListActions({ rows, selected, pick, setMulti, patchFiles, up, prefsRef, filesRef, shownRef, setDialog });
 
-  const onRowClick = useCallback(
-    (path: string, mods: RowModifiers) => {
-      if (mods.range && anchor.current) {
-        const order = rows.map((f) => f.summary.path);
-        const a = order.indexOf(anchor.current);
-        const b = order.indexOf(path);
-        if (a >= 0 && b >= 0) {
-          setMulti(new Set(order.slice(Math.min(a, b), Math.max(a, b) + 1)));
-          return;
-        }
-      }
-      if (mods.toggle) {
-        setMulti((m) => {
-          const next = new Set(m);
-          if (next.size === 0 && selected) next.add(selected);
-          if (next.has(path)) next.delete(path);
-          else next.add(path);
-          return next;
-        });
-        anchor.current = path;
-        return;
-      }
-      setMulti(new Set());
-      anchor.current = path;
-      pick(path);
-    },
-    [rows, selected, pick],
-  );
-
-  // Klavye: Esc, ↑/↓, Boşluk, ?.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (dialog || routeModal) return;
-      if (e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
-      const el = e.target as HTMLElement;
-      const tag = el.tagName;
-      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || el.isContentEditable) return;
-      if (e.key === "Escape") {
-        if (areaMode) setAreaMode(false);
-        else if (compare) setCompare(null);
-        else if (range) setRange(null);
-        else if (multi.size) setMulti(new Set());
-        else pick(null);
-      }
-      if (e.key === "?") {
-        e.preventDefault();
-        setDialog("help");
-      }
-      if ((e.key === "g" || e.key === "G") && filesRef.current.length) {
-        e.preventDefault();
-        setDialog("goto");
-      }
-      if (e.key === " " && detail && tag !== "BUTTON") {
-        e.preventDefault();
-        setPlaying((v) => !v);
-      }
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const idx = rows.findIndex((f) => f.summary.path === selected);
-        const next = e.key === "ArrowDown" ? idx + 1 : idx < 0 ? rows.length - 1 : idx - 1;
-        const target = rows[Math.max(0, Math.min(rows.length - 1, next))];
-        // Seçilen satırı görünür kılmak kenar çubuğunun işi (liste sanal; satır henüz çizilmemiş olabilir).
-        if (target) {
-          pick(target.summary.path);
-          anchor.current = target.summary.path;
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [rows, selected, range, multi, detail, dialog, routeModal, areaMode, compare, pick]);
-
-  const zoomTo = useCallback((path: string) => {
-    const f = filesRef.current.find((x) => x.summary.path === path);
-    if (f) mapRef.current?.fitFiles([f]);
-  }, []);
-
-  const selectAndZoom = useCallback(
-    (path: string) => {
-      pick(path);
-      zoomTo(path);
-    },
-    [zoomTo, pick],
-  );
-
-  const setVisible = useCallback(
-    (paths: string[], visible: boolean) => {
-      const ids = new Set(paths);
-      patchFiles((prev) => prev.map((f) => (ids.has(f.summary.path) ? { ...f, visible } : f)));
-      const hidden = new Set(prefsRef.current.hidden);
-      for (const p of paths) {
-        if (visible) hidden.delete(p);
-        else hidden.add(p);
-      }
-      up({ hidden: [...hidden] });
-    },
-    [up, patchFiles],
-  );
-
-  const toggle = useCallback(
-    (path: string) => {
-      const f = filesRef.current.find((x) => x.summary.path === path);
-      if (f) setVisible([path], !f.visible);
-    },
-    [setVisible],
-  );
-
-  const setColor = useCallback(
-    (path: string, color: string) => {
-      patchFiles((prev) => prev.map((f) => (f.summary.path === path ? { ...f, color } : f)));
-      up({ colors: { ...prefsRef.current.colors, [path]: color }, colorMode: "file" });
-    },
-    [up, patchFiles],
-  );
-
-  const setFilters = useCallback((filters: Filters) => up({ filters }), [up]);
-
-  /** Kaydın tür/etiket/notunu kaydeder; tür değişince özeti günceller. */
-  const updateMeta = useCallback(
-    async (path: string, m: FileMeta) => {
-      setMetaState((prev) => ({ ...prev, [path]: m }));
-      try {
-        const res = await saveMeta(path, m);
-        if (res?.status === "ok") {
-          patchFiles((prev) => prev.map((f) => (f.summary.path === path ? { ...f, summary: res.file } : f)));
-        } else if (res?.status === "error") fail(res.message, path);
-      } catch (e) {
-        fail(String(e), path);
-      }
-    },
-    [fail, patchFiles],
-  );
-
-  const tagMany = useCallback(
-    async (tag: string) => {
-      setDialog(null);
-      const paths = [...multi];
-      for (const p of paths) {
-        const m = meta[p] ?? EMPTY_META;
-        if (!m.tags.includes(tag)) await updateMeta(p, { ...m, tags: [...m.tags, tag] });
-      }
-      say(`${fmtNumber(paths.length)} kayda “${tag}” etiketi eklendi.`);
-    },
-    [multi, meta, updateMeta, say],
-  );
-
-  const startCompare = useCallback(() => {
-    const pair = [...multi];
-    if (pair.length !== 2) return;
-    // Eski kayıt A, yeni kayıt B.
-    const t = (p: string) => filesRef.current.find((f) => f.summary.path === p)?.summary.stats.startTime ?? 0;
-    pair.sort((a, b) => t(a) - t(b));
-    setCompare([pair[0], pair[1]]);
-    pick(null);
-    mapRef.current?.fitFiles(filesRef.current.filter((f) => pair.includes(f.summary.path)));
-  }, [multi, pick]);
-
-  const zoomRange = useCallback(() => {
-    if (!detail || !range) return;
-    const pts: [number, number][] = [];
-    for (let i = range[0]; i <= range[1]; i++) pts.push([detail.lon[i], detail.lat[i]]);
-    mapRef.current?.fitPoints(pts);
-  }, [detail, range]);
-
-  /** Gün seçimi: aralığı o günün örneklerine ayarlar ve haritada gösterir. */
-  const pickDay = useCallback(
-    (r: [number, number] | null) => {
-      setRange(r);
-      if (!detail || !r) return;
-      const pts: [number, number][] = [];
-      for (let i = r[0]; i <= r[1]; i++) pts.push([detail.lon[i], detail.lat[i]]);
-      mapRef.current?.fitPoints(pts);
-    },
-    [detail],
-  );
-
-  // Tarih filtresi tek güne ayarlıysa (ör. takvimde güne tıklama) çok günlü
-  // kaydın o günü kendiliğinden seçilir.
-  const oneDay = prefs.filters.from && prefs.filters.from === prefs.filters.to ? prefs.filters.from : "";
-  const selSummary = selectedEntry?.summary ?? null;
-  useEffect(() => {
-    if (!oneDay || !detail || !selSummary) return;
-    const days = detailDays(selSummary, detail);
-    if (days.length < 2) return;
-    const d = days.find((x) => x.day === oneDay);
-    if (d) pickDay([d.start, d.end]);
-  }, [oneDay, detail]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const metricLegend = useMemo(() => {
-    if (!detail || prefs.trackColorBy === "none") return null;
-    const d = metricDomain(detail[prefs.trackColorBy] as (number | null)[]);
-    return d ? { metric: METRICS[prefs.trackColorBy], domain: d } : null;
-  }, [detail, prefs.trackColorBy]);
-
-  const dateLegend = useMemo(() => {
-    if (prefs.colorMode !== "date") return null;
-    const ts = files.map((f) => f.summary.stats.startTime).filter((t): t is number => t != null);
-    if (ts.length === 0) return null;
-    return [Math.min(...ts), Math.max(...ts)] as const;
-  }, [files, prefs.colorMode]);
-
-  // Kenar çubuğu için sabit kimlikli işleyiciler (Sidebar memo ile sarılınca
-  // imleç/oynatma gibi ilgisiz değişikliklerde yeniden çizilmesin).
-  const onGroupBy = useCallback((groupBy: Prefs["groupBy"]) => up({ groupBy }), [up]);
-  const onToggleGroup = useCallback(
-    (key: string) => {
-      const c = prefsRef.current.collapsed;
-      up({ collapsed: c.includes(key) ? c.filter((k) => k !== key) : [...c, key] });
-    },
-    [up],
-  );
-  const shownRef = useRef(shown);
-  shownRef.current = shown;
-  const onToggleAll = useCallback(
-    (v: boolean) => setVisible(shownRef.current.map((f) => f.summary.path), v),
-    [setVisible],
-  );
-  const openSettings = useCallback(() => setDialog("settings"), []);
-  const openHelp = useCallback(() => setDialog("help"), []);
-  const openGoTo = useCallback(() => setDialog("goto"), []);
-  const dismissMultiHint = useCallback(() => up({ multiHintSeen: true }), [up]);
-  const openSummary = useCallback(() => setDialog("summary"), []);
-  const openTag = useCallback(() => setDialog("tag"), []);
-  const clearMulti = useCallback(() => setMulti(new Set()), []);
-
-  /** Etkin güzergâh filtresinin açıklaması (güzergâhın ilk kaydının yeri/adı). */
-  const routeLabel = useMemo(() => {
-    const f = activeRoute && files.find((x) => x.summary.path === activeRoute.paths[0]);
-    return f ? (placeLabel(f.summary) ?? f.summary.name ?? f.summary.fileName) : null;
-  }, [activeRoute, files]);
-
-  const coloredByPath = useMemo(() => new Map(colored.map((f) => [f.summary.path, f])), [colored]);
-  const coloredByPathRef = useRef(coloredByPath);
-  coloredByPathRef.current = coloredByPath;
-  const summaryOf = useCallback((p: string) => coloredByPathRef.current.get(p)?.summary, []);
-  const libraryFlights = useMemo(() => summaries.reduce((n, s) => n + flightsOf(s).length, 0), [summaries]);
-  /** Seçili kayıtla çakışanlar (ad ve ortak süreyle). */
-  const selOverlaps = useMemo(
-    () =>
-      selected
-        ? (overlapInfo.get(selected) ?? []).flatMap((o) => {
-            const f = coloredByPath.get(o.path);
-            return f ? [{ path: o.path, ms: o.ms, name: f.summary.name || f.summary.fileName, color: f.color }] : [];
-          })
-        : [],
-    [selected, overlapInfo, coloredByPath],
-  );
-
-  const ramp = dark ? SEQ_DARK : SEQ_LIGHT;
-  const gradient = `linear-gradient(to right, ${ramp.join(", ")})`;
+  useKeyboard({
+    rows,
+    selected,
+    range,
+    multi,
+    detail,
+    dialog,
+    routeModal,
+    areaMode,
+    compare,
+    pick,
+    anchor,
+    filesRef,
+    setAreaMode,
+    setCompare,
+    setRange,
+    setMulti,
+    setDialog,
+    setPlaying,
+  });
 
   return (
     <div className={`app${prefs.sidebarOpen ? "" : " sidebar-closed"}`}>
@@ -1679,157 +342,29 @@ export default function App() {
             summaryOf={summaryOf}
             onPhotoRecord={selectAndZoom}
           />
-          <div className="map-toolbar">
-            <button
-              className="icon-btn"
-              onClick={() => up({ sidebarOpen: !prefs.sidebarOpen })}
-              title={prefs.sidebarOpen ? "Kenar çubuğunu gizle (Ctrl/⌘+B)" : "Kenar çubuğunu göster (Ctrl/⌘+B)"}
-            >
-              {prefs.sidebarOpen ? "⟨" : "☰"}
-            </button>
-            <div className="segmented">
-              {BASE_LAYERS.map((l) => (
-                <button key={l.id} className={l.id === baseLayer ? "active" : ""} onClick={() => setBaseLayer(l.id)}>
-                  {l.label}
-                </button>
-              ))}
-            </div>
-            {files.length > 0 && (
-              <>
-                <div className="segmented">
-                  <button className={!prefs.heatmap ? "active" : ""} onClick={() => up({ heatmap: false })}>
-                    İzler
-                  </button>
-                  <button
-                    className={prefs.heatmap ? "active" : ""}
-                    onClick={() => up({ heatmap: true })}
-                    title="En çok geçilen yerler (Ctrl/⌘+Shift+H)"
-                  >
-                    Isı haritası
-                  </button>
-                </div>
-                <label className="map-select" title="İz renkleri">
-                  <select
-                    value={prefs.colorMode}
-                    onChange={(e) => up({ colorMode: e.target.value as Prefs["colorMode"] })}
-                    disabled={prefs.heatmap}
-                  >
-                    <option value="file">Renk: dosyaya göre</option>
-                    <option value="date">Renk: tarihe göre</option>
-                  </select>
-                </label>
-                <button
-                  className={`btn small${prefs.stopsLayer ? " primary" : ""}`}
-                  onClick={() => up({ stopsLayer: !prefs.stopsLayer })}
-                  title="Tüm kayıtlarda en sık duraklama yapılan yerler"
-                >
-                  Duraklamalar
-                </button>
-                <button
-                  className={`btn small${prefs.flightsLayer ? " primary" : ""}`}
-                  onClick={() => up({ flightsLayer: !prefs.flightsLayer })}
-                  title={
-                    libraryFlights
-                      ? `Gösterilen kayıtlardaki uçuşları (300 km/sa üstü boşluklar) yay olarak çiz · kütüphanede ${fmtNumber(libraryFlights)} uçuş`
-                      : "Kayıtlarda uçuş bulunamadı (300 km/sa üstü, 100 km'den uzun boşluk)"
-                  }
-                >
-                  ✈ Uçuşlar
-                </button>
-                <label
-                  className="check map-check"
-                  title="Seçili kayıtta nokta kaydedilmemiş aralıkları (uçuş, sinyal kaybı) kesik çizgiyle göster"
-                >
-                  <input type="checkbox" checked={prefs.showGaps} onChange={(e) => up({ showGaps: e.target.checked })} />
-                  Boşluklar
-                </label>
-                {settings && (
-                  <label
-                    className="check map-check"
-                    title={
-                      settings.stats.cleanSpikes
-                        ? `Uzağa fırlayıp geri dönen GPS noktaları${
-                            settings.stats.collapseStays ? " ve uzun duraklamalardaki konum titremesi" : ""
-                          } haritadan ve hesaplardan çıkarılıyor (${fmtNumber(
-                            files.reduce((n, f) => n + f.summary.removedPoints, 0),
-                          )} GPS sıçraması${
-                            settings.stats.collapseStays
-                              ? `, duraklamalarda tek noktaya indirilen ${fmtNumber(
-                                  files.reduce((n, f) => n + (f.summary.collapsedPoints ?? 0), 0),
-                                )} nokta`
-                              : ""
-                          }). Orijinal dosyalar değişmez. Ayrıntılar: Ayarlar.`
-                        : "GPS gürültüsü temizlenmiyor; kayıtlar olduğu gibi gösteriliyor."
-                    }
-                  >
-                    <input
-                      type="checkbox"
-                      checked={settings.stats.cleanSpikes}
-                      onChange={(e) =>
-                        applySettings({ ...settings, stats: { ...settings.stats, cleanSpikes: e.target.checked } })
-                      }
-                    />
-                    GPS gürültüsünü temizle
-                  </label>
-                )}
-                <button
-                  className="btn small"
-                  onClick={fitAll}
-                  title="Listede görünen (filtreye uyan) tüm kayıtlara yakınlaştır (Ctrl/⌘+0)"
-                >
-                  Tümüne yakınlaştır
-                </button>
-                <button className="btn small" onClick={exportPng} title="Harita görüntüsünü kaydet (Ctrl/⌘+Shift+E)">
-                  PNG
-                </button>
-              </>
-            )}
-            <PhotoControl
-              count={placedPhotos.placed.length}
-              unplaced={placedPhotos.unplaced}
-              on={prefs.photosLayer}
-              offset={prefs.photoOffsetH}
-              onToggle={() => up({ photosLayer: !prefs.photosLayer })}
-              onOffset={(photoOffsetH) => up({ photoOffsetH })}
-              onAdd={pickPhotos}
-              onClear={clearPhotos}
-            />
-          </div>
+          <MapToolbar
+            prefs={prefs}
+            up={up}
+            baseLayer={baseLayer}
+            setBaseLayer={setBaseLayer}
+            files={files}
+            libraryFlights={libraryFlights}
+            settings={settings}
+            applySettings={applySettings}
+            fitAll={fitAll}
+            exportPng={exportPng}
+            placedPhotos={placedPhotos}
+            pickPhotos={pickPhotos}
+            clearPhotos={clearPhotos}
+          />
 
-          <div className="legends">
-            {prefs.heatmap && (
-              <div className="legend">
-                <span className="legend-title">Geçiş yoğunluğu</span>
-                <div className="legend-bar" style={{ background: gradient }} />
-                <div className="legend-ends">
-                  <span>az</span>
-                  <span>çok</span>
-                </div>
-              </div>
-            )}
-            {!prefs.heatmap && dateLegend && (
-              <div className="legend">
-                <span className="legend-title">Kayıt tarihi</span>
-                <div className="legend-bar" style={{ background: gradient }} />
-                <div className="legend-ends">
-                  <span>{fmtDate(dateLegend[0])}</span>
-                  <span>{fmtDate(dateLegend[1])}</span>
-                </div>
-              </div>
-            )}
-            {metricLegend && (
-              <div className="legend">
-                <span className="legend-title">
-                  Seçili iz: {metricLegend.metric.label} ({metricLegend.metric.unit})
-                </span>
-                <div className="legend-bar" style={{ background: gradient }} />
-                <div className="legend-ends">
-                  <span>{fmtUnit(metricLegend.domain[0], "", metricLegend.metric.digits)}</span>
-                  <span>{fmtUnit(metricLegend.domain[1], "", metricLegend.metric.digits)}</span>
-                </div>
-              </div>
-            )}
-          </div>
+          <MapLegends
+            heatmap={prefs.heatmap}
+            dark={dark}
+            dateLegend={dateLegend}
+            detail={detail}
+            trackColorBy={prefs.trackColorBy}
+          />
 
           {reloading && (
             <div className="reload-overlay" role="status" aria-live="polite">
@@ -1841,92 +376,23 @@ export default function App() {
             </div>
           )}
           <UpdateNotice />
-          {(duplicates.length > 0 || errors.length > 0 || info || undo || watchOffer) && (
-            <div className="toasts">
-              {undo && (
-                <div className="toast info">
-                  <div className="toast-head">
-                    <strong>{fmtNumber(undo.count)} kayıt kaldırıldı</strong>
-                    <button className="btn small primary" onClick={doUndo}>
-                      Geri al
-                    </button>
-                  </div>
-                </div>
-              )}
-              {watchOffer && (
-                <div className="toast info">
-                  <div className="toast-head">
-                    <strong>Bu klasör izlensin mi?</strong>
-                    <button className="icon-btn" onClick={() => setWatchOffer(null)} title="Hayır">
-                      ×
-                    </button>
-                  </div>
-                  <div>Yeni eklenen GPX, FIT, TCX, KML dosyaları kütüphaneye kendiliğinden eklenir.</div>
-                  <div className="update-actions">
-                    <button
-                      className="btn small primary"
-                      onClick={() => {
-                        const s = settingsRef.current;
-                        if (s) applySettings({ ...s, watchedFolders: [...s.watchedFolders, ...watchOffer] });
-                        setWatchOffer(null);
-                      }}
-                    >
-                      İzle
-                    </button>
-                    <button className="btn small" onClick={() => setWatchOffer(null)}>
-                      Hayır
-                    </button>
-                  </div>
-                </div>
-              )}
-              {info && (
-                <div className="toast info">
-                  <div className="toast-head">
-                    <span>{info}</span>
-                    <button className="icon-btn" onClick={() => setInfo(null)} title="Kapat">
-                      ×
-                    </button>
-                  </div>
-                </div>
-              )}
-              {duplicates.length > 0 && (
-                <div className="toast info">
-                  <div className="toast-head">
-                    <strong>{duplicates.length} dosya zaten kütüphanede, eklenmedi</strong>
-                    <button className="icon-btn" onClick={() => setDuplicates([])} title="Kapat">
-                      ×
-                    </button>
-                  </div>
-                  <ul>
-                    {duplicates.slice(0, 5).map((d, i) => (
-                      <li key={i}>
-                        <span className="path">{baseName(d.path)}</span> → {d.existing}
-                      </li>
-                    ))}
-                    {duplicates.length > 5 && <li>… ve {duplicates.length - 5} dosya daha</li>}
-                  </ul>
-                </div>
-              )}
-              {errors.length > 0 && (
-                <div className="toast error">
-                  <div className="toast-head">
-                    <strong>{errors.length === 1 && !errors[0].path ? "Bir sorun oluştu" : `${errors.length} sorun`}</strong>
-                    <button className="icon-btn" onClick={() => setErrors([])} title="Kapat">
-                      ×
-                    </button>
-                  </div>
-                  <ul>
-                    {errors.slice(0, 5).map((e, i) => (
-                      <li key={i}>
-                        {e.path && <span className="path">{baseName(e.path)}</span>} {e.message}
-                      </li>
-                    ))}
-                    {errors.length > 5 && <li>… ve {errors.length - 5} tane daha</li>}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
+          <Toasts
+            undo={undo}
+            onUndo={doUndo}
+            watchOffer={watchOffer}
+            onWatch={() => {
+              const s = settingsRef.current;
+              if (s && watchOffer) applySettings({ ...s, watchedFolders: [...s.watchedFolders, ...watchOffer] });
+              setWatchOffer(null);
+            }}
+            onDismissWatch={() => setWatchOffer(null)}
+            info={info}
+            onCloseInfo={() => setInfo(null)}
+            duplicates={duplicates}
+            onClearDuplicates={() => setDuplicates([])}
+            errors={errors}
+            onClearErrors={() => setErrors([])}
+          />
         </div>
         {compare && (() => {
           const a = colored.find((f) => f.summary.path === compare[0]);

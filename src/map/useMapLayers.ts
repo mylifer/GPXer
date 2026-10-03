@@ -1,0 +1,321 @@
+/** MapView'in veri ve görünüm efektleri: her biri değiştiğinde haritadaki
+ * kaynakları/katmanları günceller (harita hazır değilse hazır olunca). */
+import { useEffect, type RefObject } from "react";
+import type * as maplibregl from "maplibre-gl";
+import type { Detail, NamedPlace } from "../api";
+import type { FileEntry } from "../types";
+import { SEQ_DARK, SEQ_LIGHT } from "../types";
+import type { TrackColorBy } from "../prefs";
+import type { BBox } from "../geo";
+import type { Flight } from "../flights";
+import { runWhenReady, setData, type MapRefs } from "./context";
+import {
+  EMPTY,
+  areaGeoJSON,
+  coloredGeoJSON,
+  flightsGeoJSON,
+  gapsGeoJSON,
+  heatGeoJSON,
+  hotspotsGeoJSON,
+  metricDomain,
+  rangeGeoJSON,
+  stopsGeoJSON,
+  tracksGeoJSON,
+  waypointsGeoJSON,
+  type DateWindow,
+} from "./geojson";
+import { RASTER_MAX_ZOOM, VECTOR_STYLES, addVectorBase, type BaseLayer } from "./style";
+
+/** İzler, ısı haritası, seçim vurgusu, duraklamalar, uçuşlar ve alan. */
+export function useTrackLayers(
+  r: MapRefs,
+  {
+    files,
+    selected,
+    win,
+    heatmap,
+    dark,
+    showGaps,
+    highlight,
+    places,
+    stopsLayer,
+    flights,
+    area,
+  }: {
+    files: FileEntry[];
+    selected: string | null;
+    win: DateWindow | null;
+    heatmap: boolean;
+    dark: boolean;
+    showGaps: boolean;
+    highlight: string[] | null;
+    places: NamedPlace[];
+    stopsLayer: boolean;
+    flights: Flight[] | null;
+    area: BBox | null;
+  },
+) {
+  const { live, hoverPopup, chooser, chooserPaths, hoverPath, mapHovering } = r;
+  const whenReady = (fn: (map: maplibregl.Map) => void) => runWhenReady(r, fn);
+  useEffect(() => {
+    whenReady((map) => {
+      setData(map, "tracks", tracksGeoJSON(files, win));
+      setData(map, "gaps", gapsGeoJSON(files, win));
+      setData(map, "waypoints", waypointsGeoJSON(files));
+    });
+  }, [files, win]);
+
+  // İz listesi ya da seçim değişince eski bilgi kutusu ekranda kalmasın (sonraki
+  // fare hareketinde yeniden açılır); kaybolan izi gösteren seçim penceresi kapanır.
+  useEffect(() => {
+    const present = new Set(files.map((f) => f.summary.path));
+    hoverPopup.current?.remove();
+    if (mapHovering.current && (!selected || !present.has(selected) || hoverPath.current !== selected)) {
+      mapHovering.current = false;
+      live.current.onHoverIdx(null);
+    }
+    hoverPath.current = null;
+    if (chooser.current?.isOpen() && chooserPaths.current.some((p) => !present.has(p))) {
+      chooser.current.remove();
+      chooserPaths.current = [];
+    }
+  }, [files, selected]);
+
+  useEffect(() => {
+    whenReady((map) => setData(map, "heat", heatmap ? heatGeoJSON(files, win) : EMPTY));
+  }, [files, heatmap, win]);
+  useEffect(() => {
+    whenReady((map) => {
+      const vis = (id: string, on: boolean) => map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+      vis("heat", heatmap);
+      vis("tracks", !heatmap);
+      vis("tracks-casing", !heatmap);
+      vis("gaps", !heatmap && showGaps);
+      vis("waypoints", !heatmap);
+      const ramp = dark ? SEQ_DARK : SEQ_LIGHT;
+      map.setPaintProperty("heat", "heatmap-color", [
+        "interpolate",
+        ["linear"],
+        ["heatmap-density"],
+        0,
+        "rgba(0,0,0,0)",
+        0.03,
+        ramp[0],
+        0.2,
+        ramp[2],
+        0.45,
+        ramp[4],
+        0.75,
+        ramp[5],
+        1,
+        ramp[6],
+      ]);
+    });
+  }, [heatmap, dark, showGaps]);
+
+  const highlightKey = (highlight ?? (selected ? [selected] : [])).join("\n");
+  useEffect(() => {
+    whenReady((map) => {
+      const paths = highlightKey ? highlightKey.split("\n") : [];
+      const f: maplibregl.FilterSpecification = ["in", ["get", "path"], ["literal", paths]];
+      map.setFilter("tracks-selected", f);
+      map.setFilter("tracks-selected-casing", f);
+      // Boşluklar yalnızca seçili (ya da karşılaştırılan) kayıtta çizilir.
+      map.setFilter("gaps", f);
+      map.setPaintProperty("tracks", "line-opacity", paths.length ? 0.45 : 0.85);
+      map.setPaintProperty("tracks-casing", "line-opacity", paths.length ? 0.4 : 0.9);
+    });
+  }, [highlightKey]);
+
+  // Seçili kaydın duraklamaları ve sık durulan yerler.
+  useEffect(() => {
+    whenReady((map) => setData(map, "stops", stopsGeoJSON(files.find((f) => f.summary.path === selected), win, places)));
+  }, [files, selected, win, places]);
+  useEffect(() => {
+    whenReady((map) => {
+      map.setLayoutProperty("hotspots", "visibility", stopsLayer ? "visible" : "none");
+      setData(map, "hotspots", stopsLayer ? hotspotsGeoJSON(files, places) : EMPTY);
+    });
+  }, [files, stopsLayer, places]);
+
+  // Uçuş yayları (renk iz renginden).
+  useEffect(() => {
+    whenReady((map) => {
+      const color = new Map(files.map((f) => [f.summary.path, f.color]));
+      const on = !!flights && !heatmap;
+      map.setLayoutProperty("flights", "visibility", on ? "visible" : "none");
+      map.setLayoutProperty("flights-casing", "visibility", on ? "visible" : "none");
+      setData(map, "flights", on ? flightsGeoJSON(flights, (p) => color.get(p) ?? "#3c78d8") : EMPTY);
+    });
+  }, [flights, files, heatmap]);
+  useEffect(() => {
+    whenReady((map) => setData(map, "area", areaGeoJSON(area)));
+  }, [area]);
+}
+
+// Alan seçme: sürüklerken dikdörtgen gösterilir, bırakınca alan bildirilir.
+export function useAreaSelect(r: MapRefs, areaMode: boolean, box: RefObject<HTMLDivElement | null>) {
+  const { mapRef, live } = r;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !areaMode) return;
+    const canvas = map.getCanvasContainer();
+    map.dragPan.disable();
+    map.boxZoom.disable();
+    canvas.style.cursor = "crosshair";
+    let start: { x: number; y: number } | null = null;
+    const rect = () => canvas.getBoundingClientRect();
+    const down = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const r = rect();
+      start = { x: e.clientX - r.left, y: e.clientY - r.top };
+      e.preventDefault();
+    };
+    const move = (e: MouseEvent) => {
+      if (!start || !box.current) return;
+      const r = rect();
+      const x = e.clientX - r.left;
+      const y = e.clientY - r.top;
+      Object.assign(box.current.style, {
+        display: "block",
+        left: `${Math.min(x, start.x)}px`,
+        top: `${Math.min(y, start.y)}px`,
+        width: `${Math.abs(x - start.x)}px`,
+        height: `${Math.abs(y - start.y)}px`,
+      });
+    };
+    const upH = (e: MouseEvent) => {
+      if (!start) return;
+      const r = rect();
+      const end = { x: e.clientX - r.left, y: e.clientY - r.top };
+      if (box.current) box.current.style.display = "none";
+      const s0 = start;
+      start = null;
+      if (Math.abs(end.x - s0.x) < 5 || Math.abs(end.y - s0.y) < 5) return;
+      const a = map.unproject([s0.x, s0.y]);
+      const b = map.unproject([end.x, end.y]);
+      live.current.onArea([Math.min(a.lng, b.lng), Math.min(a.lat, b.lat), Math.max(a.lng, b.lng), Math.max(a.lat, b.lat)]);
+    };
+    canvas.addEventListener("mousedown", down);
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", upH);
+    return () => {
+      canvas.removeEventListener("mousedown", down);
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", upH);
+      canvas.style.cursor = "";
+      map.dragPan.enable();
+      map.boxZoom.enable();
+      if (box.current) box.current.style.display = "none";
+    };
+  }, [areaMode]);
+}
+
+/** Seçili kaydın ölçüye göre renklendirilmesi, seçilen aralık ve imleç(ler). */
+export function useDetailLayers(
+  r: MapRefs,
+  {
+    detail,
+    trackColorBy,
+    dark,
+    range,
+    hoverIdx,
+    followCursor,
+    cursors,
+  }: {
+    detail: Detail | null;
+    trackColorBy: TrackColorBy;
+    dark: boolean;
+    range: [number, number] | null;
+    hoverIdx: number | null;
+    followCursor: boolean;
+    cursors: { lon: number; lat: number; color: string }[];
+  },
+) {
+  const whenReady = (fn: (map: maplibregl.Map) => void) => runWhenReady(r, fn);
+  // Seçili izi ölçüye göre renklendir.
+  useEffect(() => {
+    whenReady((map) => {
+      const values = detail && trackColorBy !== "none" ? (detail[trackColorBy] as (number | null)[]) : null;
+      const domain = values ? metricDomain(values) : null;
+      map.setLayoutProperty("tracks-selected", "visibility", domain ? "none" : "visible");
+      if (!detail || !values || !domain) {
+        setData(map, "colored", EMPTY);
+        return;
+      }
+      setData(map, "colored", coloredGeoJSON(detail, values, domain, dark ? SEQ_DARK : SEQ_LIGHT));
+    });
+  }, [detail, trackColorBy, dark]);
+
+  useEffect(() => {
+    whenReady((map) => {
+      if (!detail || !range) return setData(map, "range", EMPTY);
+      setData(map, "range", rangeGeoJSON(detail, range));
+    });
+  }, [detail, range]);
+
+  useEffect(() => {
+    whenReady((map) => {
+      const has = detail && hoverIdx != null && hoverIdx < detail.lat.length;
+      const pt: [number, number] | null = has ? [detail!.lon[hoverIdx!], detail!.lat[hoverIdx!]] : null;
+      const features: GeoJSON.Feature[] = cursors.map((c) => ({
+        type: "Feature",
+        properties: { color: c.color },
+        geometry: { type: "Point", coordinates: [c.lon, c.lat] },
+      }));
+      if (pt) features.push({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: pt } });
+      setData(map, "cursor", { type: "FeatureCollection", features });
+      // Oynatılırken imleç ekranın ortasındaki bölgeden çıkarsa harita kayar.
+      if (pt && followCursor) {
+        const p = map.project(pt);
+        const c = map.getContainer();
+        const mx = c.clientWidth * 0.2;
+        const my = c.clientHeight * 0.2;
+        if (p.x < mx || p.y < my || p.x > c.clientWidth - mx || p.y > c.clientHeight - my) {
+          map.panTo(pt, { duration: 300 });
+        }
+      }
+    });
+  }, [detail, hoverIdx, followCursor, cursors]);
+}
+
+/** Altlık değiştirme; Sade/Koyu için vektör stil ilk seçilişte yüklenir. */
+export function useBaseLayerSwitch(
+  r: MapRefs,
+  baseLayer: BaseLayer,
+  vectorState: RefObject<Partial<Record<BaseLayer, "loading" | "ok" | "failed">>>,
+) {
+  const { mapRef, live } = r;
+  const whenReady = (fn: (map: maplibregl.Map) => void) => runWhenReady(r, fn);
+  useEffect(() => {
+    const apply = (map: maplibregl.Map, base: BaseLayer) => {
+      for (const { id } of map.getStyle().layers) {
+        if (!id.startsWith("base-")) continue;
+        const on = id === `base-${base}` || id.startsWith(`base-${base}-`);
+        map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+      }
+      // Vektör stil yüklenirken sınır konmaz (kayıtlı yakın görünüm geri
+      // çekilmesin); yalnızca raster altlıkta görüntünün bittiği düzeyde durulur.
+      const vector = VECTOR_STYLES[base] && vectorState.current[base] !== "failed";
+      map.setMaxZoom(vector ? 22 : RASTER_MAX_ZOOM[base] + 1);
+      map.setPaintProperty("tracks-casing", "line-color", base === "dark" ? "#000000" : "#ffffff");
+    };
+    whenReady((map) => {
+      apply(map, baseLayer);
+      const url = VECTOR_STYLES[baseLayer];
+      if (!url || vectorState.current[baseLayer]) return;
+      vectorState.current[baseLayer] = "loading";
+      const id = baseLayer;
+      addVectorBase(map, id, url)
+        .catch((e) => {
+          console.warn("Vektör altlık yüklenemedi, raster yedek kullanılıyor:", e);
+          return false;
+        })
+        .then((ok) => {
+          vectorState.current[id] = ok ? "ok" : "failed";
+          // Bu arada harita kapatılmadıysa güncel altlığa göre yeniden uygula.
+          if (mapRef.current === map) apply(map, live.current.baseLayer);
+        });
+    });
+  }, [baseLayer]);
+}
