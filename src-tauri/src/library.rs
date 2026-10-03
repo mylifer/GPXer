@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Önbellek biçimi ya da özet hesaplaması değiştiğinde artırılır; eski
 /// önbellek yok sayılır.
-const CACHE_VERSION: u32 = 20;
+const CACHE_VERSION: u32 = 21;
 /// Bellekte tutulan hazırlanmış (temizlenmiş) kayıt sayısı.
 const PREPARED_KEEP: usize = 4;
 /// Çöp kutusundaki dosyalar bu süreden sonra kalıcı olarak silinir.
@@ -498,6 +498,16 @@ impl Library {
         let (gpx, size) = gpx_core::read_gpx_file(Path::new(path))?;
         // Parmak izi ham veriden: kopya tespiti ayarlardan etkilenmesin.
         let fingerprint = gpx_core::fingerprint(&gpx);
+        // Gezilen yerler GPS gürültüsü temizliği kapalıyken de temiz veriden
+        // bulunur: dünyanın öbür ucuna sıçrayan bir GPS hatası (ör. birkaç
+        // dakika Boston) gidilmeyen bir ülke olarak sayılıyordu.
+        let for_visits = (!cfg.clean_spikes).then(|| {
+            let clean = StatsConfig {
+                clean_spikes: true,
+                ..*cfg
+            };
+            gpx_core::prepare(gpx.clone(), &clean).gpx
+        });
         let prepared = gpx_core::prepare(gpx, cfg);
         let mut summary = gpx_core::summarize_with(&prepared.gpx, path, size, cfg, chosen)?;
         summary.removed_points = prepared.removed;
@@ -513,7 +523,7 @@ impl Library {
         summary.visits = if summary.hours.is_empty() {
             untimed_visits(summary.start, summary.end, summary.stats.start_time)
         } else {
-            visits(&prepared.gpx, &summary.hours)
+            visits(for_visits.as_ref().unwrap_or(&prepared.gpx), &summary.hours)
         };
         let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
         if self.contains(Path::new(path)) {

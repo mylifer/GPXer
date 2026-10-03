@@ -367,3 +367,43 @@ fn long_names_fit_the_byte_limit() {
     let t = super::trash_name(1_759_000_000_000, &long);
     assert!(t.len() <= 240 && t.ends_with(".gpx") && t.starts_with("1759000000000-"));
 }
+
+#[test]
+fn gps_glitch_abroad_is_not_a_visited_country_even_without_cleaning() {
+    // İstanbul'da 3 saatlik kayıt; ortasında 20 dakika Boston'a sıçrayan
+    // segmentler (GPS hatası). Temizlik kapalıyken de ABD sayılmamalı.
+    let t = |s: i64| gpx_core::write::format_time((1_682_600_000 + s) * 1000);
+    let pt = |lat: f64, lon: f64, s: i64| {
+        format!(
+            r#"<trkpt lat="{lat}" lon="{lon}"><time>{}</time></trkpt>"#,
+            t(s)
+        )
+    };
+    let seg = |pts: Vec<String>| format!("<trkseg>{}</trkseg>", pts.concat());
+    let ist = |from: i64, to: i64| {
+        seg((from..to)
+            .step_by(60)
+            .map(|s| pt(41.06, 28.98 + s as f64 * 1e-6, s))
+            .collect())
+    };
+    // Gerçek kayıttaki gibi 3,5 saat (kısa süreli ülke ayıklamasına takılmaz).
+    let boston = seg((0..158).map(|k| pt(42.39, -71.07, 3600 + k * 80)).collect());
+    let gpx = format!(
+        "<gpx><trk>{}{}{}</trk></gpx>",
+        ist(0, 3590),
+        boston,
+        ist(16_300, 22_000)
+    );
+    let root = temp_root("glitch");
+    let lib = Library::open(&root).unwrap();
+    let src = root.join("g.gpx");
+    std::fs::write(&src, gpx).unwrap();
+    let cfg = StatsConfig {
+        clean_spikes: false,
+        ..Default::default()
+    };
+    let (s, _) = lib.summarize(&src.to_string_lossy(), &cfg, None).unwrap();
+    assert!(!s.visits.is_empty());
+    assert!(s.visits.iter().all(|v| v.1 == "TR"), "{:?}", s.visits);
+    let _ = std::fs::remove_dir_all(&root);
+}
