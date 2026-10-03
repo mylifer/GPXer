@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Önbellek biçimi ya da özet hesaplaması değiştiğinde artırılır; eski
 /// önbellek yok sayılır.
-const CACHE_VERSION: u32 = 14;
+const CACHE_VERSION: u32 = 16;
 /// Bellekte tutulan hazırlanmış (temizlenmiş) kayıt sayısı.
 const PREPARED_KEEP: usize = 4;
 /// Çöp kutusundaki dosyalar bu süreden sonra kalıcı olarak silinir.
@@ -426,6 +426,11 @@ impl Library {
         summary.time_zone = summary.start.and_then(|[lon, lat]| time_zone_at(lon, lat));
         summary.start_place = summary.start.and_then(|[lon, lat]| place_at(lon, lat));
         summary.end_place = summary.end.and_then(|[lon, lat]| place_at(lon, lat));
+        // Uzun boşlukların (uçuş olabilecek) uçlarının adları.
+        for g in summary.gaps.iter_mut().filter(|g| g.distance_m > 50_000.0) {
+            g.from_place = place_at(g.from[0], g.from[1]);
+            g.to_place = place_at(g.to[0], g.to[1]);
+        }
         summary.visits = if summary.hours.is_empty() {
             untimed_visits(summary.start, summary.end, summary.stats.start_time)
         } else {

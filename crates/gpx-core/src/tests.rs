@@ -1048,3 +1048,72 @@ fn macos_copy_suffixed_extensions() {
     assert_eq!(format_of_ext("gpx "), None);
     assert!(!is_supported_ext("txt 2"));
 }
+
+#[test]
+fn hour_points_skip_points_next_to_flight_gaps() {
+    // Yerde 2 saat, 2 saatlik uçuş boşluğu, inişte boşluğun hemen ardından
+    // havada tek nokta (ardından yine boşluk), sonra yerde.
+    let mut seg: Vec<Point> = (0..24).map(|k| pt(40.9, 29.3, k * 300)).collect();
+    let land = 4 * 3600;
+    seg.push(pt(50.2, 12.2, land + 60)); // havada, iki uçuş boşluğu arasında
+    seg.push(pt(50.97, 8.0, land + 1800)); // 117 km, 29 dk: yine uçuş hızı
+    seg.extend((1..24).map(|k| pt(50.97, 8.0 + k as f64 * 1e-4, land + 1800 + k * 120)));
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let hours: Vec<[f64; 3]> = (0..6).map(|h| [(h * 3_600_000) as f64, 0.0, 0.0]).collect();
+    let pts = hour_first_points(&gpx, &hours);
+    // 4. saatte havadaki nokta değil, inişten sonraki yer noktası.
+    let h4 = pts.iter().find(|(h, _)| *h == 4 * 3_600_000).unwrap().1;
+    assert!((h4[1] - 50.97).abs() < 1e-6, "{h4:?}");
+}
+
+#[test]
+fn hour_points_see_through_segment_boundaries() {
+    // İnişte kayıt ikiye bölünmüş: ilk segment aynı noktada iki kez biter
+    // (0 m), ikinci segment uçuş hızında sürer.
+    let mut a: Vec<Point> = (0..10)
+        .map(|k| pt(50.2, 12.0 - k as f64 * 0.02, 1800 + k))
+        .collect();
+    let last = *a.last().unwrap();
+    a.push(Point {
+        time: Some(last.time.unwrap() + 1000),
+        ..last
+    });
+    let b: Vec<Point> = (0..60)
+        .map(|k| pt(50.2, last.lon - (k + 1) as f64 * 0.003, 1811 + k))
+        .collect();
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![a, b],
+        }],
+        ..Default::default()
+    };
+    let hours = vec![[0.0, 0.0, 0.0]];
+    assert!(hour_first_points(&gpx, &hours).is_empty());
+}
+
+#[test]
+fn jumps_between_segments_are_gaps() {
+    // Konum geçmişi gibi her parçası ayrı segment olan kayıt: uçuş iki
+    // segmentin arasında.
+    let a: Vec<Point> = (0..5).map(|k| pt(40.89, 29.29, k * 600)).collect();
+    let b: Vec<Point> = (0..5).map(|k| pt(50.2, 12.2, 7600 + k * 600)).collect();
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![a, b],
+        }],
+        ..Default::default()
+    };
+    let s = summarize(&gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
+    assert_eq!(s.gaps.len(), 1);
+    assert!(s.gaps[0].distance_m > 1_600_000.0);
+    // Mesafeye katılmaz.
+    assert!(s.stats.distance_m < 1.0);
+}

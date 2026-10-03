@@ -135,4 +135,10 @@ pub struct Gap {
     pub start: Option<i64>,
     pub end: Option<i64>,
     pub distance_m: f64,
+    /// Boşluğun iki ucundaki yerleşim adları (uygulama katmanı doldurur;
+    /// uçuşların nereden nereye olduğu için).
+    #[serde(default)]
+    pub from_place: Option<String>,
+    #[serde(default)]
+    pub to_place: Option<String>,
 }

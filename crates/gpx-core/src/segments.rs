@@ -86,29 +86,47 @@ pub fn hour_first_points(gpx: &Gpx, hours: &[[f64; 3]]) -> Vec<(i64, [f64; 2])> 
     // Uçarken (ya da çok hızlı giderken) alınan noktalar o yerde bulunulduğunu
     // göstermez (ör. inişte bir sınırın üstünden geçmek); bunlar atlanır.
     const GROUND_SPEED_MS: f64 = 150.0 / 3.6;
+    // Hız en az bu kadar aralıkla ölçülür: aynı yerde tekrarlanan noktalar
+    // (0 m) ya da segment sınırları uçuşu gizlemesin.
+    const WINDOW_MS: i64 = 30_000;
+    // Tüm segmentler tek sıra: komşular segment sınırlarını ve boşlukları aşar.
+    let pts: Vec<&Point> = primary_segments(gpx)
+        .into_iter()
+        .flatten()
+        .filter(|p| p.time.is_some())
+        .collect();
+    let fast = |p: &Point, q: &Point| {
+        let dt = (q.time.unwrap_or(0) - p.time.unwrap_or(0)).abs().max(1000) as f64 / 1000.0;
+        stats::haversine_m(p, q) / dt > GROUND_SPEED_MS
+    };
     let mut first: std::collections::HashMap<i64, [f64; 2]> = Default::default();
-    let (pieces, _) = split_at_gaps(&primary_segments(gpx));
-    for piece in pieces {
-        for (i, p) in piece.iter().enumerate() {
-            let Some(t) = p.time else { continue };
-            let hour = t.div_euclid(HOUR_MS) * HOUR_MS;
-            if first.contains_key(&hour) {
-                continue;
-            }
-            let fast = |q: &Point| match (p.time, q.time) {
-                (Some(a), Some(b)) => {
-                    let dt = ((b - a).abs().max(1000)) as f64 / 1000.0;
-                    stats::haversine_m(p, q) / dt > GROUND_SPEED_MS
-                }
-                _ => false,
-            };
-            let before = i.checked_sub(1).map(|j| &piece[j]);
-            let after = piece.get(i + 1);
-            if before.is_some_and(fast) || after.is_some_and(fast) {
-                continue;
-            }
-            first.insert(hour, [p.lon, p.lat]);
+    for (i, p) in pts.iter().enumerate() {
+        let t = p.time.unwrap_or(0);
+        let hour = t.div_euclid(HOUR_MS) * HOUR_MS;
+        if first.contains_key(&hour) {
+            continue;
         }
+        // Önceki ve sonraki, en az WINDOW_MS uzaktaki (yoksa en uzak) komşu.
+        let before = pts[..i]
+            .iter()
+            .rev()
+            .find(|q| t - q.time.unwrap_or(0) >= WINDOW_MS)
+            .or(pts[..i].first());
+        let after = pts[i + 1..]
+            .iter()
+            .find(|q| q.time.unwrap_or(0) - t >= WINDOW_MS)
+            .or(pts[i + 1..].last());
+        // En yakın komşu da hızlıysa (saniyelik kayıtta uçak).
+        let near_before = i.checked_sub(1).map(|j| pts[j]);
+        let near_after = pts.get(i + 1).copied();
+        if [before.copied(), after.copied(), near_before, near_after]
+            .into_iter()
+            .flatten()
+            .any(|q| fast(p, q))
+        {
+            continue;
+        }
+        first.insert(hour, [p.lon, p.lat]);
     }
     hours
         .iter()
@@ -121,25 +139,38 @@ pub fn hour_first_points(gpx: &Gpx, hours: &[[f64; 3]]) -> Vec<(i64, [f64; 2])> 
 
 /// Segmentleri kayıt boşluklarında parçalara böler.
 pub fn split_at_gaps<'a>(segments: &[&'a [Point]]) -> (Vec<&'a [Point]>, Vec<Gap>) {
+    let gap = |a: &Point, b: &Point| Gap {
+        from: [round6(a.lon), round6(a.lat)],
+        to: [round6(b.lon), round6(b.lat)],
+        start: a.time,
+        end: b.time,
+        distance_m: stats::haversine_m(a, b),
+        from_place: None,
+        to_place: None,
+    };
     let mut pieces = Vec::new();
     let mut gaps = Vec::new();
+    let mut prev_last: Option<&Point> = None;
     for seg in segments {
+        // Segmentler arasındaki sıçrama da boşluktur (ör. konum geçmişinde
+        // her birkaç noktada yeni segment: uçuş iki segment arasına düşer).
+        // Segmentler zaten ayrı çizildiğinden parça bölmeye gerek yok.
+        if let (Some(a), Some(b)) = (prev_last, seg.first()) {
+            if is_gap(a, b) {
+                gaps.push(gap(a, b));
+            }
+        }
         let mut start = 0;
         for i in 1..seg.len() {
             let (a, b) = (&seg[i - 1], &seg[i]);
             if is_gap(a, b) {
                 pieces.push(&seg[start..i]);
-                gaps.push(Gap {
-                    from: [round6(a.lon), round6(a.lat)],
-                    to: [round6(b.lon), round6(b.lat)],
-                    start: a.time,
-                    end: b.time,
-                    distance_m: stats::haversine_m(a, b),
-                });
+                gaps.push(gap(a, b));
                 start = i;
             }
         }
         pieces.push(&seg[start..]);
+        prev_last = seg.last().or(prev_last);
     }
     (pieces, gaps)
 }
