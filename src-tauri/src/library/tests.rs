@@ -191,6 +191,15 @@ fn dismissed_until_restored() {
     lib.write_new("a", &track("40.0")).unwrap();
     let back = lib.restore(&items);
     assert_eq!(Path::new(&back[0].1), lib.dir.join("a (2).gpx"));
+    // Silindikten sonra aynı içerik yeniden içe aktarıldıysa geri alma onu
+    // ikinci kez getirmez (listede görünmeyen kopya kalıyordu).
+    let items = lib.trash(std::slice::from_ref(&back[0].1)).unwrap();
+    lib.undismiss(fp);
+    assert!(matches!(
+        lib.load(sp.clone(), &cfg, None),
+        LoadResult::Ok { .. }
+    ));
+    assert!(lib.restore(&items).is_empty());
     // Kütüphane dışındaki yol reddedilir.
     assert!(lib.check(&sp).is_err());
     assert!(lib.check(&back[0].1).is_ok());

@@ -423,7 +423,12 @@ export function useFileLoader({
     }
     // Geri getirme kullanıcının isteği: kaldırılanlar listesinden de çıkarılsınlar.
     await openPaths(restored, { quiet: true, silent: true, noFit: true, noSelect: restored.length !== 1, explicit: true });
-    say(`${fmtNumber(restored.length)} kayıt geri getirildi.`);
+    // Bu arada yeniden içe aktarılanlar ikinci kez getirilmez.
+    const skipped = undo.items.length - restored.length;
+    say(
+      `${fmtNumber(restored.length)} kayıt geri getirildi.` +
+        (skipped > 0 ? ` ${fmtNumber(skipped)} kayıt zaten kütüphanede olduğu için atlandı.` : ""),
+    );
   }, [undo, openPaths, say, fail]);
 
   const closeAll = useCallback(async () => {

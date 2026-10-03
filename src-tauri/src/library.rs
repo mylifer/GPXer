@@ -652,6 +652,18 @@ impl Library {
             if src.parent() != Some(self.trash_dir.as_path()) || !src.exists() {
                 continue;
             }
+            // Bu arada aynı içerik yeniden içe aktarıldıysa geri getirilmez:
+            // listede görünmeyen, silinemeyen ikinci bir kopya kalıyordu.
+            if let Ok((gpx, _)) = gpx_core::read_gpx_file(src) {
+                if self
+                    .known
+                    .lock()
+                    .unwrap()
+                    .contains_key(&gpx_core::fingerprint(&gpx))
+                {
+                    continue;
+                }
+            }
             let original = PathBuf::from(&it.original);
             let stem = original
                 .file_stem()
