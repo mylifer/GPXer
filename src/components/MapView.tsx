@@ -78,12 +78,13 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
   winRef.current = win;
   const refs: MapRefs = { mapRef, readyRef, pendingRef, live, hoverPopup, chooser, chooserPaths, hoverPath, moveFrame, moveEvent, mapHovering };
 
-  // Üst kenar, birkaç satıra inebilen araç çubuğunun altından başlar
-  // (`--toolbar-bottom`, MapToolbar koyar).
+  // Üst kenar, birkaç satıra inebilen araç çubuğunun altından başlar.
+  // (CSS değişkeni WebKitGTK'da okunamıyordu; çubuk doğrudan ölçülür.)
   const padding = (base: number) => {
     const el = container.current;
-    const bar = el ? parseFloat(getComputedStyle(el).getPropertyValue("--toolbar-bottom")) : NaN;
-    return { top: Number.isFinite(bar) ? Math.max(base, bar + 20) : base, bottom: base, left: base, right: base };
+    const bar = el?.closest(".map-wrap")?.querySelector(".map-toolbar");
+    const below = el && bar ? bar.getBoundingClientRect().bottom - el.getBoundingClientRect().top : NaN;
+    return { top: Number.isFinite(below) ? Math.max(base, below + 20) : base, bottom: base, left: base, right: base };
   };
 
   useImperativeHandle(ref, () => ({
