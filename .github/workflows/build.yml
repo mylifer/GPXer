@@ -15,6 +15,11 @@ concurrency:
   # Yarıda kesilen bir sürüm eksik dosyalarla kalmasın diye iptal edilmez.
   cancel-in-progress: false
 
+# Varsayılan olarak salt okunur; yazma yalnızca sürüm işlerinde verilir
+# (bağımlılık kuran test işi depoya yazamaz).
+permissions:
+  contents: read
+
 jobs:
   version:
     name: Sürüm
@@ -26,15 +31,25 @@ jobs:
       # Sürüm yayımlanacaksa etiketi belirler: v* etiketi push'landıysa o
       # etiket; bir dala push'ta tauri.conf.json'daki sürümün etiketi henüz
       # yoksa v<sürüm>. Aksi halde boş kalır ve yalnızca derleme yapılır.
+      # Sürüm yalnızca varsayılan daldan çıkar: başka bir dalda sürüm
+      # numarası artırılsa da kullanıcılara gözden geçirilmemiş kod gitmez.
       - id: v
         shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          TAG="v$(node -p 'require("./src-tauri/tauri.conf.json").version')"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            # Etiket uygulamanın sürümüyle aynı olmalı; yoksa sürüm adı ile
+            # içindeki uygulama (ve latest.json) farklı sürümü gösterir.
+            if [[ "$GITHUB_REF_NAME" != "$TAG" ]]; then
+              echo "::error::Etiket $GITHUB_REF_NAME, uygulama sürümü $TAG ile eşleşmiyor"
+              exit 1
+            fi
             echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          TAG="v$(node -p 'require("./src-tauri/tauri.conf.json").version')"
-          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/* ]] &&
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == "refs/heads/$DEFAULT_BRANCH" ]] &&
              ! git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
             echo "Yeni sürüm: $TAG"
             echo "tag=$TAG" >> "$GITHUB_OUTPUT"
