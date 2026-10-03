@@ -122,6 +122,15 @@ const PLAY_MAX_GAP_MS = 60_000;
 const PLAY_GAP_AS_MS = 1_000;
 
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
+/** Yolun üst klasörü (son ayraçtan öncesi). */
+function parentDir(p: string): string {
+  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+  return i > 0 ? p.slice(0, i) : i === 0 ? p.slice(0, 1) : p;
+}
+/** Aynı klasörden bundan çok fotoğraf bırakılırsa ayarlara klasör yazılır. */
+const PHOTO_FOLDER_MIN = 50;
+/** Ayarlarda saklanan en fazla fotoğraf yolu. */
+const PHOTO_STORE_MAX = 200;
 const EMPTY_META: FileMeta = { tags: [], note: "", activity: null };
 const OPEN_EXTS = ["gpx", "GPX", "fit", "FIT", "tcx", "TCX", "kml", "KML"];
 const PHOTO_EXTS = ["jpg", "jpeg", "JPG", "JPEG", "heic", "HEIC", "heif", "png", "PNG", "tif", "tiff", "dng", "DNG", "webp"];
@@ -1080,9 +1089,24 @@ export default function App() {
   const addPhotoPaths = useCallback(
     async (paths: string[]) => {
       if (!paths.length) return;
-      const known = new Set(prefsRef.current.photos);
+      const prev = prefsRef.current.photos;
+      const known = new Set(prev);
       const fresh = paths.filter((p) => !known.has(p));
-      up({ photos: [...prefsRef.current.photos, ...fresh], photosLayer: true });
+      // Çok sayıda dosya ayarlara tek tek yazılmasın: hepsi aynı klasördense
+      // klasör saklanır (read_photos klasörleri okur); değilse sınırlanır.
+      const dirs = new Set(fresh.map(parentDir));
+      const dir = fresh.length > PHOTO_FOLDER_MIN && dirs.size === 1 ? [...dirs][0] : null;
+      let capNote = "";
+      if (dir) {
+        const inside = (p: string) => p === dir || parentDir(p) === dir;
+        up({ photos: [...prev.filter((p) => !inside(p)), dir], photosLayer: true });
+      } else {
+        const all = [...prev, ...fresh];
+        if (all.length > PHOTO_STORE_MAX) {
+          up({ photos: all.slice(0, PHOTO_STORE_MAX), photosLayer: true });
+          capNote = ` En fazla ${fmtNumber(PHOTO_STORE_MAX)} fotoğraf hatırlanır: ${fmtNumber(all.length - PHOTO_STORE_MAX)} tanesi bir sonraki açılışta gösterilmeyecek (klasör olarak eklemek daha iyi olur).`;
+        } else up({ photos: all, photosLayer: true });
+      }
       try {
         const list = (await readPhotos(paths)) ?? [];
         setPhotoInfo((prev) => {
@@ -1092,11 +1116,11 @@ export default function App() {
         });
         const placed = placePhotos(list, filesRef.current.map((f) => f.summary), prefsRef.current.photoOffsetH);
         say(
-          list.length
+          (list.length
             ? `${fmtNumber(list.length)} fotoğraf eklendi; ${fmtNumber(placed.placed.length)} tanesi haritada${
                 placed.unplaced ? ` (${fmtNumber(placed.unplaced)} tanesinin konumu ya da o saatte kaydı yok)` : ""
               }.`
-            : "Fotoğraf bulunamadı.",
+            : "Fotoğraf bulunamadı.") + capNote,
         );
       } catch (e) {
         fail(`Fotoğraflar okunamadı: ${e}`);
@@ -1995,6 +2019,7 @@ export default function App() {
       {dialog === "summary" && (
         <SummaryPanel
           files={shown}
+          tzMode={prefs.tzMode}
           from={prefs.filters.from}
           to={prefs.filters.to}
           routes={routeInfo.routes}

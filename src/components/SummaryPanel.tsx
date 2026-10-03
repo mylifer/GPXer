@@ -18,8 +18,8 @@ import { CalendarHeatmap } from "./CalendarHeatmap";
 import { ACTIVITIES, placeLabel } from "../types";
 import type { Route } from "../routes";
 import type { NamedPlace } from "../api";
-import { dayKey, isoToTr } from "../format";
-import { fastDayKey } from "../days";
+import { dayKey, isoToTr, type TzMode } from "../format";
+import { fastDayKey, hourDays } from "../days";
 import { endName, flightsOf, type Flight } from "../flights";
 import { namedPlaceAt } from "../places";
 import { countryName, flagOf, hourPlaces } from "../visits";
@@ -67,6 +67,8 @@ interface Props {
   onClose(): void;
   places: NamedPlace[];
   onFlight(f: Flight): void;
+  /** Gün anahtarları saat dilimi kipine bağlı: değişince hesaplar yenilenir. */
+  tzMode: TzMode;
 }
 
 interface YearVisits {
@@ -88,27 +90,29 @@ function visitedPlaces(files: FileEntry[], from: string, to: string) {
     const start = s.stats.startTime;
     for (const x of hp) {
       if (!x.cc && !x.name) continue;
-      const day = fastDayKey(start != null ? Math.max(x.h, start) : x.h, zone);
-      if (!dayIn(day, from, to)) continue;
-      const y = day.slice(0, 4);
-      let yv = years.get(y);
-      if (!yv) years.set(y, (yv = { countries: new Map(), cities: new Map() }));
-      const cc = x.cc.toUpperCase();
-      if (cc) {
-        let cs = yv.countries.get(cc);
-        if (!cs) yv.countries.set(cc, (cs = new Set()));
-        cs.add(day);
-        let all = allDays.get(cc);
-        if (!all) allDays.set(cc, (all = new Set()));
-        all.add(day);
-        const fd = first.get(cc);
-        if (!fd || day < fd) first.set(cc, day);
-      }
-      if (x.name) {
-        const k = `${cc}|${x.name}`;
-        let ci = yv.cities.get(k);
-        if (!ci) yv.cities.set(k, (ci = new Set()));
-        ci.add(day);
+      // :30/:45 farklı dilimlerde gece yarısını aşan saat iki güne de sayılır.
+      for (const [day] of hourDays(x.h, start, zone)) {
+        if (!dayIn(day, from, to)) continue;
+        const y = day.slice(0, 4);
+        let yv = years.get(y);
+        if (!yv) years.set(y, (yv = { countries: new Map(), cities: new Map() }));
+        const cc = x.cc.toUpperCase();
+        if (cc) {
+          let cs = yv.countries.get(cc);
+          if (!cs) yv.countries.set(cc, (cs = new Set()));
+          cs.add(day);
+          let all = allDays.get(cc);
+          if (!all) allDays.set(cc, (all = new Set()));
+          all.add(day);
+          const fd = first.get(cc);
+          if (!fd || day < fd) first.set(cc, day);
+        }
+        if (x.name) {
+          const k = `${cc}|${x.name}`;
+          let ci = yv.cities.get(k);
+          if (!ci) yv.cities.set(k, (ci = new Set()));
+          ci.add(day);
+        }
       }
     }
   }
@@ -155,7 +159,7 @@ function timeAtPlaces(files: FileEntry[], places: NamedPlace[], from: string, to
   };
 }
 
-export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRoute, onActivity, onClose, places, onFlight }: Props) {
+export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRoute, onActivity, onClose, places, onFlight, tzMode }: Props) {
   const [period, setPeriod] = useState<Period>("month");
   const [measure, setMeasure] = useState<Measure>("distance");
   const [hover, setHover] = useState<number | null>(null);
@@ -221,7 +225,7 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
       }
     }
     return out;
-  }, [dated, period, from, to]);
+  }, [dated, period, from, to, tzMode]);
 
   const totals = useMemo(() => {
     let distance = 0,
@@ -238,7 +242,7 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
       for (const d of dayBuckets(f.summary)) if (dayIn(d.day, from, to)) days.add(d.day);
     }
     return { distance, moving, gain, days: days.size, count: files.length, partial };
-  }, [files, from, to]);
+  }, [files, from, to, tzMode]);
 
   const records = useMemo(() => {
     const best = (score: (f: FileEntry) => number | null) => {
@@ -285,9 +289,9 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
       years.set(y, t);
     }
     return { list, years: [...years.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)) };
-  }, [files, from, to, byPath]);
-  const visited = useMemo(() => visitedPlaces(files, from, to), [files, from, to]);
-  const placeTime = useMemo(() => timeAtPlaces(files, places, from, to), [files, places, from, to]);
+  }, [files, from, to, byPath, tzMode]);
+  const visited = useMemo(() => visitedPlaces(files, from, to), [files, from, to, tzMode]);
+  const placeTime = useMemo(() => timeAtPlaces(files, places, from, to), [files, places, from, to, tzMode]);
   const usedPlaces = places.filter((p) => placeTime.totals.has(p.id));
 
   const m = MEASURES.find((x) => x.id === measure)!;

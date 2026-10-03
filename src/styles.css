@@ -1962,6 +1962,23 @@ kbd {
   object-fit: cover;
 }
 
+.photo-placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.photo-preview-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 160px;
+  height: 120px;
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.15);
+  font-size: 32px;
+}
+
 .photo-count {
   position: absolute;
   top: -8px;

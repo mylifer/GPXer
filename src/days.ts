@@ -34,6 +34,28 @@ export function fastDayKey(t: number, tz: string | undefined): string {
   return k;
 }
 
+const HOUR = 3_600_000;
+const QUARTER = 900_000;
+
+/** UTC saat diliminin ([h, h+1sa), kayıt başlangıcından önceki kısmı hariç)
+ * düştüğü yerel günler ve payları (dakika oranında). Tam saat farklı dilimlerde
+ * tek gün; :30/:45 farklı dilimlerde yerel gece yarısını aşan saat iki güne bölünür. */
+export function hourDays(h: number, start: number | null | undefined, zone: string | undefined): [string, number][] {
+  const a = start != null ? Math.max(h, Math.min(start, h + HOUR - 1)) : h;
+  const end = h + HOUR;
+  const k0 = fastDayKey(a, zone);
+  const k1 = fastDayKey(end - 1, zone);
+  if (k0 === k1) return [[k0, 1]];
+  // Gün sınırı çeyrek saatlerden birinde: ilk farklı çeyreği bul.
+  let b = Math.floor(a / QUARTER) * QUARTER + QUARTER;
+  while (b < end && fastDayKey(b, zone) === k0) b += QUARTER;
+  const f = (b - a) / (end - a);
+  return [
+    [k0, f],
+    [k1, 1 - f],
+  ];
+}
+
 const bucketCache = new WeakMap<FileSummary, { tz: string; days: DayBucket[] }>();
 
 /** Kaydın gün gün dökümü (sıralı). Tarihsiz kayıtta boş. */
@@ -51,12 +73,13 @@ export function dayBuckets(s: FileSummary): DayBucket[] {
     const map = new Map<string, DayBucket>();
     for (const [h, dist, moving] of hours) {
       // İlk saat dilimi kaydın başlangıcından önce başlayabilir.
-      const k = fastDayKey(start != null ? Math.max(h, start) : h, zone);
-      const b = map.get(k);
-      if (b) {
-        b.distanceM += dist;
-        b.movingMs += moving;
-      } else map.set(k, { day: k, distanceM: dist, movingMs: moving });
+      for (const [k, f] of hourDays(h, start, zone)) {
+        const b = map.get(k);
+        if (b) {
+          b.distanceM += dist * f;
+          b.movingMs += moving * f;
+        } else map.set(k, { day: k, distanceM: dist * f, movingMs: moving * f });
+      }
     }
     days = [...map.values()].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
   }

@@ -100,17 +100,18 @@ export function placePhotos(
   const starts = timed.map((s) => s.stats.startTime!);
   // Uzun kayıtlar ikili aramayı bozmasın: başlangıçtan önceki en uzun süre.
   const maxSpan = timed.reduce((m, s) => Math.max(m, s.stats.endTime! - s.stats.startTime!), 0);
-  const candidates = (t: number) => {
+  /** Başlangıcı [lo - maxSpan - EDGE, hi + EDGE] aralığında olan kayıtlar. */
+  const candidates = (lo: number, hi: number) => {
     let a = 0;
     let b = starts.length;
-    const hiT = t + EDGE_MS;
+    const hiT = hi + EDGE_MS;
     while (a < b) {
       const m = (a + b) >> 1;
       if (starts[m] <= hiT) a = m + 1;
       else b = m;
     }
     const out: FileSummary[] = [];
-    for (let i = a - 1; i >= 0 && starts[i] >= t - maxSpan - EDGE_MS; i--) out.push(timed[i]);
+    for (let i = a - 1; i >= 0 && starts[i] >= lo - maxSpan - EDGE_MS; i--) out.push(timed[i]);
     return out;
   };
   const placed: PlacedPhoto[] = [];
@@ -123,7 +124,7 @@ export function placePhotos(
       const t0 = p.time + off;
       if (p.timeIsLocal) {
         // Duvar saati: her aday kayıt kendi saat dilimiyle denenir.
-        for (const s of candidates(t0 + TZ_SLACK)) {
+        for (const s of candidates(t0 - TZ_SLACK, t0 + TZ_SLACK)) {
           const t = wallToUtc(t0, s.timeZone);
           if (covers(s, t) && (!record || s.stats.endTime! - s.stats.startTime! < record.stats.endTime! - record.stats.startTime!)) {
             record = s;
@@ -133,7 +134,7 @@ export function placePhotos(
         if (at == null) at = wallToUtc(t0, null);
       } else {
         at = t0;
-        for (const s of candidates(t0)) {
+        for (const s of candidates(t0, t0)) {
           // Kapsayanlardan en kısası: uzun kayıt içindeki günlük kayıt daha ayrıntılı.
           if (covers(s, t0) && (!record || s.stats.endTime! - s.stats.startTime! < record.stats.endTime! - record.stats.startTime!)) record = s;
         }

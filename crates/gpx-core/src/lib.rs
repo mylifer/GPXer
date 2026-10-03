@@ -195,7 +195,8 @@ pub(crate) fn is_gap(a: &Point, b: &Point) -> bool {
 const HOUR_MS: i64 = 3_600_000;
 
 /// Boşluklarda bölünmüş parçalardan saatlik mesafe ve hareket süresi.
-/// Bir adım, başladığı saate yazılır.
+/// Bir adım, başladığı saate yazılır. Zamanlı noktası olan her saat listede
+/// bulunur.
 fn hourly_buckets(pieces: &[&[Point]], cfg: &StatsConfig) -> Vec<[f64; 3]> {
     let mut map: std::collections::BTreeMap<i64, (f64, i64)> = Default::default();
     for piece in pieces {
@@ -215,9 +216,11 @@ fn hourly_buckets(pieces: &[&[Point]], cfg: &StatsConfig) -> Vec<[f64; 3]> {
                 e.1 += dt;
             }
         }
-        // Tek noktalık parça da o saatte kayıt olduğunu gösterir.
-        if piece.len() == 1 {
-            if let Some(t) = piece[0].time {
+        // Zamanlı her nokta o saatte kayıt olduğunu gösterir: tek noktalık
+        // parça ya da yalnızca parçanın son noktasının düştüğü saat de
+        // (mesafesi 0 olsa bile) listede yer alır.
+        for p in piece.iter() {
+            if let Some(t) = p.time {
                 map.entry(t.div_euclid(HOUR_MS) * HOUR_MS).or_default();
             }
         }

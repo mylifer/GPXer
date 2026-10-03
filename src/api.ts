@@ -144,7 +144,7 @@ export interface PhotoInfo {
   timeIsLocal: boolean;
   lat: number | null;
   lon: number | null;
-  /** Küçük resim (data: adresi). */
+  /** Artık hep null: küçük resimler `photoThumb` ile tembelce yüklenir. */
   thumb: string | null;
 }
 
@@ -194,6 +194,8 @@ export const getPlaces = () => invoke<NamedPlace[] | null>("get_places");
 export const setPlaces = (places: NamedPlace[]) => invoke<void>("set_places", { places });
 /** Dosya ya da klasör yolları; klasörlerdeki fotoğraflar arka uçta bulunur. */
 export const readPhotos = (paths: string[]) => invoke<PhotoInfo[] | null>("read_photos", { paths });
+/** Fotoğrafın küçük resmi (data: adresi); okunamazsa null. */
+export const photoThumb = (path: string) => invoke<string | null>("photo_thumb", { path });
 /** Kayıtları tek dosyada dışa aktarır; `dest` pickSavePath'ten gelmeli. */
 export const exportMany = (paths: string[], dest: string, format: ExportFormat) =>
   invoke<void>("export_many", { paths, dest, format });

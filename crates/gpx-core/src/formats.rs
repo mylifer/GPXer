@@ -2,10 +2,9 @@
 //! TCX ve KML yazma. Hepsi aynı [`Gpx`] yapısına çevrilir.
 
 use crate::parse::{parse_gpx, parse_time, Gpx, ParseError, Point, Track, Waypoint};
-use crate::write::format_time;
+use crate::write::{format_time, Sink};
 use quick_xml::events::Event;
 use quick_xml::Reader;
-use std::fmt::Write;
 
 /// Açılabilen dosya uzantıları (küçük harf).
 pub const SUPPORTED: [&str; 4] = ["gpx", "fit", "tcx", "kml"];
@@ -404,7 +403,18 @@ fn primary(gpx: &Gpx) -> Vec<&[Point]> {
 
 /// KML 2.2; zaman bilgisi varsa gx:Track, yoksa LineString yazılır.
 pub fn write_kml(gpx: &Gpx) -> String {
-    let mut out = String::from(
+    let mut out = String::new();
+    write_kml_into(gpx, &mut out);
+    out
+}
+
+/// KML'i bellekte tamamını tutmadan `w`'ye yazar.
+pub fn write_kml_to<W: std::io::Write>(gpx: &Gpx, w: &mut W) -> std::io::Result<()> {
+    crate::write::stream(w, |s| write_kml_into(gpx, s))
+}
+
+fn write_kml_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
+    out.push_str(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<kml xmlns=\"http://www.opengis.net/kml/2.2\" \
          xmlns:gx=\"http://www.google.com/kml/ext/2.2\">\n<Document>\n",
     );
@@ -460,18 +470,28 @@ pub fn write_kml(gpx: &Gpx) -> String {
         }
     }
     out.push_str("</MultiGeometry></Placemark>\n</Document>\n</kml>\n");
-    out
 }
 
 /// Garmin TCX (Training Center); her segment bir Track olur.
 pub fn write_tcx(gpx: &Gpx) -> String {
+    let mut out = String::new();
+    write_tcx_into(gpx, &mut out);
+    out
+}
+
+/// TCX'i bellekte tamamını tutmadan `w`'ye yazar.
+pub fn write_tcx_to<W: std::io::Write>(gpx: &Gpx, w: &mut W) -> std::io::Result<()> {
+    crate::write::stream(w, |s| write_tcx_into(gpx, s))
+}
+
+fn write_tcx_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
     let segs = primary(gpx);
     let start = segs
         .iter()
         .flat_map(|s| s.iter())
         .find_map(|p| p.time)
         .or(gpx.time);
-    let mut out = String::from(
+    out.push_str(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<TrainingCenterDatabase \
          xmlns=\"http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2\" \
          xmlns:ns3=\"http://www.garmin.com/xmlschemas/ActivityExtension/v2\">\n<Activities>\n\
@@ -543,7 +563,6 @@ pub fn write_tcx(gpx: &Gpx) -> String {
         out.push_str("</Track>\n");
     }
     out.push_str("</Lap>\n</Activity>\n</Activities>\n</TrainingCenterDatabase>\n");
-    out
 }
 
 // ---------- FIT yazma ----------

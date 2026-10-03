@@ -1,7 +1,8 @@
 /**
  * Uçuşlar: kayıt boşluklarından (gaps) türetilir. Ortalama hızı 300 km/sa'i ve
  * mesafesi 100 km'yi aşan ya da 6 saatten kısa sürede 200 km'den uzağa giden
- * boşluklar uçuş sayılır.
+ * boşluklar uçuş sayılır; her durumda ortalama hız en az 150 km/sa olmalıdır
+ * (kayıt boşluğu olan araba yolculukları uçuş sayılmasın).
  */
 
 import type { FileSummary, Gap } from "./api";
@@ -12,6 +13,8 @@ const MIN_SPEED_MS = 300 / 3.6;
 const MIN_M = 100_000;
 const FAR_M = 200_000;
 const FAR_MAX_MS = 6 * 3_600_000;
+/** Tüm kurallar için en düşük ortalama hız. */
+const FLOOR_SPEED_MS = 150 / 3.6;
 
 export interface Flight {
   /** Kaydın yolu ve boşluğun sırası: kimlik. */
@@ -30,8 +33,11 @@ export interface Flight {
 export function isFlight(g: Gap): g is Gap & { start: number; end: number } {
   if (g.start == null || g.end == null) return false;
   const dt = g.end - g.start;
-  if (dt <= 0) return g.distanceM > MIN_M;
-  return (g.distanceM > MIN_M && g.distanceM / (dt / 1000) > MIN_SPEED_MS) || (g.distanceM > FAR_M && dt < FAR_MAX_MS);
+  // Süresiz ya da geriye giden boşluk: saat hatası, uçuş değil.
+  if (dt <= 0) return false;
+  const speed = g.distanceM / (dt / 1000);
+  if (g.distanceM <= MIN_M || speed < FLOOR_SPEED_MS) return false;
+  return speed > MIN_SPEED_MS || (g.distanceM > FAR_M && dt < FAR_MAX_MS);
 }
 
 const cache = new WeakMap<FileSummary, Flight[]>();

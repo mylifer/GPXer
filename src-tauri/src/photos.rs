@@ -12,6 +12,12 @@ use std::path::{Path, PathBuf};
 pub const MAX_PHOTOS: usize = 5000;
 /// Gömülü küçük resim bundan büyükse alınmaz (bozuk EXIF'e karşı).
 const MAX_THUMB_BYTES: usize = 256 * 1024;
+/// Bundan büyük dosyalar (video, ham panorama…) okunmaz.
+const MAX_FILE_BYTES: u64 = 150 * 1024 * 1024;
+/// TIFF'te EXIF için dosyanın en fazla bu kadar başı okunur.
+const MAX_TIFF_READ: u64 = 16 * 1024 * 1024;
+/// Klasör taramasında inilecek en fazla derinlik.
+const MAX_DEPTH: usize = 12;
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -20,13 +26,13 @@ pub struct PhotoInfo {
     pub name: String,
     /// Çekim zamanı (Unix ms).
     pub time: Option<i64>,
-    /// EXIF'te saat farkı (OffsetTimeOriginal) yoksa `true`: zaman, yerel
-    /// saat UTC'ymiş gibi hesaplanmıştır; arayüz kaydın saat dilimine göre
-    /// düzeltir.
+    /// EXIF'te saat farkı (OffsetTimeOriginal/OffsetTime) ya da GPS zamanı
+    /// yoksa `true`: zaman, yerel saat UTC'ymiş gibi hesaplanmıştır; arayüz
+    /// kaydın saat dilimine göre düzeltir.
     pub time_is_local: bool,
     pub lat: Option<f64>,
     pub lon: Option<f64>,
-    /// Gömülü küçük resim (`data:image/jpeg;base64,…`).
+    /// Her zaman `None`: küçük resim ayrıca `photo_thumb` ile istenir.
     pub thumb: Option<String>,
 }
 
@@ -41,35 +47,70 @@ pub fn is_photo(path: &Path) -> bool {
     })
 }
 
+/// Taramada içine girilmeyen klasör mü: gizli klasörler, macOS paketleri ve
+/// Windows sistem klasörleri.
+fn is_skipped_dir(name: &str) -> bool {
+    if name.starts_with('.') {
+        return true;
+    }
+    let lower = name.to_ascii_lowercase();
+    let package = [
+        ".app",
+        ".photoslibrary",
+        ".photolibrary",
+        ".bundle",
+        ".framework",
+    ]
+    .iter()
+    .any(|ext| lower.ends_with(ext));
+    package || lower == "$recycle.bin" || lower == "system volume information"
+}
+
 /// Dosya ve klasörlerden (özyinelemeli) fotoğraf yolları; tekilleştirilmiş,
-/// en fazla [`MAX_PHOTOS`] tane. Doğrudan verilen dosyalar uzantıya
-/// bakılmadan alınır.
+/// en fazla [`MAX_PHOTOS`] tane. Sınıra ulaşınca tarama durur. Doğrudan
+/// verilen dosyalar uzantıya bakılmadan alınır. Bağlantılar izlenmez; gizli,
+/// paket ve sistem klasörleri ile çok büyük dosyalar atlanır.
 pub fn expand(paths: &[String]) -> Vec<PathBuf> {
+    expand_limited(paths, MAX_PHOTOS)
+}
+
+fn expand_limited(paths: &[String], limit: usize) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for p in paths {
         let path = PathBuf::from(p);
-        let found: Vec<PathBuf> = if path.is_dir() {
-            let mut v: Vec<PathBuf> = walkdir::WalkDir::new(&path)
-                .follow_links(true)
+        if path.is_dir() {
+            let walker = walkdir::WalkDir::new(&path)
+                .follow_links(false)
+                .max_depth(MAX_DEPTH)
+                .sort_by_file_name()
                 .into_iter()
-                .filter_map(Result::ok)
-                .filter(|e| e.file_type().is_file() && is_photo(e.path()))
-                .map(|e| e.into_path())
-                .collect();
-            v.sort();
-            v
+                .filter_entry(|e| {
+                    e.depth() == 0
+                        || !e.file_type().is_dir()
+                        || !is_skipped_dir(&e.file_name().to_string_lossy())
+                });
+            for e in walker.filter_map(Result::ok) {
+                if out.len() >= limit {
+                    return out;
+                }
+                if !e.file_type().is_file() || !is_photo(e.path()) {
+                    continue;
+                }
+                if e.metadata().is_ok_and(|m| m.len() > MAX_FILE_BYTES) {
+                    continue;
+                }
+                let f = e.into_path();
+                if seen.insert(f.clone()) {
+                    out.push(f);
+                }
+            }
         } else if path.is_file() {
-            vec![path]
-        } else {
-            Vec::new()
-        };
-        for f in found {
-            if out.len() >= MAX_PHOTOS {
+            if out.len() >= limit {
                 return out;
             }
-            if seen.insert(f.clone()) {
-                out.push(f);
+            if seen.insert(path.clone()) {
+                out.push(path);
             }
         }
     }
@@ -85,11 +126,31 @@ pub fn read_all(paths: &[String]) -> Vec<PhotoInfo> {
         .collect()
 }
 
-pub fn read_photo(path: &Path) -> Option<PhotoInfo> {
-    let file = std::fs::File::open(path).ok()?;
-    if !file.metadata().ok()?.is_file() {
-        return None;
+/// Dosyanın EXIF'i. TIFF'te yalnızca dosyanın başı okunur; çok büyük
+/// dosyalar okunmaz.
+fn read_exif(file: std::fs::File) -> Option<exif::Exif> {
+    use std::io::Read;
+    let mut reader = std::io::BufReader::new(file);
+    let mut head = [0u8; 4];
+    let n = reader.read(&mut head).ok()?;
+    reader.seek_relative(-(n as i64)).ok()?;
+    if head[..n] == *b"II*\0" || head[..n] == *b"MM\0*" {
+        let mut buf = Vec::new();
+        reader.take(MAX_TIFF_READ).read_to_end(&mut buf).ok()?;
+        return exif::Reader::new().read_raw(buf).ok();
     }
+    exif::Reader::new().read_from_container(&mut reader).ok()
+}
+
+/// Okunabilecek normal bir dosyayı açar.
+fn open_photo(path: &Path) -> Option<std::fs::File> {
+    let file = std::fs::File::open(path).ok()?;
+    let meta = file.metadata().ok()?;
+    (meta.is_file() && meta.len() <= MAX_FILE_BYTES).then_some(file)
+}
+
+pub fn read_photo(path: &Path) -> Option<PhotoInfo> {
+    let file = open_photo(path)?;
     let mut info = PhotoInfo {
         path: path.to_string_lossy().into_owned(),
         name: path
@@ -102,8 +163,7 @@ pub fn read_photo(path: &Path) -> Option<PhotoInfo> {
         lon: None,
         thumb: None,
     };
-    let mut reader = std::io::BufReader::new(file);
-    let Ok(exif) = exif::Reader::new().read_from_container(&mut reader) else {
+    let Some(exif) = read_exif(file) else {
         return Some(info);
     };
     if let Some((t, local)) = taken_at(&exif) {
@@ -114,13 +174,18 @@ pub fn read_photo(path: &Path) -> Option<PhotoInfo> {
         info.lat = Some(lat);
         info.lon = Some(lon);
     }
-    info.thumb = thumbnail(&exif).map(|b| {
+    Some(info)
+}
+
+/// EXIF'e gömülü küçük resim (`data:image/jpeg;base64,…`); yoksa `None`.
+pub fn thumb_data_url(path: &Path) -> Option<String> {
+    let exif = read_exif(open_photo(path)?)?;
+    thumbnail(&exif).map(|b| {
         format!(
             "data:image/jpeg;base64,{}",
             base64::engine::general_purpose::STANDARD.encode(b)
         )
-    });
-    Some(info)
+    })
 }
 
 fn ascii(exif: &exif::Exif, tag: Tag) -> Option<&[u8]> {
@@ -131,6 +196,8 @@ fn ascii(exif: &exif::Exif, tag: Tag) -> Option<&[u8]> {
 }
 
 /// Çekim zamanı (Unix ms) ve saat farkının bilinmediği (yerel saat) mi.
+/// Saat farkı yoksa (OffsetTimeOriginal/Digitized, o da yoksa OffsetTime)
+/// GPS tarih ve saati (UTC) yerel saate tercih edilir.
 fn taken_at(exif: &exif::Exif) -> Option<(i64, bool)> {
     let sources = [
         (
@@ -145,20 +212,54 @@ fn taken_at(exif: &exif::Exif) -> Option<(i64, bool)> {
         ),
         (Tag::DateTime, Tag::OffsetTime, Tag::SubSecTime),
     ];
-    sources.iter().find_map(|&(dt, off, sub)| {
+    let camera = sources.iter().find_map(|&(dt, off, sub)| {
         let mut d = exif::DateTime::from_ascii(ascii(exif, dt)?).ok()?;
         if let Some(s) = ascii(exif, sub) {
             let _ = d.parse_subsec(s);
         }
-        if let Some(o) = ascii(exif, off) {
+        if let Some(o) = ascii(exif, off).or_else(|| ascii(exif, Tag::OffsetTime)) {
             let _ = d.parse_offset(o);
         }
-        let local = civil_ms(&d)?;
-        Some(match d.offset {
-            Some(min) => (local - i64::from(min) * 60_000, false),
-            None => (local, true),
-        })
-    })
+        Some((civil_ms(&d)?, d.offset))
+    });
+    match camera {
+        Some((local, Some(min))) => Some((local - i64::from(min) * 60_000, false)),
+        _ => match (gps_time(exif), camera) {
+            (Some(utc), local) => {
+                // GPS saniyesi tam sayıysa ve yerel saatle aynı saniyeye
+                // denk geliyorsa yerel saatin saniye kesri korunur.
+                let frac = local.map_or(0, |(l, _)| l.rem_euclid(1000));
+                let same_second = local.is_some_and(|(l, _)| (l - frac - utc) % 60_000 == 0);
+                if utc % 1000 == 0 && same_second {
+                    Some((utc + frac, false))
+                } else {
+                    Some((utc, false))
+                }
+            }
+            (None, Some((local, None))) => Some((local, true)),
+            (None, _) => None,
+        },
+    }
+}
+
+/// GPSDateStamp ve GPSTimeStamp'ten UTC zaman (Unix ms, saniye kesriyle).
+fn gps_time(exif: &exif::Exif) -> Option<i64> {
+    let date = std::str::from_utf8(ascii(exif, Tag::GPSDateStamp)?).ok()?;
+    let date = date.trim_matches(|c: char| c == '\0' || c.is_whitespace());
+    let d = exif::DateTime::from_ascii(format!("{date} 00:00:00").as_bytes()).ok()?;
+    let day = civil_ms(&d)?;
+    let Value::Rational(v) = &exif.get_field(Tag::GPSTimeStamp, In::PRIMARY)?.value else {
+        return None;
+    };
+    if v.len() < 3 || v.iter().any(|r| r.denom == 0) {
+        return None;
+    }
+    let (h, m, s) = (v[0].to_f64(), v[1].to_f64(), v[2].to_f64());
+    if !(0.0..24.0).contains(&h) || !(0.0..60.0).contains(&m) || !(0.0..61.0).contains(&s) {
+        return None;
+    }
+    let ms = ((h * 3600.0 + m * 60.0 + s) * 1000.0).round() as i64;
+    Some(day + ms)
 }
 
 /// Takvim tarihini ve saati UTC'ymiş gibi Unix ms'ye çevirir.
@@ -311,12 +412,18 @@ mod tests {
         assert!(!a.time_is_local);
         assert!((a.lat.unwrap() - (41.0 + 3.0 / 60.0 + 36.0 / 3600.0)).abs() < 1e-9);
         assert!((a.lon.unwrap() + (28.0 + 59.0 / 60.0)).abs() < 1e-9);
-        assert_eq!(a.thumb.as_deref(), Some("data:image/jpeg;base64,/9j/2Q=="));
+        // Küçük resim listede gelmez, ayrıca istenir.
+        assert_eq!(a.thumb, None);
+        assert_eq!(
+            thumb_data_url(Path::new(&a.path)).as_deref(),
+            Some("data:image/jpeg;base64,/9j/2Q==")
+        );
 
         let b = &photos[1];
         assert_eq!(b.time, Some(1_714_555_815_000));
         assert!(b.time_is_local);
         assert_eq!((b.lat, b.lon, b.thumb.as_deref()), (None, None, None));
+        assert_eq!(thumb_data_url(Path::new(&b.path)), None);
 
         // EXIF'i okunamayan dosya bilgisiz döner.
         assert_eq!(photos[2].time, None);
@@ -335,6 +442,116 @@ mod tests {
         assert!(expand(&["/yok/boyle/bir/yer".into()]).is_empty());
         assert!(is_photo(Path::new("a.TiF")));
         assert!(!is_photo(Path::new("a.gif")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXIF'li çıplak TIFF.
+    fn tiff(fields: &[Field]) -> Vec<u8> {
+        let mut w = Writer::new();
+        for f in fields {
+            w.push_field(f);
+        }
+        let mut out = std::io::Cursor::new(Vec::new());
+        w.write(&mut out, false).unwrap();
+        out.into_inner()
+    }
+
+    fn time_of(dir: &Path, name: &str, fields: &[Field]) -> (Option<i64>, bool) {
+        let p = dir.join(name);
+        std::fs::write(&p, jpeg(fields, None)).unwrap();
+        let info = read_photo(&p).unwrap();
+        (info.time, info.time_is_local)
+    }
+
+    #[test]
+    fn offset_and_gps_times() {
+        let dir = temp_dir("times");
+        let dto = ascii_field(Tag::DateTimeOriginal, "2024:05:01 09:30:15");
+        // 2024-05-01T06:30:15Z
+        let utc = 1_714_545_015_000;
+        // OffsetTimeOriginal yoksa IFD0'daki OffsetTime kullanılır.
+        let t = time_of(
+            &dir,
+            "a.jpg",
+            &[dto.clone(), ascii_field(Tag::OffsetTime, "+03:00")],
+        );
+        assert_eq!(t, (Some(utc), false));
+        // GPS zamanı (UTC) yerel saate tercih edilir; saniye kesri korunur.
+        let gps_date = ascii_field(Tag::GPSDateStamp, "2024:05:01");
+        let gps_ts = |s: (u32, u32)| rationals(Tag::GPSTimeStamp, [(6, 1), (30, 1), s]);
+        let t = time_of(
+            &dir,
+            "b.jpg",
+            &[
+                dto.clone(),
+                ascii_field(Tag::SubSecTimeOriginal, "5"),
+                gps_date.clone(),
+                gps_ts((15, 1)),
+            ],
+        );
+        assert_eq!(t, (Some(utc + 500), false));
+        // GPS saniyesi kesirliyse o kullanılır.
+        let t = time_of(
+            &dir,
+            "c.jpg",
+            &[dto.clone(), gps_date.clone(), gps_ts((1525, 100))],
+        );
+        assert_eq!(t, (Some(utc + 250), false));
+        // Yalnızca GPS zamanı.
+        let t = time_of(&dir, "d.jpg", &[gps_date.clone(), gps_ts((15, 1))]);
+        assert_eq!(t, (Some(utc), false));
+        // Saat farkı varsa GPS'e bakılmaz.
+        let t = time_of(
+            &dir,
+            "e.jpg",
+            &[
+                dto.clone(),
+                ascii_field(Tag::OffsetTimeOriginal, "+03:00"),
+                gps_date.clone(),
+                gps_ts((59, 1)),
+            ],
+        );
+        assert_eq!(t, (Some(utc), false));
+        // Bozuk GPS zamanı yok sayılır.
+        let t = time_of(&dir, "f.jpg", &[dto.clone(), gps_date, gps_ts((15, 0))]);
+        assert_eq!(t, (Some(utc + 3 * 3_600_000), true));
+
+        // TIFF dosyası başından okunur.
+        std::fs::write(dir.join("g.tif"), tiff(&[dto])).unwrap();
+        let info = read_photo(&dir.join("g.tif")).unwrap();
+        assert_eq!(info.time, Some(utc + 3 * 3_600_000));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_skips_hidden_packages_and_stops_at_limit() {
+        let dir = temp_dir("skip");
+        for sub in [
+            ".gizli",
+            "Kitaplik.photoslibrary",
+            "X.app",
+            "$RECYCLE.BIN",
+            "System Volume Information",
+            "tatil",
+        ] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+            std::fs::write(dir.join(sub).join("a.jpg"), b"").unwrap();
+        }
+        for i in 0..5 {
+            std::fs::write(dir.join(format!("{i}.jpg")), b"").unwrap();
+        }
+        let d = dir.to_string_lossy().into_owned();
+        let all = expand(std::slice::from_ref(&d));
+        assert_eq!(all.len(), 6, "{all:?}");
+        assert!(all.contains(&dir.join("tatil").join("a.jpg")));
+        // Sınıra ulaşınca tarama durur; sıra dosya adına göredir.
+        let some = expand_limited(std::slice::from_ref(&d), 2);
+        assert_eq!(some, [dir.join("0.jpg"), dir.join("1.jpg")]);
+        // Gizli klasör doğrudan seçilirse taranır.
+        let hidden = dir.join(".gizli").to_string_lossy().into_owned();
+        assert_eq!(expand(&[hidden]).len(), 1);
+        assert!(is_skipped_dir("Foo.Bundle"));
+        assert!(!is_skipped_dir("tatil"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

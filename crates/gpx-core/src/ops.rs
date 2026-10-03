@@ -118,8 +118,7 @@ pub fn split(gpx: &Gpx, at: usize) -> Option<(Gpx, Gpx)> {
 
 /// Kayıtları başlangıç zamanına göre sıralayıp tek dosyada birleştirir; her
 /// kayıt ayrı bir iz (trk) olur.
-pub fn merge(parts: Vec<Gpx>, name: Option<String>) -> Gpx {
-    let mut parts = parts;
+pub fn merge(mut parts: Vec<Gpx>, name: Option<String>) -> Gpx {
     let start = |g: &Gpx| {
         primary_segments(g)
             .iter()
@@ -134,9 +133,16 @@ pub fn merge(parts: Vec<Gpx>, name: Option<String>) -> Gpx {
         time,
         ..Gpx::default()
     };
-    for g in parts {
+    for mut g in parts {
         let tname = track_name(&g);
-        let segments: Vec<Vec<Point>> = primary_segments(&g).iter().map(|s| s.to_vec()).collect();
+        // Segmentler kopyalanmadan taşınır (büyük kayıtlarda bellek iki
+        // katına çıkmasın).
+        let source = if g.tracks.is_empty() {
+            std::mem::take(&mut g.routes)
+        } else {
+            std::mem::take(&mut g.tracks)
+        };
+        let segments: Vec<Vec<Point>> = source.into_iter().flat_map(|t| t.segments).collect();
         if !segments.is_empty() {
             out.tracks.push(Track {
                 name: tname,

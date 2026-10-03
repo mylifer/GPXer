@@ -928,3 +928,71 @@ fn hour_first_points_follow_hours() {
     // Listede olmayan saat atlanır.
     assert!(hour_first_points(&gpx, &[[5.0 * HOUR_MS as f64, 0.0, 0.0]]).is_empty());
 }
+
+#[test]
+fn hourly_buckets_include_last_point_hour() {
+    // Son noktası tek başına bir sonraki saate düşen segment; ardından
+    // boşluktan sonra yalnızca son noktası yeni saatte olan ikinci parça.
+    let seg = vec![
+        pt(41.0, 29.0, 3000),
+        pt(41.0, 29.001, 3500),
+        pt(41.0, 29.002, 3700),
+    ];
+    let seg2 = vec![
+        pt(41.5, 29.5, 3 * 3600 + 3000),
+        pt(41.5, 29.501, 4 * 3600 + 10),
+    ];
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg, seg2],
+        }],
+        ..Default::default()
+    };
+    let s = summarize(&gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
+    let hours: Vec<i64> = s.hours.iter().map(|h| h[0] as i64).collect();
+    assert_eq!(
+        hours,
+        [0, HOUR_MS, 3 * HOUR_MS, 4 * HOUR_MS],
+        "{:?}",
+        s.hours
+    );
+    // Yalnızca son noktanın düştüğü saatlerin mesafesi 0.
+    assert_eq!(s.hours[1][1], 0.0);
+    assert_eq!(s.hours[3][1], 0.0);
+    let firsts = hour_first_points(&gpx, &s.hours);
+    assert_eq!(firsts.len(), 4);
+    assert_eq!(firsts[1], (HOUR_MS, [29.002, 41.0]));
+}
+
+#[test]
+fn streaming_writers_match_string_writers() {
+    let gpx = parse::Gpx {
+        name: Some("A & B".into()),
+        tracks: vec![parse::Track {
+            name: Some("iz".into()),
+            segments: vec![vec![pt(41.0, 29.0, 0), pt(41.001, 29.0, 60)]],
+        }],
+        ..Default::default()
+    };
+    let mut buf = Vec::new();
+    write::write_gpx_to(&gpx, &mut buf).unwrap();
+    assert_eq!(String::from_utf8(buf).unwrap(), write::write_gpx(&gpx));
+    let mut buf = Vec::new();
+    formats::write_kml_to(&gpx, &mut buf).unwrap();
+    assert_eq!(String::from_utf8(buf).unwrap(), formats::write_kml(&gpx));
+    let mut buf = Vec::new();
+    formats::write_tcx_to(&gpx, &mut buf).unwrap();
+    assert_eq!(String::from_utf8(buf).unwrap(), formats::write_tcx(&gpx));
+    // G/Ç hatası döndürülür.
+    struct Full;
+    impl std::io::Write for Full {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("dolu"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    assert!(write::write_gpx_to(&gpx, &mut Full).is_err());
+}

@@ -19,6 +19,7 @@ import { clipToRange, dayIn, fastDayKey } from "../days";
 import { endName, greatCircle, type Flight } from "../flights";
 import { namedPlaceAt } from "../places";
 import type { PlacedPhoto } from "../photos";
+import { requestThumb } from "../thumbs";
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -1340,19 +1341,22 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
 
   // Fotoğraflar: ekranda yakın düşenler tek işarette toplanır (sayıyla); en fazla
   // PHOTO_MAX_MARKERS işaret çizilir. Harita her durduğunda yeniden gruplanır.
-  const photoMarkers = useRef(new Map<string, maplibregl.Marker>());
+  const photoMarkers = useRef(new Map<string, { marker: maplibregl.Marker; cancel(): void }>());
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const markers = photoMarkers.current;
     const clear = () => {
-      for (const m of markers.values()) m.remove();
+      for (const m of markers.values()) {
+        m.cancel();
+        m.marker.remove();
+      }
       markers.clear();
     };
-    if (!photos?.length) {
-      clear();
-      return;
-    }
+    // Fotoğraf listesi değişti (saat düzeltmesi, kayıtlar): konum ve tıklama
+    // işleyicisi eskimesin diye işaretler baştan kurulur.
+    clear();
+    if (!photos?.length) return;
     const render = () => {
       const list = live.current.photos ?? [];
       const c = map.getContainer();
@@ -1372,18 +1376,23 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       for (const group of cells.values()) {
         if (n++ >= PHOTO_MAX_MARKERS) break;
         const first = group[0];
-        const key = `${first.path}|${group.length}`;
+        const key = `${first.path}|${group.length}|${first.lon.toFixed(6)},${first.lat.toFixed(6)}`;
         keep.add(key);
         if (markers.has(key)) continue;
         const el = document.createElement("div");
         el.className = "photo-marker";
-        if (first.thumb) {
+        // Küçük resim yüklenene dek yer tutucu simge.
+        const ph = document.createElement("span");
+        ph.className = "photo-placeholder";
+        ph.textContent = "📷";
+        el.appendChild(ph);
+        const cancel = requestThumb(first.path, (url) => {
+          if (!url) return;
           const img = document.createElement("img");
-          img.src = first.thumb;
+          img.src = url;
           img.alt = "";
-          img.loading = "lazy";
-          el.appendChild(img);
-        } else el.textContent = "📷";
+          ph.replaceWith(img);
+        });
         if (group.length > 1) {
           const badge = document.createElement("span");
           badge.className = "photo-count";
@@ -1411,11 +1420,15 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
         el.addEventListener("mouseenter", () => {
           hoverPopup.current?.remove();
         });
-        markers.set(key, new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([first.lon, first.lat]).addTo(map));
+        markers.set(key, {
+          marker: new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([first.lon, first.lat]).addTo(map),
+          cancel,
+        });
       }
       for (const [k, m] of markers) {
         if (!keep.has(k)) {
-          m.remove();
+          m.cancel();
+          m.marker.remove();
           markers.delete(k);
         }
       }
@@ -1426,7 +1439,14 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       map.off("moveend", render);
     };
   }, [photos]);
-  useEffect(() => () => photoMarkers.current.forEach((m) => m.remove()), []);
+  useEffect(
+    () => () =>
+      photoMarkers.current.forEach((m) => {
+        m.cancel();
+        m.marker.remove();
+      }),
+    [],
+  );
 
   /** Fotoğraf kutusu: büyük önizleme, ad, çekim zamanı, eşleşen kayıt. */
   const openPhoto = (map: maplibregl.Map, ph: PlacedPhoto) => {
@@ -1435,12 +1455,20 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     const sum = ph.record ? live.current.summaryOf(ph.record) : undefined;
     const box = document.createElement("div");
     box.className = "photo-box";
-    if (ph.thumb) {
+    const slot = document.createElement("div");
+    slot.className = "photo-preview-placeholder";
+    slot.textContent = "📷";
+    box.appendChild(slot);
+    const cancelThumb = requestThumb(ph.path, (url) => {
+      if (!url) {
+        slot.remove();
+        return;
+      }
       const img = document.createElement("img");
-      img.src = ph.thumb;
+      img.src = url;
       img.alt = ph.name;
-      box.appendChild(img);
-    }
+      slot.replaceWith(img);
+    });
     const info = document.createElement("div");
     info.innerHTML =
       `<strong>${escapeHtml(ph.name)}</strong>` +
@@ -1463,6 +1491,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       .setLngLat([ph.lon, ph.lat])
       .setDOMContent(box)
       .addTo(map);
+    chooser.current.on("close", cancelThumb);
   };
 
   return (

@@ -517,48 +517,104 @@ async fn export_many(
         {
             return Err("Kayıt kendi üzerine kaydedilemez; başka bir yer seçin".into());
         }
+        // FIT'te spor türü yalnızca tüm kayıtlarda aynıysa yazılır. Tür,
+        // kayıtlar yeniden özetlenmeden seçilen türden ya da önbellekteki
+        // özetten alınır.
+        let activity = (format == "fit").then(|| {
+            let meta = app.state::<MetaStore>();
+            let kinds: Vec<gpx_core::Activity> = paths
+                .iter()
+                .map(|p| {
+                    meta.activity(p)
+                        .or_else(|| library.cached_activity(p))
+                        .unwrap_or_default()
+                })
+                .collect();
+            common_activity(&kinds)
+        });
         let parts = paths
             .iter()
             .map(|p| read_raw(&app, p))
             .collect::<Result<Vec<_>, _>>()?;
+        // Parçalar birleştirilirken taşınır (kopyalanmaz).
         let merged = merge_for_export(parts);
-        let bytes = match format.as_str() {
-            "gpx" => gpx_core::write::write_gpx(&merged).into_bytes(),
-            "kml" => gpx_core::formats::write_kml(&merged).into_bytes(),
-            "tcx" => gpx_core::formats::write_tcx(&merged).into_bytes(),
-            _ => {
-                // Spor türü yalnızca tüm kayıtlarda aynıysa yazılır.
-                let summaries = app.state::<Library>();
-                let cfg = app.state::<SettingsStore>().stats();
-                let meta = app.state::<MetaStore>();
-                let kinds: Vec<gpx_core::Activity> = paths
-                    .iter()
-                    .map(|p| {
-                        summaries
-                            .summarize(p, &cfg, meta.activity(p))
-                            .map(|(s, _)| s.activity)
-                            .unwrap_or_default()
-                    })
-                    .collect();
-                let first = kinds[0];
-                let activity = if kinds.iter().all(|k| *k == first) {
-                    first
-                } else {
-                    gpx_core::Activity::Unknown
-                };
-                gpx_core::formats::write_fit(&merged, activity)
-            }
-        };
-        std::fs::write(&dest, bytes).map_err(|e| e.to_string())
+        write_export(&merged, &format, activity, Path::new(&dest))
     })
     .await?
 }
 
-/// Fotoğrafların (dosyalar ya da klasörler) çekim zamanı, konumu ve küçük
-/// resmi.
+/// Tüm türler aynıysa o tür, değilse bilinmiyor.
+fn common_activity(kinds: &[gpx_core::Activity]) -> gpx_core::Activity {
+    match kinds.first() {
+        Some(&first) if kinds.iter().all(|k| *k == first) => first,
+        _ => gpx_core::Activity::Unknown,
+    }
+}
+
+/// Birleştirilmiş kaydı hedefe yazar. Metin biçimleri bellekte tamamı
+/// oluşturulmadan akış halinde yazılır; FIT baytları bir kez oluşturulup
+/// doğrudan yazılır.
+fn write_export(
+    gpx: &gpx_core::parse::Gpx,
+    format: &str,
+    activity: Option<gpx_core::Activity>,
+    dest: &Path,
+) -> Result<(), String> {
+    use std::io::Write;
+    let file = std::fs::File::create(dest).map_err(|e| e.to_string())?;
+    let mut w = std::io::BufWriter::new(file);
+    let res = match format {
+        "gpx" => gpx_core::write::write_gpx_to(gpx, &mut w),
+        "kml" => gpx_core::formats::write_kml_to(gpx, &mut w),
+        "tcx" => gpx_core::formats::write_tcx_to(gpx, &mut w),
+        "fit" => {
+            let bytes = gpx_core::formats::write_fit(gpx, activity.unwrap_or_default());
+            w.write_all(&bytes).and_then(|_| w.flush())
+        }
+        other => Err(std::io::Error::other(format!("Bilinmeyen biçim: {other}"))),
+    };
+    let res = res.and_then(|_| w.into_inner().map_err(|e| e.into_error())?.sync_all());
+    if let Err(e) = res {
+        // Yarım dosya bırakılmaz.
+        let _ = std::fs::remove_file(dest);
+        return Err(e.to_string());
+    }
+    Ok(())
+}
+
+/// Bu oturumda `read_photos` ile döndürülen fotoğraf yolları; küçük resim
+/// yalnızca bunlar için okunur.
+#[derive(Default)]
+struct PhotoPaths(Mutex<HashSet<String>>);
+
+/// Fotoğrafların (dosyalar ya da klasörler) çekim zamanı ve konumu. Küçük
+/// resim (`thumb`) her zaman boştur; `photo_thumb` ile ayrıca istenir.
 #[tauri::command]
-async fn read_photos(paths: Vec<String>) -> Result<Vec<PhotoInfo>, String> {
-    run_blocking(move || photos::read_all(&paths)).await
+async fn read_photos(app: AppHandle, paths: Vec<String>) -> Result<Vec<PhotoInfo>, String> {
+    run_blocking(move || {
+        let list = photos::read_all(&paths);
+        app.state::<PhotoPaths>()
+            .0
+            .lock()
+            .unwrap()
+            .extend(list.iter().map(|p| p.path.clone()));
+        list
+    })
+    .await
+}
+
+/// Fotoğrafın EXIF'e gömülü küçük resmi (data URL). Yalnızca daha önce
+/// `read_photos` ile döndürülmüş yollar için; diğerlerinde ve küçük resim
+/// yoksa `None`.
+#[tauri::command]
+async fn photo_thumb(app: AppHandle, path: String) -> Result<Option<String>, String> {
+    run_blocking(move || {
+        if !app.state::<PhotoPaths>().0.lock().unwrap().contains(&path) {
+            return None;
+        }
+        photos::thumb_data_url(Path::new(&path))
+    })
+    .await
 }
 
 /// Adlandırılmış yerler.
@@ -773,6 +829,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(PendingPaths::default())
         .manage(ApprovedPaths::default())
+        .manage(PhotoPaths::default())
         .setup(|app| {
             let handle = app.handle();
             let root = app.path().app_data_dir()?;
@@ -822,6 +879,7 @@ pub fn run() {
             get_settings,
             set_settings,
             read_photos,
+            photo_thumb,
             get_places,
             set_places
         ])
@@ -868,5 +926,40 @@ mod tests {
         let text = gpx_core::write::write_gpx(&m);
         assert_eq!(text.matches("<trkseg>").count(), 3);
         assert!(!gpx_core::formats::write_fit(&m, gpx_core::Activity::Unknown).is_empty());
+    }
+
+    #[test]
+    fn export_streams_to_file_and_picks_activity() {
+        use gpx_core::Activity;
+        let dir = std::env::temp_dir().join(format!("gpxer-export-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = r#"<gpx><trk><trkseg><trkpt lat="41" lon="29"><time>2024-05-02T06:00:00Z</time></trkpt><trkpt lat="41.01" lon="29"><time>2024-05-02T06:01:00Z</time></trkpt></trkseg></trk></gpx>"#;
+        let m = merge_for_export(vec![gpx(src), gpx(src)]);
+        for f in ["gpx", "kml", "tcx", "fit"] {
+            let dest = dir.join(format!("out.{f}"));
+            write_export(&m, f, Some(Activity::Walk), &dest).unwrap();
+            let bytes = std::fs::read(&dest).unwrap();
+            let expected = match f {
+                "gpx" => gpx_core::write::write_gpx(&m).into_bytes(),
+                "kml" => gpx_core::formats::write_kml(&m).into_bytes(),
+                "tcx" => gpx_core::formats::write_tcx(&m).into_bytes(),
+                _ => gpx_core::formats::write_fit(&m, Activity::Walk),
+            };
+            assert_eq!(bytes, expected, "{f}");
+        }
+        let bad = dir.join("out.xyz");
+        assert!(write_export(&m, "xyz", None, &bad).is_err());
+        assert!(!bad.exists());
+        assert_eq!(
+            common_activity(&[Activity::Bike, Activity::Bike]),
+            Activity::Bike
+        );
+        assert_eq!(
+            common_activity(&[Activity::Bike, Activity::Run]),
+            Activity::Unknown
+        );
+        assert_eq!(common_activity(&[]), Activity::Unknown);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

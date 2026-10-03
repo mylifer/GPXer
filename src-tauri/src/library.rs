@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Önbellek biçimi ya da özet hesaplaması değiştiğinde artırılır; eski
 /// önbellek yok sayılır.
-const CACHE_VERSION: u32 = 12;
+const CACHE_VERSION: u32 = 13;
 /// Bellekte tutulan hazırlanmış (temizlenmiş) kayıt sayısı.
 const PREPARED_KEEP: usize = 4;
 /// Çöp kutusundaki dosyalar bu süreden sonra kalıcı olarak silinir.
@@ -206,23 +206,63 @@ pub fn visits(gpx: &gpx_core::parse::Gpx, hours: &[[f64; 3]]) -> Vec<(i64, Strin
     out
 }
 
-/// Bir ülkede ardışık en az bu kadar saatlik kayıt yoksa (sınır yakınında tek
-/// bir nokta, en yakın şehrin komşu ülkede kalması) o saatler sayılmaz.
+/// Bir ülkede toplam bu kadar saatten az kayıt varsa ve bu saatler kaydın
+/// başında ya da sonunda değil başka ülkelerin arasında kalıyorsa (sınır
+/// yakınında tek bir nokta, en yakın şehrin komşu ülkede kalması) sayılmaz.
 const MIN_COUNTRY_HOURS: usize = 2;
 
+/// Tek ülkeli kayıtta hiçbir saat atılmaz. Kayıt yeni bir ülkede başlıyor ya
+/// da bitiyorsa (bir saat sonra sınırı geçip biten yolculuk) o ülke kısa da
+/// olsa sayılır.
 fn drop_brief_countries(per_hour: Vec<(i64, String, String)>) -> Vec<(i64, String, String)> {
-    let mut out = Vec::with_capacity(per_hour.len());
-    let mut i = 0;
-    while i < per_hour.len() {
-        let cc = &per_hour[i].1;
-        let j = per_hour[i..]
-            .iter()
-            .position(|v| v.1 != *cc)
-            .map_or(per_hour.len(), |k| i + k);
-        if j - i >= MIN_COUNTRY_HOURS {
-            out.extend_from_slice(&per_hour[i..j]);
+    let mut totals: HashMap<&str, usize> = HashMap::new();
+    for v in &per_hour {
+        *totals.entry(v.1.as_str()).or_default() += 1;
+    }
+    if totals.len() <= 1 {
+        return per_hour;
+    }
+    let brief: Vec<bool> = per_hour
+        .iter()
+        .map(|v| totals[v.1.as_str()] < MIN_COUNTRY_HOURS)
+        .collect();
+    let first_cc = per_hour.first().map(|v| v.1.clone());
+    let last_cc = per_hour.last().map(|v| v.1.clone());
+    // Kaydın ilk ve son ülke dizisi (run) atılmaz; aradakiler başka
+    // ülkelerin arasında kalmıştır.
+    let first_run_end = per_hour
+        .iter()
+        .position(|v| Some(&v.1) != first_cc.as_ref())
+        .unwrap_or(per_hour.len());
+    let last_run_start = per_hour
+        .iter()
+        .rposition(|v| Some(&v.1) != last_cc.as_ref())
+        .map_or(0, |i| i + 1);
+    per_hour
+        .into_iter()
+        .enumerate()
+        .filter(|&(i, _)| !brief[i] || i < first_run_end || i >= last_run_start)
+        .map(|(_, v)| v)
+        .collect()
+}
+
+/// Zaman bilgisi olmayan (saatlik özeti boş) kayıtların geçtiği yerler:
+/// başlangıç ve bitiş noktasının yeri, başlangıç zamanının saat başıyla (o da
+/// yoksa 0).
+pub fn untimed_visits(
+    start: Option<[f64; 2]>,
+    end: Option<[f64; 2]>,
+    start_time: Option<i64>,
+) -> Vec<(i64, String, String)> {
+    const HOUR_MS: i64 = 3_600_000;
+    let hour = start_time.map_or(0, |t| t.div_euclid(HOUR_MS) * HOUR_MS);
+    let mut out: Vec<(i64, String, String)> = Vec::new();
+    for [lon, lat] in [start, end].into_iter().flatten() {
+        if let Some((cc, name)) = place_info(lon, lat) {
+            if !out.iter().any(|(_, c, n)| *c == cc && *n == name) {
+                out.push((hour, cc, name));
+            }
         }
-        i = j;
     }
     out
 }
@@ -493,7 +533,11 @@ impl Library {
         summary.time_zone = summary.start.and_then(|[lon, lat]| time_zone_at(lon, lat));
         summary.start_place = summary.start.and_then(|[lon, lat]| place_at(lon, lat));
         summary.end_place = summary.end.and_then(|[lon, lat]| place_at(lon, lat));
-        summary.visits = visits(&prepared.gpx, &summary.hours);
+        summary.visits = if summary.hours.is_empty() {
+            untimed_visits(summary.start, summary.end, summary.stats.start_time)
+        } else {
+            visits(&prepared.gpx, &summary.hours)
+        };
         let mut cache = self.cache.lock().unwrap();
         cache.entries.insert(
             path.to_owned(),
@@ -508,6 +552,15 @@ impl Library {
         );
         cache.dirty = true;
         Ok((summary, fingerprint))
+    }
+
+    /// Önbellekteki özetten kaydın etkinlik türü (dosya değişmediyse); kayıt
+    /// yeniden okunmaz.
+    pub fn cached_activity(&self, path: &str) -> Option<Activity> {
+        let meta = std::fs::metadata(path).ok()?;
+        let cache = self.cache.lock().unwrap();
+        let e = cache.entries.get(path)?;
+        (e.size == meta.len() && e.mtime == mtime_ms(&meta)).then_some(e.summary.activity)
     }
 
     /// Önbelleği diske yazar; artık var olmayan dosyaların kayıtları atılır.
@@ -754,6 +807,12 @@ mod tests {
         // Konumdan saat dilimi ve yer adı bulunur.
         assert_eq!(file.time_zone.as_deref(), Some("Europe/Istanbul"));
         assert!(file.start_place.is_some(), "{:?}", file.start_place);
+        // Zamansız kayıt da geçtiği ülkede sayılır.
+        assert!(file.hours.is_empty());
+        assert_eq!(file.visits.len(), 1, "{:?}", file.visits);
+        assert_eq!(file.visits[0].1, "TR");
+        assert_eq!(lib.cached_activity(&file.path), Some(file.activity));
+        assert_eq!(lib.cached_activity("/yok/boyle.gpx"), None);
 
         let LoadResult::Duplicate { existing, .. } =
             lib.load(s(&src.join("a-kopya.gpx")), &cfg, None)
@@ -1107,5 +1166,56 @@ mod place_tests {
         let v = visits(&gpx, &hours);
         let ccs: std::collections::BTreeSet<&str> = v.iter().map(|(_, c, _)| c.as_str()).collect();
         assert_eq!(ccs, ["DE", "TR"].into_iter().collect(), "{v:?}");
+    }
+
+    fn ccs(list: &[&str]) -> Vec<String> {
+        let per_hour = list
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (i as i64 * 3_600_000, (*c).to_owned(), format!("{c}{i}")))
+            .collect();
+        drop_brief_countries(per_hour)
+            .into_iter()
+            .map(|(_, c, _)| c)
+            .collect()
+    }
+
+    #[test]
+    fn brief_countries_rule() {
+        // Tek ülke hiçbir zaman atılmaz.
+        assert_eq!(ccs(&["TR"]), ["TR"]);
+        assert!(ccs(&[]).is_empty());
+        // Arada kalan tek saatlik ülke atılır, diğerleri kalır.
+        assert_eq!(ccs(&["TR", "GR", "TR"]), ["TR", "TR"]);
+        // Sınır bölgesinde gidip gelme: toplamlar 2 saat ve üstü.
+        assert_eq!(
+            ccs(&["NL", "DE", "NL", "DE", "NL", "DE"]),
+            ["NL", "DE", "NL", "DE", "NL", "DE"]
+        );
+        assert_eq!(ccs(&["NL", "DE", "NL", "DE"]), ["NL", "DE", "NL", "DE"]);
+        // Yeni ülkede bir saat sonra biten ya da başlayan kayıt sayılır.
+        assert_eq!(ccs(&["TR", "TR", "GR"]), ["TR", "TR", "GR"]);
+        assert_eq!(ccs(&["BG", "TR", "TR"]), ["BG", "TR", "TR"]);
+        assert_eq!(ccs(&["TR", "GR"]), ["TR", "GR"]);
+        // Toplamı 2 saat olan ülke arada kalsa da sayılır.
+        assert_eq!(ccs(&["TR", "GR", "GR", "TR"]), ["TR", "GR", "GR", "TR"]);
+        assert_eq!(ccs(&["TR", "GR", "TR", "GR"]), ["TR", "GR", "TR", "GR"]);
+        // Farklı ülkeler arasında kalan tek saat de atılır.
+        assert_eq!(ccs(&["DE", "NL", "BE", "BE"]), ["DE", "BE", "BE"]);
+    }
+
+    #[test]
+    fn untimed_records_use_start_and_end_places() {
+        let v = untimed_visits(Some([28.987, 41.060]), Some([28.987, 41.060]), None);
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert_eq!(v[0], (0, "TR".into(), "Şişli".into()));
+        // Başlangıç zamanı varsa saat başına yuvarlanır; açık deniz atlanır.
+        let v = untimed_visits(
+            Some([-30.0, 40.0]),
+            Some([28.987, 41.060]),
+            Some(2 * 3_600_000 + 5),
+        );
+        assert_eq!(v, [(2 * 3_600_000, "TR".into(), "Şişli".into())]);
+        assert!(untimed_visits(None, None, None).is_empty());
     }
 }

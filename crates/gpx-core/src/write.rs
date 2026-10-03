@@ -4,6 +4,55 @@
 use crate::parse::{Gpx, Point};
 use std::fmt::Write;
 
+/// Yazıcıların metni eklediği hedef: `String` ya da (akış halinde yazmak
+/// için) [`IoSink`]. `fmt::Write` hatası yazıcılarda yok sayılır; G/Ç hatası
+/// [`IoSink`] içinde saklanıp sonda döndürülür.
+pub(crate) trait Sink: Write {
+    fn push_str(&mut self, s: &str) {
+        let _ = self.write_str(s);
+    }
+    fn push(&mut self, c: char) {
+        let _ = self.write_char(c);
+    }
+}
+
+impl<T: Write + ?Sized> Sink for T {}
+
+/// `io::Write` hedefini `fmt::Write` olarak kullanır; ilk G/Ç hatası
+/// saklanır, sonraki yazmalar yapılmaz.
+pub(crate) struct IoSink<'a, W: std::io::Write> {
+    inner: &'a mut W,
+    err: Option<std::io::Error>,
+}
+
+impl<W: std::io::Write> Write for IoSink<'_, W> {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        if self.err.is_some() {
+            return Err(std::fmt::Error);
+        }
+        self.inner.write_all(s.as_bytes()).map_err(|e| {
+            self.err = Some(e);
+            std::fmt::Error
+        })
+    }
+}
+
+/// `f`'nin ürettiği metni `w`'ye akış halinde yazar.
+pub(crate) fn stream<W: std::io::Write>(
+    w: &mut W,
+    f: impl FnOnce(&mut IoSink<'_, W>),
+) -> std::io::Result<()> {
+    let mut sink = IoSink {
+        inner: w,
+        err: None,
+    };
+    f(&mut sink);
+    match sink.err {
+        Some(e) => Err(e),
+        None => w.flush(),
+    }
+}
+
 fn esc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -30,7 +79,7 @@ pub fn format_time(ms: i64) -> String {
         .unwrap_or_default()
 }
 
-fn point(out: &mut String, tag: &str, p: &Point, name: Option<&str>, indent: &str) {
+fn point<S: Sink + ?Sized>(out: &mut S, tag: &str, p: &Point, name: Option<&str>, indent: &str) {
     let _ = write!(
         out,
         // `{}` f64'ü kayıpsız (en kısa geri dönüşümlü) biçimde yazar.
@@ -77,6 +126,16 @@ fn point(out: &mut String, tag: &str, p: &Point, name: Option<&str>, indent: &st
 
 pub fn write_gpx(gpx: &Gpx) -> String {
     let mut out = String::with_capacity(1 << 16);
+    write_gpx_into(gpx, &mut out);
+    out
+}
+
+/// GPX'i bellekte tamamını tutmadan `w`'ye yazar.
+pub fn write_gpx_to<W: std::io::Write>(gpx: &Gpx, w: &mut W) -> std::io::Result<()> {
+    stream(w, |s| write_gpx_into(gpx, s))
+}
+
+fn write_gpx_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
     out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     out.push_str(
         "<gpx version=\"1.1\" creator=\"GPXer\" xmlns=\"http://www.topografix.com/GPX/1/1\" \
@@ -93,7 +152,7 @@ pub fn write_gpx(gpx: &Gpx) -> String {
         out.push_str("</metadata>\n");
     }
     for w in &gpx.waypoints {
-        point(&mut out, "wpt", &w.point, w.name.as_deref(), "  ");
+        point(out, "wpt", &w.point, w.name.as_deref(), "  ");
     }
     for r in &gpx.routes {
         out.push_str("  <rte>\n");
@@ -101,7 +160,7 @@ pub fn write_gpx(gpx: &Gpx) -> String {
             let _ = writeln!(out, "    <name>{}</name>", esc(n));
         }
         for p in r.segments.iter().flatten() {
-            point(&mut out, "rtept", p, None, "    ");
+            point(out, "rtept", p, None, "    ");
         }
         out.push_str("  </rte>\n");
     }
@@ -113,12 +172,11 @@ pub fn write_gpx(gpx: &Gpx) -> String {
         for seg in &t.segments {
             out.push_str("    <trkseg>\n");
             for p in seg {
-                point(&mut out, "trkpt", p, None, "      ");
+                point(out, "trkpt", p, None, "      ");
             }
             out.push_str("    </trkseg>\n");
         }
         out.push_str("  </trk>\n");
     }
     out.push_str("</gpx>\n");
-    out
 }
