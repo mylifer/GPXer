@@ -84,7 +84,14 @@ export function ProfileChart({ detail, color, metrics, xAxis, tz, hoverIdx, rang
       row.className = "chart-row";
       el.appendChild(row);
       rows.push(row);
-      const values = metricValues(detail, m);
+      let values = metricValues(detail, m);
+      // Zaman ekseninde kayıt boşluğunun (uçuş, sinyal kaybı) üstüne düz
+      // çizgi çekilmesin: boşluktan sonraki örnek boş bırakılır (mesafe
+      // ekseninde boşluk zaten ilerlemediği için gerekmez).
+      if (useTime && detail.gapAfter.length) {
+        values = values.slice();
+        for (const k of detail.gapAfter) if (k + 1 < values.length) values[k + 1] = null;
+      }
       // Yükseklik dosyanın rengiyle, diğer ölçüler nötr mürekkeple çizilir.
       const stroke = m === "ele" ? color : cssVar("--text");
       const opts: uPlot.Options = {
