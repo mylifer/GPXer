@@ -97,15 +97,36 @@ struct CacheEntry {
     summary: FileSummary,
 }
 
+/// Kütüphane dışındaki (izlenen klasör, İndirilenler…) bir dosya için
+/// yalnızca kopya tespitine yetecek bilgi: tam özet saklanmaz (önbellek her
+/// dışarıdan açılan dosya için ikiye katlanıyordu).
+#[derive(Serialize, Deserialize, Clone, Copy)]
+struct SeenEntry {
+    size: u64,
+    mtime: i64,
+    fingerprint: u64,
+}
+
 #[derive(Serialize, Deserialize, Default)]
 struct CacheFile {
     version: u32,
     entries: HashMap<String, CacheEntry>,
+    #[serde(default)]
+    seen: HashMap<String, SeenEntry>,
+}
+
+/// Yazarken kopyalamadan seri hale getirmek için.
+#[derive(Serialize)]
+struct CacheFileRef<'a> {
+    version: u32,
+    entries: &'a HashMap<String, CacheEntry>,
+    seen: &'a HashMap<String, SeenEntry>,
 }
 
 #[derive(Default)]
 struct Cache {
     entries: HashMap<String, CacheEntry>,
+    seen: HashMap<String, SeenEntry>,
     dirty: bool,
 }
 
@@ -260,12 +281,31 @@ impl Library {
             .ok()
             .and_then(|b| parse_dismissed(&b))
             .unwrap_or_default();
-        let entries = std::fs::read(&cache_path)
+        let file = std::fs::read(&cache_path)
             .ok()
             .and_then(|b| serde_json::from_slice::<CacheFile>(&b).ok())
             .filter(|c| c.version == CACHE_VERSION)
-            .map(|c| c.entries)
             .unwrap_or_default();
+        let (mut entries, mut seen) = (file.entries, file.seen);
+        // Eski önbellekteki kütüphane dışı tam özetler hafif kayda dönüşür.
+        let outside: Vec<String> = entries
+            .keys()
+            .filter(|p| Path::new(p).parent() != Some(dir.as_path()))
+            .cloned()
+            .collect();
+        let migrated = !outside.is_empty();
+        for p in outside {
+            if let Some(e) = entries.remove(&p) {
+                seen.insert(
+                    p,
+                    SeenEntry {
+                        size: e.size,
+                        mtime: e.mtime,
+                        fingerprint: e.fingerprint,
+                    },
+                );
+            }
+        }
         let lib = Library {
             dir,
             trash_dir,
@@ -274,7 +314,8 @@ impl Library {
             known: Mutex::default(),
             cache: Mutex::new(Cache {
                 entries,
-                dirty: false,
+                seen,
+                dirty: migrated,
             }),
             dismissed: Mutex::new(dismissed),
             prepared: Mutex::default(),
@@ -463,17 +504,28 @@ impl Library {
             visits(&prepared.gpx, &summary.hours)
         };
         let mut cache = self.cache.lock().unwrap();
-        cache.entries.insert(
-            path.to_owned(),
-            CacheEntry {
-                size,
-                mtime,
-                cfg: *cfg,
-                chosen,
-                fingerprint,
-                summary: summary.clone(),
-            },
-        );
+        if self.contains(Path::new(path)) {
+            cache.entries.insert(
+                path.to_owned(),
+                CacheEntry {
+                    size,
+                    mtime,
+                    cfg: *cfg,
+                    chosen,
+                    fingerprint,
+                    summary: summary.clone(),
+                },
+            );
+        } else {
+            cache.seen.insert(
+                path.to_owned(),
+                SeenEntry {
+                    size,
+                    mtime,
+                    fingerprint,
+                },
+            );
+        }
         cache.dirty = true;
         Ok((summary, fingerprint))
     }
@@ -489,24 +541,70 @@ impl Library {
 
     /// Önbelleği diske yazar; artık var olmayan dosyaların kayıtları atılır.
     pub fn flush_cache(&self) -> std::io::Result<()> {
-        let mut cache = self.cache.lock().unwrap();
-        let before = cache.entries.len();
-        cache.entries.retain(|p, _| Path::new(p).exists());
-        if !cache.dirty && before == cache.entries.len() {
-            return Ok(());
-        }
-        let file = CacheFile {
-            version: CACHE_VERSION,
-            entries: std::mem::take(&mut cache.entries),
+        // Disk denetimleri ve yazma kilit dışında: ağ sürücüsündeki yollar
+        // yavaş olabilir, bu sırada özet hesaplayan işler beklemesin.
+        let paths: Vec<String> = {
+            let cache = self.cache.lock().unwrap();
+            cache
+                .entries
+                .keys()
+                .chain(cache.seen.keys())
+                .cloned()
+                .collect()
         };
-        let res = serde_json::to_vec(&file)
-            .map_err(std::io::Error::other)
-            .and_then(|bytes| crate::store::write_atomic(&self.cache_path, &bytes));
-        cache.entries = file.entries;
-        if res.is_ok() {
+        let gone: Vec<String> = paths
+            .into_iter()
+            .filter(|p| !Path::new(p).exists())
+            .collect();
+        let bytes = {
+            let mut cache = self.cache.lock().unwrap();
+            for p in &gone {
+                cache.entries.remove(p);
+                cache.seen.remove(p);
+            }
+            if !cache.dirty && gone.is_empty() {
+                return Ok(());
+            }
+            let bytes = serde_json::to_vec(&CacheFileRef {
+                version: CACHE_VERSION,
+                entries: &cache.entries,
+                seen: &cache.seen,
+            })
+            .map_err(std::io::Error::other)?;
             cache.dirty = false;
+            bytes
+        };
+        let res = crate::store::write_atomic(&self.cache_path, &bytes);
+        if res.is_err() {
+            self.cache.lock().unwrap().dirty = true;
         }
         res
+    }
+
+    /// Kütüphane dışındaki dosya daha önce görüldüyse ve değişmediyse,
+    /// yeniden okumadan kopya sonucu: içeriği kütüphanede başka bir adla
+    /// varsa ya da kullanıcı silmişse (kendiliğinden yüklemede).
+    pub fn quick_duplicate(&self, path: &str, explicit: bool) -> Option<LoadResult> {
+        if self.contains(Path::new(path)) {
+            return None;
+        }
+        let meta = std::fs::metadata(path).ok()?;
+        let fp = {
+            let cache = self.cache.lock().unwrap();
+            let e = cache.seen.get(path)?;
+            (e.size == meta.len() && e.mtime == mtime_ms(&meta)).then_some(e.fingerprint)?
+        };
+        if self.blocks(fp, path, explicit) {
+            return Some(LoadResult::Duplicate {
+                existing: path.to_owned(),
+                path: path.to_owned(),
+            });
+        }
+        let existing = self.known.lock().unwrap().get(&fp).cloned()?;
+        (existing != path).then(|| LoadResult::Duplicate {
+            path: path.to_owned(),
+            existing,
+        })
     }
 
     /// Okunan dosyayı kütüphaneye ekler: kopyasıysa atlar, dışarıdan

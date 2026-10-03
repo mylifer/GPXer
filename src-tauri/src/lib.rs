@@ -84,9 +84,13 @@ async fn load_files(
         let parsed: Vec<_> = paths
             .into_par_iter()
             .map(|p| {
+                // Daha önce görülmüş, değişmemiş dış dosyanın kopyası: okunmaz.
+                if let Some(r) = library.quick_duplicate(&p, explicit) {
+                    return (p, None, Err(r));
+                }
                 let chosen = meta.activity(&p);
                 let res = library.summarize(&p, &cfg, chosen);
-                (p, chosen, res)
+                (p, chosen, Ok(res))
             })
             .collect();
         // Kopya denetimi sırayla yapılır ki aynı partide gelen iki kopya da
@@ -94,17 +98,20 @@ async fn load_files(
         parsed
             .into_iter()
             .map(|(p, chosen, res)| match res {
-                Ok((_, fp)) if library.blocks(fp, &p, explicit) => LoadResult::Duplicate {
-                    existing: p.clone(),
-                    path: p,
-                },
-                Ok((file, fp)) => {
-                    if explicit {
-                        library.undismiss(fp);
+                Err(quick) => quick,
+                Ok(res) => match res {
+                    Ok((_, fp)) if library.blocks(fp, &p, explicit) => LoadResult::Duplicate {
+                        existing: p.clone(),
+                        path: p,
+                    },
+                    Ok((file, fp)) => {
+                        if explicit {
+                            library.undismiss(fp);
+                        }
+                        library.add(p, file, fp, &cfg, chosen)
                     }
-                    library.add(p, file, fp, &cfg, chosen)
-                }
-                Err(e) => e.into_result(p),
+                    Err(e) => e.into_result(p),
+                },
             })
             .collect()
     })

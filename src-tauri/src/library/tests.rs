@@ -56,11 +56,23 @@ fn library_copies_and_detects_duplicates() {
 
     // Yeniden başlatma: önbellek diskten okunur, kopyalar yine yakalanır.
     let lib2 = Library::open(&root).unwrap();
-    // Kaynak dosyalar ve kütüphane kopyaları önbellekte.
-    assert_eq!(lib2.cache.lock().unwrap().entries.len(), 3 + 2);
+    // Kütüphane kopyalarının tam özeti, kaynak dosyaların yalnızca parmak izi
+    // önbellekte.
+    {
+        let cache = lib2.cache.lock().unwrap();
+        assert_eq!((cache.entries.len(), cache.seen.len()), (2, 3));
+    }
     for f in lib2.files() {
         assert!(matches!(lib2.load(f, &cfg, None), LoadResult::Ok { .. }));
     }
+    // Değişmemiş kaynak dosya yeniden okunmadan kopya sayılır.
+    let Some(LoadResult::Duplicate { existing, .. }) =
+        lib2.quick_duplicate(&s(&src.join("a-kopya.gpx")), false)
+    else {
+        panic!()
+    };
+    assert_eq!(Path::new(&existing), lib2.dir.join("a.gpx"));
+    assert!(lib2.quick_duplicate(&existing, false).is_none());
     assert!(matches!(
         lib2.load(s(&src.join("a.gpx")), &cfg, None),
         LoadResult::Duplicate { .. }
