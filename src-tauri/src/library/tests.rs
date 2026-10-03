@@ -160,8 +160,8 @@ fn safe_names() {
     assert_eq!(safe_stem("Konsol"), "Konsol");
     assert_eq!(safe_stem("iz. . "), "iz");
     assert_eq!(safe_stem(" .. "), "iz");
-    let long = format!("{} x", "a".repeat(119));
-    assert_eq!(safe_stem(&long), "a".repeat(119));
+    let long = format!("{} x", "a".repeat(149));
+    assert_eq!(safe_stem(&long), "a".repeat(149));
 }
 
 #[test]
@@ -333,4 +333,16 @@ fn imports_macos_copy_suffixed_files() {
     };
     assert!(file.file_name.ends_with(".gpx"), "{}", file.file_name);
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn long_names_fit_the_byte_limit() {
+    let cyr = "д".repeat(120);
+    assert!(safe_stem(&cyr).len() <= 150);
+    let jp = "東".repeat(120);
+    let s = safe_stem(&jp);
+    assert!(s.len() <= 150 && s.chars().all(|c| c == '東'));
+    let long = format!("{}.gpx", "д".repeat(120));
+    let t = super::trash_name(1_759_000_000_000, &long);
+    assert!(t.len() <= 240 && t.ends_with(".gpx") && t.starts_with("1759000000000-"));
 }

@@ -199,6 +199,25 @@ fn is_reserved_name(stem: &str) -> bool {
 
 /// Dosya adında kullanılamayan karakterleri, Windows'un ayrılmış adlarını ve
 /// sondaki nokta/boşlukları temizler.
+/// Çöp kutusundaki ad: zaman öneki + ad. Önceki sürümlerin kabul ettiği uzun
+/// adlar önekle 255 baytı aşmasın diye kısaltılır (uzantı korunur).
+fn trash_name(stamp: i64, name: &str) -> String {
+    const MAX: usize = 240;
+    let prefix = format!("{stamp}-");
+    if prefix.len() + name.len() <= MAX {
+        return format!("{prefix}{name}");
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if name.len() - i <= 12 => name.split_at(i),
+        _ => (name, ""),
+    };
+    let mut cut = MAX.saturating_sub(prefix.len() + ext.len()).min(stem.len());
+    while !stem.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{prefix}{}{ext}", &stem[..cut])
+}
+
 pub fn safe_stem(name: &str) -> String {
     let s: String = name
         .chars()
@@ -208,7 +227,18 @@ pub fn safe_stem(name: &str) -> String {
             c => c,
         })
         .collect();
-    let s: String = s.trim().trim_matches('.').chars().take(120).collect();
+    // Dosya adı sınırı 255 bayttır (karakter değil). Sona eklenen " (n)",
+    // uzantı ve çöp kutusu öneki ile macOS'un ayrıştırılmış (NFD) Türkçe
+    // harfleri (ş: 2 → 3 bayt) için pay bırakılır.
+    const MAX_STEM_BYTES: usize = 150;
+    let mut s: String = s.trim().trim_matches('.').to_owned();
+    if s.len() > MAX_STEM_BYTES {
+        let mut cut = MAX_STEM_BYTES;
+        while !s.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        s.truncate(cut);
+    }
     let s = s.trim_end_matches(['.', ' ']).trim_start();
     if s.is_empty() {
         "iz".into()
@@ -566,7 +596,7 @@ impl Library {
                 continue;
             }
             let name = path.file_name().unwrap_or_default().to_string_lossy();
-            let target = self.trash_dir.join(format!("{}-{name}", now_ms()));
+            let target = self.trash_dir.join(trash_name(now_ms(), &name));
             if let Err(e) = std::fs::rename(path, &target) {
                 errors.push(format!("{name}: {e}"));
                 continue;
