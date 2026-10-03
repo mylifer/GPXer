@@ -7,7 +7,7 @@
 import type { FileSummary } from "./api";
 
 const HOUR = 3_600_000;
-export const MIN_OVERLAP_MS = 30 * 60_000;
+const MIN_OVERLAP_MS = 30 * 60_000;
 
 export interface Overlap {
   path: string;

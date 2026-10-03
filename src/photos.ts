@@ -17,7 +17,7 @@ const NEAR_MS = 30 * 60_000;
 /** Saat dilimi farkı en fazla 14 saat: duvar saatiyle aday kayıt araması. */
 const TZ_SLACK = 14 * HOUR;
 
-export const IMAGE_EXTS = ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff", "dng", "cr2", "cr3", "nef", "arw", "orf", "rw2", "webp"];
+const IMAGE_EXTS = ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff", "dng", "cr2", "cr3", "nef", "arw", "orf", "rw2", "webp"];
 export const isImagePath = (p: string) => IMAGE_EXTS.includes((p.split(".").pop() ?? "").toLowerCase());
 
 export interface PlacedPhoto extends PhotoInfo {
@@ -32,7 +32,7 @@ export interface PlacedPhoto extends PhotoInfo {
 }
 
 /** Kaydın `t` anındaki konumu (özetteki sadeleştirilmiş iz üzerinden). */
-export function positionAt(s: FileSummary, t: number): [number, number] | null {
+function positionAt(s: FileSummary, t: number): [number, number] | null {
   let best: [number, number] | null = null;
   let bestDt = Infinity;
   for (let li = 0; li < s.lines.length; li++) {

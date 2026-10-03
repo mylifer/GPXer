@@ -13,9 +13,9 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import type { Detail, FileSummary, NamedPlace } from "../api";
 import { METRICS, SEQ_DARK, SEQ_LIGHT, type FileEntry } from "../types";
 import type { TrackColorBy } from "../prefs";
-import { fmtDate, fmtDistance, fmtDuration, fmtKmh, fmtNumber, fmtTime, fmtTimestamp, fmtUnit, tzOf } from "../format";
-import { metersBetween, type BBox } from "../geo";
-import { clipToRange, dayIn, fastDayKey } from "../days";
+import { fmtDate, fmtDistance, fmtDuration, fmtKmh, fmtNumber, fmtTime, fmtTimestamp, fmtUnit, fastDayKey, tzOf } from "../format";
+import type { BBox } from "../geo";
+import { clipToRange, dayIn } from "../days";
 import { endName, greatCircle, type Flight } from "../flights";
 import { namedPlaceAt } from "../places";
 import type { PlacedPhoto } from "../photos";
@@ -33,7 +33,7 @@ export const BASE_LAYERS: { id: BaseLayer; label: string }[] = [
   { id: "satellite", label: "Uydu" },
 ];
 
-export interface MapViewState {
+interface MapViewState {
   center: [number, number];
   zoom: number;
 }
@@ -50,8 +50,6 @@ export interface MapHandle {
 interface Props {
   files: FileEntry[];
   selected: string | null;
-  /** Seçili kaydın özeti (iz gizli ya da filtre dışında olsa da). */
-  selectedSummary: FileSummary | null;
   detail: Detail | null;
   hoverIdx: number | null;
   onHoverIdx(i: number | null): void;
@@ -213,7 +211,7 @@ async function addVectorBase(map: maplibregl.Map, id: BaseLayer, url: string): P
 }
 
 /** Tarih filtresi: aralığın dışına taşan kayıtların yalnızca aralıktaki kısmı çizilir. */
-export interface DateWindow {
+interface DateWindow {
   from: string;
   to: string;
 }
@@ -304,7 +302,7 @@ function heatGeoJSON(files: FileEntry[], win: DateWindow | null, stepM = 40): Ge
   return { type: "FeatureCollection", features };
 }
 
-export function boundsOf(files: FileEntry[], win: DateWindow | null = null): LngLatBoundsLike | null {
+function boundsOf(files: FileEntry[], win: DateWindow | null = null): LngLatBoundsLike | null {
   let b: [number, number, number, number] | null = null;
   for (const f of files) {
     const x = geoOf(f, win).bbox;
@@ -490,54 +488,10 @@ function detailPopupHtml(s: FileSummary, d: Detail, i: number): string {
   return rows.join("<br>");
 }
 
-const GAP_MIN_MS = 10 * 60 * 1000;
-const GAP_MIN_M = 2000;
-const GAP_FLIGHT_M = 20_000;
-const GAP_FLIGHT_SPEED_MS = 300 / 3.6;
-const GAP_MIN_M_UNTIMED = 10_000;
-
-const gapKey = (p: [number, number]) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`;
-
-/** Özetteki boşlukların uç noktaları: "başlangıç|bitiş" anahtarları. Özette
- * boşluk bilgisi yoksa (eski önbellek) null: o zaman kural ile tahmin edilir. */
-interface GapEnds {
-  keys: Set<string>;
-  /** Zamanlı boşlukların [başlangıç, bitiş] aralıkları: seyreltilmiş ayrıntıda
-   * boşluğun uç noktaları örneklere denk gelmeyebilir. */
-  spans: [number, number][];
-}
-
-function gapEnds(summary: FileSummary | null | undefined): GapEnds | null {
-  if (!summary || !Array.isArray(summary.gaps)) return null;
-  return {
-    keys: new Set(summary.gaps.map((g) => `${gapKey(g.from)}|${gapKey(g.to)}`)),
-    spans: summary.gaps
-      .filter((g) => g.start != null && g.end != null)
-      .map((g) => [g.start!, g.end!] as [number, number]),
-  };
-}
-
-/** Ardışık iki ayrıntı örneği bir kayıt boşluğunun (uçuş, sinyal kaybı) iki
- *  yakasında mı? Özetteki boşluklar biliniyorsa yalnızca onlar kullanılır
- *  (seyreltilmiş uzun kayıtlarda kural, örnekler arası uzun adımları yanlışlıkla
- *  boşluk sayabilir); bilinmiyorsa gpx-core'daki is_gap kuralı uygulanır. */
-function isGapStep(d: Detail, i: number, ends: GapEnds | null): boolean {
-  const a: [number, number] = [d.lon[i], d.lat[i]];
-  const b: [number, number] = [d.lon[i + 1], d.lat[i + 1]];
-  if (ends) {
-    if (ends.keys.size === 0) return false;
-    if (ends.keys.has(`${gapKey(a)}|${gapKey(b)}`)) return true;
-    const ta = d.time[i];
-    const tb = d.time[i + 1];
-    return ta != null && tb != null && ends.spans.some(([s, e]) => s >= ta && e <= tb);
-  }
-  const dist = metersBetween(a, b);
-  const ta = d.time[i];
-  const tb = d.time[i + 1];
-  if (ta == null || tb == null) return dist > GAP_MIN_M_UNTIMED;
-  const dt = Math.abs(tb - ta);
-  return (dist > GAP_MIN_M && dt > GAP_MIN_MS) || (dist > GAP_FLIGHT_M && dist / (Math.max(dt, 1000) / 1000) > GAP_FLIGHT_SPEED_MS);
-}
+/** Kayıt boşluğunun (uçuş, sinyal kaybı) iki yakasındaki ardışık örnek
+ *  çiftleri: `i` kümedeyse `i` ile `i + 1` arasında çizgi kesilir. Boşluklar
+ *  gpx-core'da asıl noktalar üzerinde bulunur (Detail.gapAfter). */
+const gapSteps = (d: Detail): Set<number> => new Set(d.gapAfter);
 
 const PHOTO_CELL = 56;
 const PHOTO_MAX_MARKERS = 300;
@@ -585,7 +539,6 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
     showGaps,
     highlight,
     cursors,
-    selectedSummary,
     dateWindow,
     places,
     flights,
@@ -595,7 +548,6 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
   const winTo = dateWindow?.to ?? "";
   // Nesne her çizimde yeni olabilir: efektler dizgelere bağlı.
   const win = useMemo<DateWindow | null>(() => (winFrom || winTo ? { from: winFrom, to: winTo } : null), [winFrom, winTo]);
-  const selGaps = selectedSummary?.gaps;
   const box = useRef<HTMLDivElement>(null);
   const winRef = useRef(win);
   winRef.current = win;
@@ -1241,10 +1193,10 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       const ramp = dark ? SEQ_DARK : SEQ_LIGHT;
       const [lo, hi] = domain;
       const features: GeoJSON.Feature[] = [];
-      const ends = gapEnds(live.current.selectedSummary);
+      const gaps = gapSteps(detail);
       for (let i = 0; i + 1 < detail.lat.length; i++) {
         const v = values[i];
-        if (v == null || isGapStep(detail, i, ends)) continue;
+        if (v == null || gaps.has(i)) continue;
         const t = (v - lo) / (hi - lo);
         const k = Math.max(0, Math.min(ramp.length - 1, Math.round(t * (ramp.length - 1))));
         features.push({
@@ -1261,19 +1213,19 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       }
       setData(map, "colored", { type: "FeatureCollection", features });
     });
-  }, [detail, trackColorBy, dark, selGaps]);
+  }, [detail, trackColorBy, dark]);
 
   useEffect(() => {
     whenReady((map) => {
       if (!detail || !range) return setData(map, "range", EMPTY);
       // Kayıt boşluklarında çizgi kesilir; boşluğun üstü düz çizgiyle birleştirilmez.
-      const ends = gapEnds(live.current.selectedSummary);
+      const gaps = gapSteps(detail);
       const lines: [number, number][][] = [];
       let cur: [number, number][] = [];
       const last = Math.min(range[1], detail.lat.length - 1);
       for (let i = Math.max(0, range[0]); i <= last; i++) {
         cur.push([detail.lon[i], detail.lat[i]]);
-        if (i < last && isGapStep(detail, i, ends)) {
+        if (i < last && gaps.has(i)) {
           if (cur.length > 1) lines.push(cur);
           cur = [];
         }
@@ -1281,7 +1233,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(props, ref)
       if (cur.length > 1) lines.push(cur);
       setData(map, "range", { type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: lines } });
     });
-  }, [detail, range, selGaps]);
+  }, [detail, range]);
 
   useEffect(() => {
     whenReady((map) => {

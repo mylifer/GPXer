@@ -2,7 +2,8 @@
 //! TCX ve KML yazma. Hepsi aynı [`Gpx`] yapısına çevrilir.
 
 use crate::parse::{parse_gpx, parse_time, Gpx, ParseError, Point, Track, Waypoint};
-use crate::write::{format_time, Sink};
+use crate::primary_segments;
+use crate::write::{esc, format_time, Sink};
 use quick_xml::events::Event;
 use quick_xml::Reader;
 
@@ -391,16 +392,6 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
 
 // ---------- Yazıcılar ----------
 
-fn esc(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-fn primary(gpx: &Gpx) -> Vec<&[Point]> {
-    crate::primary_segments(gpx)
-}
-
 /// KML 2.2; zaman bilgisi varsa gx:Track, yoksa LineString yazılır.
 pub fn write_kml(gpx: &Gpx) -> String {
     let mut out = String::new();
@@ -438,7 +429,7 @@ fn write_kml_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
         "<Placemark><name>{}</name><styleUrl>#iz</styleUrl><MultiGeometry>",
         esc(&name)
     );
-    for seg in primary(gpx) {
+    for seg in primary_segments(gpx) {
         if seg.iter().all(|p| p.time.is_some()) {
             out.push_str("<gx:Track><altitudeMode>clampToGround</altitudeMode>\n");
             for p in seg {
@@ -485,7 +476,7 @@ pub fn write_tcx_to<W: std::io::Write>(gpx: &Gpx, w: &mut W) -> std::io::Result<
 }
 
 fn write_tcx_into<S: Sink + ?Sized>(gpx: &Gpx, out: &mut S) {
-    let segs = primary(gpx);
+    let segs = primary_segments(gpx);
     let start = segs
         .iter()
         .flat_map(|s| s.iter())
@@ -776,7 +767,10 @@ const FIT_MAX_MS: f64 = 4_294_967_294.0;
 /// segment ayrı bir tur olur; segmentler arasına zamanlayıcı durdu/başladı
 /// olayları yazılır.
 pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
-    let segs: Vec<&[Point]> = primary(gpx).into_iter().filter(|s| !s.is_empty()).collect();
+    let segs: Vec<&[Point]> = primary_segments(gpx)
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect();
     // FIT'te gösterilemeyen (1998 öncesi) zamanlar yok sayılır.
     let valid = |ms: i64| ms.div_euclid(1000) - FIT_EPOCH_S >= FIT_MIN_TS;
     let now_ms = || {

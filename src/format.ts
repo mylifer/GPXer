@@ -10,7 +10,7 @@ const nf0 = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const nf2 = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export const DASH = "—";
+const DASH = "—";
 
 export type TzMode = "local" | "record";
 let tzMode: TzMode = "local";
@@ -145,10 +145,29 @@ export function fmtTime(t: number | null | undefined, tz?: string): string {
   return t == null ? DASH : dtf("t", TIME, tz).format(t);
 }
 
-/** Zamanın takvim günü "yyyy-aa-gg" biçiminde (filtre ve gruplama için). */
+/** Zamanın takvim günü "yyyy-aa-gg" biçiminde (filtre ve gruplama için).
+ * Tek tük çağrılar için; sıcak döngülerde aynı sonucu veren `fastDayKey`. */
 export function dayKey(t: number, tz?: string): string {
   // en-CA biçimi zaten yyyy-mm-dd verir.
   return dtf("key", { year: "numeric", month: "2-digit", day: "2-digit" }, tz, "en-CA").format(t);
+}
+
+/** `dayKey` ile aynı sonuç, önbellekli: saat dilimi farkları 15 dakikanın katı
+ * olduğundan aynı çeyrek saat içindeki zamanlar aynı güne düşer; Intl çağrısı
+ * çeyrek başına bir kez. Saatlik döküm ve iz noktaları gibi çok sayıda zaman için. */
+const quarterCache = new Map<string, Map<number, string>>();
+export function fastDayKey(t: number, tz: string | undefined): string {
+  const ck = tz ?? "";
+  let m = quarterCache.get(ck);
+  if (!m) quarterCache.set(ck, (m = new Map()));
+  const q = Math.floor(t / 900_000);
+  let k = m.get(q);
+  if (k === undefined) {
+    k = dayKey(q * 900_000, tz);
+    if (m.size > 500_000) m.clear();
+    m.set(q, k);
+  }
+  return k;
 }
 
 export function fmtBytes(b: number): string {
@@ -199,7 +218,7 @@ export function isoOf(date: Date): string {
 
 /** Saat diliminin `t` anındaki farkı (ms): yerel duvar saati = t + fark.
  * `tz` verilmezse bilgisayarın saat dilimi. */
-export function tzOffsetMs(t: number, tz?: string | null): number {
+function tzOffsetMs(t: number, tz?: string | null): number {
   if (!tz) return -new Date(t).getTimezoneOffset() * 60_000;
   const f = dtf(
     "off",
@@ -218,9 +237,6 @@ export function wallToUtc(wall: number, tz?: string | null): number {
   const guess = wall - tzOffsetMs(wall, tz);
   return wall - tzOffsetMs(guess, tz);
 }
-
-/** Gerçek anı o saat dilimindeki duvar saatine (UTC'ymiş gibi) çevirir. */
-export const utcToWall = (t: number, tz?: string | null) => t + tzOffsetMs(t, tz);
 
 /** "gg.aa.yyyy" ve "ss:dd" → duvar saati (UTC'ymiş gibi, ms); geçersizse null. */
 export function parseTrWall(date: string, time: string): number | null {

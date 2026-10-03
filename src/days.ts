@@ -6,9 +6,9 @@
  */
 
 import type { FileSummary } from "./api";
-import { dayKey, tzOf } from "./format";
+import { dayKey, fastDayKey, tzOf } from "./format";
 
-export interface DayBucket {
+interface DayBucket {
   /** yyyy-aa-gg (Ayarlar'daki saat dilimi kipine göre) */
   day: string;
   distanceM: number;
@@ -16,23 +16,6 @@ export interface DayBucket {
 }
 
 const tzKey = (s: FileSummary) => tzOf(s) ?? "";
-
-/** Hızlı gün anahtarı: saat dilimi farkları 15 dakikanın katı olduğundan aynı
- * çeyrek saat içindeki zamanlar aynı güne düşer; Intl çağrısı çeyrek başına bir kez. */
-const quarterCache = new Map<string, Map<number, string>>();
-export function fastDayKey(t: number, tz: string | undefined): string {
-  const ck = tz ?? "";
-  let m = quarterCache.get(ck);
-  if (!m) quarterCache.set(ck, (m = new Map()));
-  const q = Math.floor(t / 900_000);
-  let k = m.get(q);
-  if (k === undefined) {
-    k = dayKey(q * 900_000, tz);
-    if (m.size > 500_000) m.clear();
-    m.set(q, k);
-  }
-  return k;
-}
 
 const HOUR = 3_600_000;
 const QUARTER = 900_000;
@@ -87,9 +70,6 @@ export function dayBuckets(s: FileSummary): DayBucket[] {
   return days;
 }
 
-/** Kayıt birden çok güne yayılıyor mu? */
-export const isMultiDay = (s: FileSummary) => dayBuckets(s).length > 1;
-
 /** Gün yyyy-aa-gg aralıkta mı ("" = sınırsız). */
 export const dayIn = (day: string, from: string, to: string) => (!from || day >= from) && (!to || day <= to);
 
@@ -103,7 +83,7 @@ export function touchesRange(s: FileSummary, from: string, to: string): boolean 
   return days.some((d) => dayIn(d.day, from, to));
 }
 
-export interface RangePart {
+interface RangePart {
   distanceM: number;
   movingMs: number;
   days: number;
@@ -124,13 +104,13 @@ export function rangePart(s: FileSummary, from: string, to: string): RangePart {
 }
 
 /** Kaydın tamamı aralığın içinde mi (kırpmaya gerek yok). */
-export function fullyInRange(s: FileSummary, from: string, to: string): boolean {
+function fullyInRange(s: FileSummary, from: string, to: string): boolean {
   const days = dayBuckets(s);
   if (days.length === 0) return true;
   return dayIn(days[0].day, from, to) && dayIn(days[days.length - 1].day, from, to);
 }
 
-export interface ClippedGeometry {
+interface ClippedGeometry {
   lines: [number, number][][];
   gaps: FileSummary["gaps"];
   bbox: [number, number, number, number] | null;
@@ -179,7 +159,7 @@ export function clipToRange(s: FileSummary, from: string, to: string): ClippedGe
   return geo;
 }
 
-export interface DetailDay {
+interface DetailDay {
   day: string;
   /** Ayrıntı örneklerinde ilk ve son sıra. */
   start: number;
@@ -217,7 +197,7 @@ export function detailDays(
   return days;
 }
 
-export interface Share {
+interface Share {
   distanceM: number;
   movingMs: number;
   /** Tırmanışın günlük dökümü yok: mesafe oranında paylaştırılır. */

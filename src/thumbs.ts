@@ -25,7 +25,7 @@ function put(path: string, url: string | null) {
 }
 
 /** Önbellekteki küçük resim: yüklenmediyse undefined, yoksa null. */
-export function cachedThumb(path: string): string | null | undefined {
+function cachedThumb(path: string): string | null | undefined {
   if (!cache.has(path)) return undefined;
   const v = cache.get(path)!;
   put(path, v); // son kullanılan

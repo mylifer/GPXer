@@ -16,8 +16,6 @@ export function setNamedPlaces(list: NamedPlace[]) {
   current = list;
 }
 
-export const namedPlaces = () => current;
-
 /** Noktayı yarıçapı içine alan en yakın adlandırılmış yer. */
 export function namedPlaceAt(lon: number, lat: number, list: readonly NamedPlace[] = current): NamedPlace | null {
   let best: NamedPlace | null = null;

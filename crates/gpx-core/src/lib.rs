@@ -122,6 +122,10 @@ pub struct Detail {
     pub cad: Vec<Option<f32>>,
     pub power: Vec<Option<f32>>,
     pub temp: Vec<Option<f32>>,
+    /// Ardından kayıt boşluğu gelen örneklerin sırası: `k` listedeyse `k` ile
+    /// `k + 1` arasındaki asıl noktalarda (seyreltmede atlananlar dahil) bir
+    /// boşluk ([`is_gap`]) vardır. Harita çizgiyi burada keser.
+    pub gap_after: Vec<u32>,
 }
 
 #[derive(Debug)]
@@ -606,6 +610,8 @@ pub fn build_detail(gpx: &Gpx) -> Detail {
     let mut dist = Vec::with_capacity(total);
     // Boşluksuz parçaların [başlangıç, bitiş) aralıkları.
     let mut pieces = Vec::new();
+    // Boşluktan sonraki ilk noktanın `all` içindeki sırası (artan).
+    let mut gap_at = Vec::new();
 
     for seg in &segments {
         let base = all.len();
@@ -615,6 +621,7 @@ pub fn build_detail(gpx: &Gpx) -> Detail {
                 if is_gap(&seg[i - 1], p) {
                     pieces.push((piece_start, base + i));
                     piece_start = base + i;
+                    gap_at.push(base + i);
                 } else {
                     dist_acc += haversine_m(&seg[i - 1], p);
                 }
@@ -641,6 +648,17 @@ pub fn build_detail(gpx: &Gpx) -> Detail {
         has(|p| p.power),
         has(|p| p.temp),
     );
+    // Ardışık iki örnek (a, b] arasında bir boşluk başlıyorsa a'dan sonra
+    // kesilir; her iki liste de artan olduğundan tek geçişte bulunur.
+    let mut g = 0;
+    for (k, w) in idx.windows(2).enumerate() {
+        while g < gap_at.len() && gap_at[g] <= w[0] {
+            g += 1;
+        }
+        if g < gap_at.len() && gap_at[g] <= w[1] {
+            d.gap_after.push(k as u32);
+        }
+    }
     for i in idx {
         let p = all[i];
         d.dist.push(dist[i]);

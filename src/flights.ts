@@ -30,7 +30,7 @@ export interface Flight {
   toName: string | null;
 }
 
-export function isFlight(g: Gap): g is Gap & { start: number; end: number } {
+function isFlight(g: Gap): g is Gap & { start: number; end: number } {
   if (g.start == null || g.end == null) return false;
   const dt = g.end - g.start;
   // Süresiz ya da geriye giden boşluk: saat hatası, uçuş değil.

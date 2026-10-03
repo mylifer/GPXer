@@ -7,7 +7,7 @@ import type { TzMode } from "./format";
 
 export type SortKey = "date-desc" | "date-asc" | "name" | "distance";
 export type GroupBy = "none" | "month" | "year";
-export type ColorMode = "file" | "date";
+type ColorMode = "file" | "date";
 export type Metric = "ele" | "speed" | "hr" | "cad" | "power" | "temp";
 export type TrackColorBy = "none" | Metric;
 export type XAxis = "dist" | "time";
@@ -69,7 +69,7 @@ export interface Prefs {
   photoOffsetH: number;
 }
 
-export const DEFAULT_FILTERS: Filters = {
+const DEFAULT_FILTERS: Filters = {
   query: "",
   from: "",
   to: "",
@@ -147,7 +147,7 @@ export function savePrefs(p: Prefs) {
 }
 
 /** Bekleyen ertelenmiş yazmayı hemen yapar (kapanışta kaybolmasın). */
-export function flushPrefs() {
+function flushPrefs() {
   clearTimeout(timer);
   timer = undefined;
   if (!pending) return;

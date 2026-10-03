@@ -538,6 +538,45 @@ fn gaps_are_not_counted() {
 }
 
 #[test]
+fn detail_marks_gaps_between_samples() {
+    // Seyreltilmemiş: boşluk 19. ile 20. örnek arasında.
+    let d = build_detail(&gap_gpx());
+    assert_eq!(d.gap_after, vec![19]);
+
+    // Seyreltilmiş uzun kayıt: boşluğun uçları örneklere denk gelmese de
+    // tek bir kesik, boşluğu kapsayan örnek çiftinde işaretlenir; örnekler
+    // arası uzun ama boşluksuz adımlar işaretlenmez.
+    let mut seg: Vec<Point> = (0..10_000)
+        .map(|i| pt(41.0, 29.0 + i as f64 * 1e-5, i))
+        .collect();
+    seg.extend((0..10_000).map(|i| pt(50.2, 12.2 + i as f64 * 1e-5, 20_000 + i)));
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let d = build_detail(&gpx);
+    assert_eq!(d.idx.len(), PROFILE_MAX_POINTS);
+    assert_eq!(d.gap_after.len(), 1);
+    let k = d.gap_after[0] as usize;
+    assert!(d.idx[k] < 10_000 && d.idx[k + 1] >= 10_000);
+
+    // Boşluksuz kayıtta kesik yok.
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![(0..50)
+                .map(|i| pt(41.0, 29.0 + i as f64 * 1e-5, i))
+                .collect()],
+        }],
+        ..Default::default()
+    };
+    assert!(build_detail(&gpx).gap_after.is_empty());
+}
+
+#[test]
 fn detail_speed_handles_equal_and_backward_times() {
     // Hepsi aynı zamanlı 60 000 nokta: pencere doğrusal kalmalı.
     let seg: Vec<Point> = (0..60_000)

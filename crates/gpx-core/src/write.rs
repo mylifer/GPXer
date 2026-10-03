@@ -53,7 +53,8 @@ pub(crate) fn stream<W: std::io::Write>(
     }
 }
 
-fn esc(s: &str) -> String {
+/// XML metni için kaçış (öğe içeriği ve çift tırnaklı öznitelik değeri).
+pub(crate) fn esc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {

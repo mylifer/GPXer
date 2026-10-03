@@ -1645,7 +1645,6 @@ export default function App() {
             ref={mapRef}
             files={onMap}
             selected={selected}
-            selectedSummary={selectedEntry?.summary ?? null}
             detail={detail}
             cursor={cursor}
             onHoverIdx={onHoverIdx}

@@ -183,7 +183,7 @@ Sertifika dosyasını base64'e çevirmek için: `base64 -i sertifika.p12 | pbcop
 
 ## Geliştirme
 
-Gereksinimler: [Rust](https://rustup.rs), Node.js 20+ ve
+Gereksinimler: [Rust](https://rustup.rs), Node.js 22.12+ ve
 [Tauri ön koşulları](https://tauri.app/start/prerequisites/)
 (Windows'ta WebView2 ve MSVC Build Tools, macOS'ta Xcode Command Line Tools).
 
@@ -192,7 +192,15 @@ npm install
 npm run tauri dev      # geliştirme modunda çalıştır
 npm run tauri build    # bu işletim sistemi için kurulum dosyası üret
 cargo test -p gpx-core -p gpxer # çekirdek ve uygulama testleri
+npm test               # arayüz birim testleri (Vitest, src/**/*.test.ts)
 ```
+
+CI'daki *Testler* işi ayrıca `cargo fmt --all --check` ve
+`cargo clippy --workspace --all-targets -- -D warnings` çalıştırır; push'lamadan
+önce bunları da yerelde denemek iyi olur.
+
+Yayımlanan sürümler yalnızca Windows x64 ve macOS Apple Silicon (arm64) için
+derlenir; Linux ve Intel Mac paketi yoktur (kaynaktan derlenebilir).
 
 Ölçüm/deneme aracı:
 

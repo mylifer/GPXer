@@ -24,7 +24,7 @@ export interface Stats {
   avgTemp: number | null;
 }
 
-export interface Waypoint {
+interface Waypoint {
   lat: number;
   lon: number;
   ele: number | null;
@@ -104,6 +104,8 @@ export interface Detail {
   cad: (number | null)[];
   power: (number | null)[];
   temp: (number | null)[];
+  /** Ardından kayıt boşluğu gelen örnek sıraları (gpx-core is_gap). */
+  gapAfter: number[];
 }
 
 export type LoadResult =
@@ -116,7 +118,7 @@ export interface TrashItem {
   trashed: string;
 }
 
-export interface StatsConfig {
+interface StatsConfig {
   movingSpeedMs: number;
   elevationThresholdM: number;
   cleanSpikes: boolean;
@@ -177,7 +179,7 @@ export const exportAs = (src: string, dest: string, format: ExportFormat) =>
 export const getMeta = () => invoke<Record<string, FileMeta>>("get_meta");
 /** Tür değiştiyse yeniden hesaplanan özet döner. */
 export const setMeta = (path: string, value: FileMeta) => invoke<LoadResult | null>("set_meta", { path, value });
-export interface SaveFilter {
+interface SaveFilter {
   name: string;
   extensions: string[];
 }

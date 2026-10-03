@@ -78,7 +78,7 @@ function Calendar({ value, onPick }: { value: string; onPick(iso: string): void 
 }
 
 /** gg.aa.yyyy biçiminde yazılabilen, takvimle de seçilebilen tarih alanı. */
-export function DateField({ label, value, onChange }: { label: string; value: string; onChange(iso: string): void }) {
+function DateField({ label, value, onChange }: { label: string; value: string; onChange(iso: string): void }) {
   const [text, setText] = useState(isoToTr(value));
   const [open, setOpen] = useState(false);
   const [bad, setBad] = useState(false);
@@ -167,7 +167,7 @@ export function DateField({ label, value, onChange }: { label: string; value: st
   );
 }
 
-export type Preset =
+type Preset =
   | "today"
   | "yesterday"
   | "this-week"
@@ -192,7 +192,7 @@ export const PRESETS: { id: Preset; label: string }[] = [
   { id: "last-year", label: "Geçen yıl" },
 ];
 
-export function presetRange(p: Preset, now = new Date()): [string, string] {
+function presetRange(p: Preset, now = new Date()): [string, string] {
   const y = now.getFullYear();
   const m = now.getMonth();
   const d = now.getDate();

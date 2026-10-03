@@ -7,7 +7,7 @@ import type { FileSummary } from "./api";
 
 const HOUR = 3_600_000;
 
-export interface HourPlace {
+interface HourPlace {
   /** Saat başı (Unix ms, UTC). */
   h: number;
   cc: string;
