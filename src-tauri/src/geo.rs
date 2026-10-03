@@ -42,6 +42,14 @@ pub fn place_info(lon: f64, lat: f64) -> Option<(String, String)> {
     if near > 25_000.0 {
         return None;
     }
+    // En yakın yerleşim sınırın öte yanında olabilir (Kaş'ta en yakın yer
+    // 2 km açıktaki Meis Adası). Nokta ile yerleşim farklı saat dilimlerindeyse
+    // yerleşim kabul edilmez.
+    if let (Some(here), Some(there)) = (time_zone_at(lon, lat), time_zone_at(r.lon, r.lat)) {
+        if here != there {
+            return None;
+        }
+    }
     let name = if r.cc == "TR" {
         turkish(&r.name)
     } else {

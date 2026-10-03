@@ -11,6 +11,24 @@ fn turkish_place_names() {
 }
 
 #[test]
+fn nearest_place_across_border_is_rejected() {
+    // Kaş'ın batısında sahil yolu: en yakın yerleşim Meis Adası (Yunanistan)
+    // ama nokta Türkiye'de.
+    for (lon, lat) in [(29.527569, 36.210510), (29.533554, 36.211311)] {
+        let p = place_info(lon, lat);
+        assert!(
+            p.as_ref().is_none_or(|(cc, _)| cc == "TR"),
+            "{lon},{lat}: {p:?}"
+        );
+    }
+    // Batum'un içi Gürcistan olarak kalır.
+    assert_eq!(
+        place_info(41.636, 41.642).map(|(cc, _)| cc).as_deref(),
+        Some("GE")
+    );
+}
+
+#[test]
 fn hourly_visits_are_run_length_compressed() {
     use gpx_core::parse::{Gpx, Point, Track};
     let pt = |lon: f64, lat: f64, h: i64, m: i64| Point {
