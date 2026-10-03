@@ -40,6 +40,8 @@ export function usePhotos({
   );
   const mapPhotos = prefs.photosLayer && placedPhotos.placed.length ? placedPhotos.placed : null;
 
+  /** Her "Tüm fotoğrafları kaldır" ile artar: o andan önce başlayan okumalar yok sayılır. */
+  const clearGen = useRef(0);
   const addPhotoPaths = useCallback(
     async (paths: string[]) => {
       if (!paths.length) return;
@@ -61,8 +63,11 @@ export function usePhotos({
           capNote = ` En fazla ${fmtNumber(PHOTO_STORE_MAX)} fotoğraf hatırlanır: ${fmtNumber(all.length - PHOTO_STORE_MAX)} tanesi bir sonraki açılışta gösterilmeyecek (klasör olarak eklemek daha iyi olur).`;
         } else up({ photos: all, photosLayer: true });
       }
+      const gen = clearGen.current;
       try {
         const list = (await readPhotos(paths)) ?? [];
+        // Okuma sürerken "Tüm fotoğrafları kaldır" denildiyse sonuç atılır.
+        if (gen !== clearGen.current) return;
         setPhotoInfo((prev) => {
           const byPath = new Map(prev.map((x) => [x.path, x]));
           for (const x of list) byPath.set(x.path, x);
@@ -92,6 +97,7 @@ export function usePhotos({
     [addPhotoPaths],
   );
   const clearPhotos = useCallback(() => {
+    clearGen.current++;
     up({ photos: [] });
     setPhotoInfo([]);
   }, [up]);
