@@ -94,7 +94,12 @@ function DateField({ label, value, onChange }: { label: string; value: string; o
     const close = (e: MouseEvent) => {
       if (!wrap.current?.contains(e.target as Node)) setOpen(false);
     };
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    // Esc yalnızca takvimi kapatır; genel kısayol (seçimi temizleme) çalışmaz.
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOpen(false);
+    };
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", esc);
     return () => {

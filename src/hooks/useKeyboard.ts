@@ -13,6 +13,7 @@ export function useKeyboard({
   detail,
   dialog,
   routeModal,
+  modalOpen,
   areaMode,
   compare,
   pick,
@@ -32,6 +33,8 @@ export function useKeyboard({
   detail: Detail | null;
   dialog: Dialog;
   routeModal: Route | null;
+  /** Başka bir pencere (ör. yer adı sorusu) açık: kısayollar arkadaki uygulamaya gitmez. */
+  modalOpen: boolean;
   areaMode: boolean;
   compare: [string, string] | null;
   pick(path: string | null): void;
@@ -46,7 +49,7 @@ export function useKeyboard({
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (dialog || routeModal) return;
+      if (dialog || routeModal || modalOpen || e.defaultPrevented) return;
       if (e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
       const el = e.target as HTMLElement;
       const tag = el.tagName;
@@ -84,5 +87,5 @@ export function useKeyboard({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rows, selected, range, multi, detail, dialog, routeModal, areaMode, compare, pick]);
+  }, [rows, selected, range, multi, detail, dialog, routeModal, modalOpen, areaMode, compare, pick]);
 }

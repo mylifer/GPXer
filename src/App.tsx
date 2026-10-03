@@ -241,6 +241,7 @@ export default function App() {
     detail,
     dialog,
     routeModal,
+    modalOpen: !!namePrompt,
     areaMode,
     compare,
     pick,
