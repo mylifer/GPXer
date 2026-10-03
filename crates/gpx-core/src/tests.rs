@@ -1238,3 +1238,28 @@ fn fit_running_cadence_round_trips() {
     let back = formats::parse_fit(&formats::write_fit(&gpx, Activity::Bike)).unwrap();
     assert_eq!(back.tracks[0].segments[0][0].cad, Some(171.0));
 }
+
+#[test]
+fn fit_keeps_real_times_after_untimed_points() {
+    let t = 1_700_000_000;
+    let mut seg: Vec<Point> = (0..2)
+        .map(|k| Point {
+            time: None,
+            ..pt(41.0, 29.0 + k as f64 * 1e-4, 0)
+        })
+        .collect();
+    seg.extend((0..2).map(|k| pt(41.0, 29.0002 + k as f64 * 1e-4, t + k)));
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let back = formats::parse_fit(&formats::write_fit(&gpx, Activity::Bike)).unwrap();
+    let times: Vec<i64> = back.tracks[0].segments[0]
+        .iter()
+        .map(|p| p.time.unwrap() / 1000 - t)
+        .collect();
+    assert_eq!(times, vec![-2, -1, 0, 1]);
+}

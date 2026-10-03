@@ -797,6 +797,23 @@ pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
         .find(|&t| valid(t))
         .or(gpx.time.filter(|&t| valid(t)))
         .unwrap_or_else(now_ms);
+    // İlk zamanlı noktadan önceki zamansız noktalar ondan geriye doğru birer
+    // saniye alır; yoksa sonraki gerçek zamanlar ileri kaydırılıyordu.
+    let lead = segs
+        .iter()
+        .flat_map(|s| s.iter())
+        .take_while(|p| !p.time.is_some_and(valid))
+        .count();
+    let has_point_time = segs
+        .iter()
+        .flat_map(|s| s.iter())
+        .any(|p| p.time.is_some_and(valid));
+    // İlk noktanın zamanı.
+    let first_time = if has_point_time {
+        first_time - lead as i64 * 1000
+    } else {
+        first_time
+    };
     let fit_ts = |ms: i64| (ms.div_euclid(1000) - FIT_EPOCH_S).max(FIT_MIN_TS) as f64;
 
     let mut body = Vec::new();
@@ -814,7 +831,9 @@ pub fn write_fit(gpx: &Gpx, activity: crate::analysis::Activity) -> Vec<u8> {
     // Tur bilgisi: başlangıç, bitiş, zamanlayıcı süresi (ms), mesafe (m).
     let mut laps: Vec<(f64, f64, f64, f64)> = Vec::new();
     let mut dist = 0.0;
-    let mut last_ms = first_time;
+    // Zamansız noktalar öncekinden bir saniye sonrasını alır: ilk nokta
+    // `first_time`a düşsün.
+    let mut last_ms = first_time - 1000;
     let mut moving_ms: i64 = 0;
     for seg in &segs {
         let mut prev: Option<&Point> = None;
