@@ -126,7 +126,23 @@ pub fn parse_time(s: &str) -> Option<i64> {
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
         return Some(dt.timestamp_millis());
     }
-    for fmt in ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M:%S%.f"] {
+    // ISO 8601'in RFC 3339 dışı biçimleri: iki noktasız ya da kısa saat
+    // dilimi (+0300, +03), saniyesiz zaman, "Z" öncesi boşluk.
+    let compact: String = s.split_whitespace().collect();
+    let z = compact
+        .strip_suffix(['Z', 'z'])
+        .map(|t| format!("{t}+00:00"))
+        .unwrap_or(compact);
+    for fmt in ["%Y-%m-%dT%H:%M:%S%.f%#z", "%Y-%m-%dT%H:%M%#z"] {
+        if let Ok(dt) = chrono::DateTime::parse_from_str(&z, fmt) {
+            return Some(dt.timestamp_millis());
+        }
+    }
+    for fmt in [
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M",
+    ] {
         if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, fmt) {
             return Some(dt.and_utc().timestamp_millis());
         }

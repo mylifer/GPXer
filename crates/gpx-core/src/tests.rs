@@ -1360,3 +1360,23 @@ fn kml_keeps_sensor_data() {
         .iter()
         .all(|p| p.power == Some(200.0) && p.cad.is_none()));
 }
+
+#[test]
+fn parses_iso_8601_variants() {
+    let utc7 = parse::parse_time("2024-01-01T07:00:00Z");
+    assert!(utc7.is_some());
+    for s in [
+        "2024-01-01T10:00:00+0300",
+        "2024-01-01T10:00:00+03",
+        "2024-01-01T10:00:00+03:00",
+        "2024-01-01T10:00:00.000+0300",
+        "2024-01-01T07:00:00 Z",
+        "2024-01-01T07:00Z",
+        "2024-01-01t07:00:00z",
+        "2024-01-01 07:00:00",
+    ] {
+        assert_eq!(parse::parse_time(s), utc7, "{s}");
+    }
+    assert_eq!(parse::parse_time("2024-01-01T07:00"), utc7);
+    assert_eq!(parse::parse_time("dün"), None);
+}
