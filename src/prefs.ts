@@ -206,6 +206,10 @@ export function sanitizePrefs(raw: unknown): Prefs {
   };
 }
 
+/** Uygulama kapanmadan (ör. güncelleme kurulurken) bekleyen kayıtları
+ * hemen yazdırmak için gönderilen olay. */
+export const FLUSH_EVENT = "gpxer-flush";
+
 let timer: ReturnType<typeof setTimeout> | undefined;
 let pending: Prefs | null = null;
 
@@ -225,7 +229,7 @@ export function savePrefs(p: Prefs) {
 }
 
 /** Bekleyen ertelenmiş yazmayı hemen yapar (kapanışta kaybolmasın). */
-function flushPrefs() {
+export function flushPrefs() {
   clearTimeout(timer);
   timer = undefined;
   if (!pending) return;
@@ -236,6 +240,7 @@ function flushPrefs() {
 
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", flushPrefs);
+  window.addEventListener(FLUSH_EVENT, flushPrefs);
   window.addEventListener("pagehide", flushPrefs);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flushPrefs();

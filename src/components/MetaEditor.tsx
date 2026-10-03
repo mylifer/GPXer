@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Activity, FileMeta, FileSummary } from "../api";
 import { ACTIVITIES, activityOf } from "../types";
+import { FLUSH_EVENT } from "../prefs";
 
 interface Props {
   summary: FileSummary;
@@ -39,6 +40,16 @@ export function MetaEditor({ summary, meta, allTags, onChange }: Props) {
     return () => clearTimeout(t);
   }, [note, meta, onChange]);
   useEffect(() => () => pending.current?.(), [summary.path]);
+  // Kapanırken (güncelleme kurulumu, pencereyi kapatma) bekleyen not yazılır.
+  useEffect(() => {
+    const flush = () => pending.current?.();
+    window.addEventListener(FLUSH_EVENT, flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      window.removeEventListener(FLUSH_EVENT, flush);
+      window.removeEventListener("beforeunload", flush);
+    };
+  }, []);
 
   const addTag = () => {
     const t = tag.trim();

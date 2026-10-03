@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { FLUSH_EVENT } from "../prefs";
 
 type State =
   | { kind: "idle" }
@@ -18,16 +19,32 @@ const CHECK_INTERVAL_MS = 15 * 60 * 1000;
  * sürümü denetler; yeni sürüm varsa indirip kurmayı önerir. */
 export function UpdateNotice() {
   const [state, setState] = useState<State>({ kind: "idle" });
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const busy = useRef(false);
+  /** Kurulum sürerken denetim yapılmaz (durumu "var"a geri döndürüyordu). */
+  const installing = useRef(false);
+  /** "Sonra" denilen sürüm kendiliğinden yapılan denetimlerde yeniden önerilmez. */
+  const dismissed = useRef<string | null>(null);
 
   const run = useCallback(async (manual: boolean) => {
-    if (busy.current) return;
+    if (busy.current || installing.current) return;
+    // Öneri zaten ekrandaysa kendiliğinden denetim gerekmez.
+    if (!manual && stateRef.current.kind === "available") return;
     busy.current = true;
     if (manual) setState({ kind: "checking" });
     try {
       const update = await check();
-      if (update) setState({ kind: "available", update });
-      else if (manual) setState({ kind: "current" });
+      if (installing.current) return;
+      const prev = stateRef.current.kind === "available" ? stateRef.current.update : null;
+      if (update && (manual || update.version !== dismissed.current)) {
+        // Eskisinin kaynağı bırakılır (her denetimde yenisi oluşuyordu).
+        if (prev && prev !== update) void prev.close().catch(() => {});
+        setState({ kind: "available", update });
+      } else {
+        if (update) void update.close().catch(() => {});
+        if (manual) setState({ kind: "current" });
+      }
     } catch (e) {
       // Kendiliğinden yapılan denetim sessizce başarısız olabilir (ör. internet yok).
       if (manual) setState({ kind: "error", message: String(e) });
@@ -58,7 +75,12 @@ export function UpdateNotice() {
   }, [state]);
 
   const install = async (update: Update) => {
-    busy.current = true;
+    if (installing.current) return;
+    installing.current = true;
+    // Uygulama kurulumla birlikte kapanır: bekleyen tercihler ve not şimdi
+    // yazılır (kapanış olayları güncellemede çalışmayabiliyor).
+    window.dispatchEvent(new Event(FLUSH_EVENT));
+    await new Promise((r) => setTimeout(r, 300));
     let total = 0;
     let done = 0;
     setState({ kind: "downloading", version: update.version, percent: null });
@@ -78,11 +100,15 @@ export function UpdateNotice() {
     } catch (e) {
       setState({ kind: "error", message: String(e) });
     } finally {
-      busy.current = false;
+      installing.current = false;
     }
   };
 
-  const close = () => setState({ kind: "idle" });
+  const close = () => {
+    const s = stateRef.current;
+    if (s.kind === "available") dismissed.current = s.update.version;
+    setState({ kind: "idle" });
+  };
 
   switch (state.kind) {
     case "idle":
