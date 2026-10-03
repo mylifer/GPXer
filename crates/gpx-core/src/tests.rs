@@ -1463,3 +1463,44 @@ fn kml_keeps_times_of_partly_timed_segments() {
         .count();
     assert_eq!(timed, 5);
 }
+
+#[test]
+fn detail_speed_handles_sparse_points_and_jumps_after_stops() {
+    // 12 dakikada bir nokta, adım başına 5 km (25 km/sa): her noktada hız var.
+    let sparse: Vec<Point> = (0..10)
+        .map(|k| pt(41.0 + k as f64 * 0.045, 29.0, k * 720))
+        .collect();
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![sparse],
+        }],
+        ..Default::default()
+    };
+    let d = build_detail(&gpx);
+    assert!(d.speed.iter().all(|v| v.is_some()), "{:?}", d.speed);
+    let v = d.speed[5].unwrap();
+    assert!((20.0..30.0).contains(&v), "{v}");
+
+    // Durakta 40 dk nokta yok; sonra 1 sn'de 300 m'lik konum düzeltmesi ve
+    // 10 m/sn sürüş: grafikte ~1000 km/sa'lik sıçrama olmamalı.
+    let mut seg: Vec<Point> = (0..30)
+        .map(|k| pt(41.0, 29.0 + k as f64 * 1e-4, k))
+        .collect();
+    let t0 = 29 + 2400;
+    seg.push(pt(41.0, 29.0029, t0));
+    seg.push(pt(41.0027, 29.0029, t0 + 1));
+    for k in 1..40 {
+        seg.push(pt(41.0027 + k as f64 * 9e-5, 29.0029, t0 + 1 + k));
+    }
+    let gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let d = build_detail(&gpx);
+    let max = d.speed.iter().flatten().fold(0.0f32, |m, v| m.max(*v));
+    assert!(max < 200.0, "{max}");
+}

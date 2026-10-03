@@ -6,6 +6,8 @@ use crate::{primary_segments, simplify, Detail, PROFILE_MAX_POINTS};
 
 /// Hız penceresinin yarı genişliği (ms).
 const SPEED_HALF_WINDOW_MS: i64 = 15_000;
+/// Hızın hesaplandığı en kısa süre (ms).
+const MIN_SPEED_SPAN_MS: i64 = 10_000;
 
 /// Her noktanın çevresindeki ~±15 sn'lik pencereye göre hız (km/sa).
 /// `pts` boşluksuz tek bir parçadır; `dist` kümülatif mesafe. İki işaretçi
@@ -34,9 +36,24 @@ fn window_speeds(pts: &[&Point], dist: &[f64], out: &mut [Option<f32>]) {
             while lo < k && tk - t(lo) > SPEED_HALF_WINDOW_MS {
                 lo += 1;
             }
-            let (ta, tb) = (t(lo), t(hi));
+            // Pencere en az 10 sn'yi kapsayana kadar komşu noktalarla
+            // genişletilir: seyrek kayıtta (15 sn'den seyrek noktalar) hız hiç
+            // bulunamıyordu; uzun duraktan sonraki ilk konumun 1 sn'deki
+            // 300 m'lik düzeltmesi tek başına ~1000 km/sa'lik sıçrama
+            // veriyordu.
+            let (mut a, mut b) = (lo, hi);
+            while t(b) - t(a) < MIN_SPEED_SPAN_MS {
+                if b + 1 < end {
+                    b += 1;
+                } else if a > i {
+                    a -= 1;
+                } else {
+                    break;
+                }
+            }
+            let (ta, tb) = (t(a), t(b));
             if tb > ta {
-                let meters = dist[hi] - dist[lo];
+                let meters = dist[b] - dist[a];
                 *slot = Some((meters / ((tb - ta) as f64 / 1000.0) * 3.6) as f32);
             }
         }
