@@ -11,12 +11,23 @@ use quick_xml::Reader;
 pub const SUPPORTED: [&str; 4] = ["gpx", "fit", "tcx", "kml"];
 
 pub fn is_supported_ext(ext: &str) -> bool {
-    SUPPORTED.contains(&ext.to_ascii_lowercase().as_str())
+    format_of_ext(ext).is_some()
+}
+
+/// Uzantının biçimi (küçük harf). macOS'un kopya adlarındaki sayı eki de
+/// tanınır: "gpx 2", "GPX 3" → "gpx".
+pub fn format_of_ext(ext: &str) -> Option<&'static str> {
+    let lower = ext.to_ascii_lowercase();
+    let base = match lower.rsplit_once(' ') {
+        Some((b, n)) if !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()) => b,
+        _ => lower.as_str(),
+    };
+    SUPPORTED.iter().copied().find(|s| *s == base)
 }
 
 /// Uzantıya göre uygun okuyucuyu seçer; bilinmeyen uzantılar GPX sayılır.
 pub fn parse_any(ext: &str, bytes: &[u8]) -> Result<Gpx, ParseError> {
-    match ext.to_ascii_lowercase().as_str() {
+    match format_of_ext(ext).unwrap_or("gpx") {
         "fit" => parse_fit(bytes),
         "tcx" => parse_tcx(bytes),
         "kml" => parse_kml(bytes),

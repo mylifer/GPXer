@@ -161,7 +161,7 @@ fn parse_dismissed(bytes: &[u8]) -> Option<Dismissed> {
 
 pub fn is_gpx(path: &Path) -> bool {
     path.extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("gpx"))
+        .is_some_and(|e| gpx_core::formats::format_of_ext(&e.to_string_lossy()) == Some("gpx"))
 }
 
 /// Açılabilen iz dosyası mı (GPX, FIT, TCX, KML).

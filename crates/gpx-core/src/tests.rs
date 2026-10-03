@@ -1036,3 +1036,15 @@ fn streaming_writers_match_string_writers() {
     }
     assert!(write::write_gpx_to(&gpx, &mut Full).is_err());
 }
+
+#[test]
+fn macos_copy_suffixed_extensions() {
+    use formats::{format_of_ext, is_supported_ext};
+    assert_eq!(format_of_ext("gpx 2"), Some("gpx"));
+    assert_eq!(format_of_ext("GPX 13"), Some("gpx"));
+    assert_eq!(format_of_ext("fit 2"), Some("fit"));
+    assert_eq!(format_of_ext("gpx"), Some("gpx"));
+    assert_eq!(format_of_ext("gpx copy"), None);
+    assert_eq!(format_of_ext("gpx "), None);
+    assert!(!is_supported_ext("txt 2"));
+}

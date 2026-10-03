@@ -314,3 +314,23 @@ fn empty_files_are_skipped_not_errors() {
     assert!(matches!(r, LoadResult::Empty { .. }));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn imports_macos_copy_suffixed_files() {
+    let root = temp_root("suffix");
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let f = src.join("yolculuk.gpx 2");
+    std::fs::write(&f, track("41.3")).unwrap();
+    assert!(is_track_file(&f));
+    let lib = Library::open(&root).unwrap();
+    let LoadResult::Ok { file } = lib.load(
+        f.to_string_lossy().into_owned(),
+        &StatsConfig::default(),
+        None,
+    ) else {
+        panic!()
+    };
+    assert!(file.file_name.ends_with(".gpx"), "{}", file.file_name);
+    let _ = std::fs::remove_dir_all(&root);
+}
