@@ -345,13 +345,13 @@ fn queue_paths(app: &AppHandle, paths: Vec<String>) {
 /// yolla gelir) var olan dosya/klasör yollarını ayıklar.
 fn paths_from_args(args: impl IntoIterator<Item = String>, cwd: Option<&Path>) -> Vec<String> {
     args.into_iter()
-        .filter(|a| !a.starts_with('-'))
         .filter_map(|a| {
             let p = PathBuf::from(&a);
             let p = match (p.is_absolute(), cwd) {
                 (false, Some(cwd)) => cwd.join(p),
                 _ => p,
             };
+            // "-" ile başlayan seçenekler atlanır; aynı adlı gerçek dosya değil.
             p.exists().then(|| p.to_string_lossy().into_owned())
         })
         .collect()
@@ -392,7 +392,9 @@ pub fn run() {
                     eprintln!("{e}");
                 }
             });
-            let initial = paths_from_args(std::env::args().skip(1), None);
+            // Göreli yollar (terminalden "gpxer iz.gpx") mutlak yola çevrilir.
+            let cwd = std::env::current_dir().ok();
+            let initial = paths_from_args(std::env::args().skip(1), cwd.as_deref());
             app.state::<PendingPaths>()
                 .0
                 .lock()
