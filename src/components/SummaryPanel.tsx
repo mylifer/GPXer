@@ -19,7 +19,7 @@ import { ACTIVITIES, placeLabel } from "../types";
 import type { Route } from "../routes";
 import type { NamedPlace } from "../api";
 import { dayKey, isoToTr, type TzMode } from "../format";
-import { endName, flightsOf, type Flight } from "../flights";
+import { endName, flightsOf, uniqueFlights, type Flight } from "../flights";
 import { countryName, flagOf } from "../visits";
 import { timeAtPlaces, visitedPlaces } from "../summary";
 
@@ -197,12 +197,12 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
   );
   /** Gösterilen kayıtların tarih aralığına düşen uçuşları. */
   const flights = useMemo(() => {
-    const list: Flight[] = [];
+    const all: Flight[] = [];
     for (const f of files) {
       const zone = tzOf(f.summary);
-      for (const x of flightsOf(f.summary)) if (dayIn(dayKey(x.start, zone), from, to)) list.push(x);
+      for (const x of flightsOf(f.summary)) if (dayIn(dayKey(x.start, zone), from, to)) all.push(x);
     }
-    list.sort((a, b) => a.start - b.start);
+    const list = uniqueFlights(all);
     const years = new Map<string, { n: number; m: number }>();
     for (const x of list) {
       const y = dayKey(x.start, tzOf(byPath.get(x.path)?.summary)).slice(0, 4);

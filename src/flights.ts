@@ -143,3 +143,21 @@ export function greatCircle(a: [number, number], b: [number, number], n = 48): [
   }
   return out;
 }
+
+/** Aynı uçuşun kopyaları (aynı yolculuğun birden çok kaydında, ör. konum
+ * geçmişi ve onun yol eklenmiş sürümü) tek sayılır: zamanları çakışan ve
+ * kalkış ya da varış yeri 50 km'den yakın uçuşlardan ilki (adı olan tercih
+ * edilir) kalır. Liste başlangıca göre sıralı döner. */
+export function uniqueFlights(list: Flight[]): Flight[] {
+  const sorted = [...list].sort((a, b) => a.start - b.start);
+  const out: Flight[] = [];
+  const near = (a: [number, number], b: [number, number]) => metersBetween(a, b) < 50_000;
+  for (const f of sorted) {
+    const k = out.findIndex(
+      (g) => f.start < g.end && g.start < f.end && (near(f.from, g.from) || near(f.to, g.to)),
+    );
+    if (k < 0) out.push(f);
+    else if (!(out[k].fromName && out[k].toName) && f.fromName && f.toName) out[k] = f;
+  }
+  return out;
+}

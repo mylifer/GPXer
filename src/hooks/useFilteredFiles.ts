@@ -8,7 +8,7 @@ import type { Prefs } from "../prefs";
 import { dayBuckets, rangeShare, touchesRange } from "../days";
 import { dayKey, monthLabel, searchKey, tzOf } from "../format";
 import { findOverlaps } from "../overlaps";
-import { flightsOf, type Flight } from "../flights";
+import { flightsOf, uniqueFlights, type Flight } from "../flights";
 
 /**
  * Dosya listesinden türetilen veriler: renkler, güzergâhlar, çakışmalar,
@@ -167,7 +167,7 @@ export function useFilteredFiles({
         out.push(x);
       }
     }
-    return out;
+    return uniqueFlights(out);
   }, [onMap, prefs.flightsLayer, dateWindow, prefs.tzMode]); // eslint-disable-line react-hooks/exhaustive-deps
   const selectedEntry = useMemo(
     () => (selected ? (colored.find((f) => f.summary.path === selected) ?? null) : null),
@@ -194,7 +194,7 @@ export function useFilteredFiles({
   const coloredByPathRef = useRef(coloredByPath);
   coloredByPathRef.current = coloredByPath;
   const summaryOf = useCallback((p: string) => coloredByPathRef.current.get(p)?.summary, []);
-  const libraryFlights = useMemo(() => summaries.reduce((n, s) => n + flightsOf(s).length, 0), [summaries]);
+  const libraryFlights = useMemo(() => uniqueFlights(summaries.flatMap((s) => flightsOf(s))).length, [summaries]);
   /** Seçili kayıtla çakışanlar (ad ve ortak süreyle). */
   const selOverlaps = useMemo(
     () =>

@@ -89,3 +89,32 @@ describe("uçuş kuralları", () => {
     expect(flies(gap(2_200, 2 * H))).toBe(true);
   });
 });
+
+describe("uniqueFlights", () => {
+  it("counts the same flight from overlapping records once", async () => {
+    const { uniqueFlights } = await import("./flights");
+    const H = 3_600_000;
+    const f = (path: string, start: number, from: [number, number], to: [number, number], name: string | null) => ({
+      path,
+      gap: 0,
+      from,
+      to,
+      start,
+      end: start + 2 * H,
+      distanceM: 1_000_000,
+      durationMs: 2 * H,
+      fromName: name,
+      toName: name,
+    });
+    const ist: [number, number] = [29.3, 40.9];
+    const kiev: [number, number] = [30.9, 50.4];
+    const list = [
+      f("a", 0, ist, kiev, null),
+      f("b", 10 * 60_000, [29.31, 40.91], [30.89, 50.41], "Pendik"),
+      f("a", 4 * 24 * H, kiev, ist, null),
+    ];
+    const u = uniqueFlights(list);
+    expect(u.length).toBe(2);
+    expect(u[0].fromName).toBe("Pendik");
+  });
+});
