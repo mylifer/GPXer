@@ -294,6 +294,18 @@ label.check {
   color: var(--text-muted);
 }
 
+/* Yer yetmezse mesafe ve süre değil tarih kısalır. */
+.file-meta:not(.sub) > span {
+  flex-shrink: 0;
+}
+
+.file-meta > span.when {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .file-row .remove {
   visibility: hidden;
 }

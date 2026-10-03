@@ -3,7 +3,7 @@ import type { FileEntry } from "../types";
 import { activityOf, placeLabel } from "../types";
 import type { NamedPlace } from "../api";
 import { filtersActive, resetFilters } from "../prefs";
-import { fmtDate, fmtDistance, fmtDuration, fmtNumber, isoToTr, tzOf, type TzMode } from "../format";
+import { fmtDate, fmtDistance, fmtDuration, fmtDurationShort, fmtNumber, dayRangeTr, isoToTr, tzOf, type TzMode } from "../format";
 import { dayBuckets, rangeShare } from "../days";
 import type { Group, RowModifiers, SidebarProps } from "./Sidebar";
 
@@ -88,15 +88,22 @@ const Row = memo(function Row({
           {s.name || s.fileName}
         </div>
         <div className="file-meta">
-          <span>
+          <span
+            className="when"
+            title={
+              days.length > 1
+                ? `${isoToTr(days[0].day)} – ${isoToTr(days[days.length - 1].day)} · ${fmtNumber(days.length)} gün`
+                : undefined
+            }
+          >
             {days.length > 1
-              ? `${isoToTr(days[0].day)} – ${isoToTr(days[days.length - 1].day)} · ${fmtNumber(days.length)} gün`
+              ? dayRangeTr(days[0].day, days[days.length - 1].day)
               : s.stats.startTime != null
                 ? fmtDate(s.stats.startTime, tzOf(s))
                 : "Tarihsiz"}
           </span>
           <span>{fmtDistance(s.stats.distanceM)}</span>
-          {s.stats.movingMs != null && <span>{fmtDuration(s.stats.movingMs)}</span>}
+          {s.stats.movingMs != null && <span>{fmtDurationShort(s.stats.movingMs)}</span>}
         </div>
         {(!!place || !!tags?.length || share.partial) && (
           <div className="file-meta sub">
@@ -242,7 +249,7 @@ export function FileList(p: SidebarProps) {
         <span className="group-label">{g.label}</span>
         <span className="group-meta">
           {fmtNumber(g.items.length)} · {fmtDistance(g.distanceM)}
-          {g.movingMs > 0 && ` · ${fmtDuration(g.movingMs)}`}
+          {g.movingMs > 0 && ` · ${fmtDurationShort(g.movingMs)}`}
         </span>
       </button>
     );

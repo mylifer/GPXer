@@ -80,6 +80,15 @@ export function fmtDuration(ms: number | null | undefined): string {
   return `${s} sn`;
 }
 
+/** Dar yerler (liste satırı) için: bir günden uzun sürede dakika yazılmaz. */
+export function fmtDurationShort(ms: number | null | undefined): string {
+  if (ms != null && ms >= 86_400_000) {
+    const h = Math.floor(ms / 3_600_000);
+    return `${Math.floor(h / 24)} g ${h % 24} sa`;
+  }
+  return fmtDuration(ms);
+}
+
 /** Süreyi s:dd:ss biçiminde verir (CSV için). */
 export function fmtClock(ms: number | null | undefined): string {
   if (ms == null) return "";
@@ -206,6 +215,18 @@ export function monthLabel(key: string): string {
 }
 
 /** "yyyy-aa-gg" ↔ "gg.aa.yyyy" */
+/** İki yyyy-aa-gg gününün kısa aralığı; yıl, liste grubunun başlığında
+ * olduğu için yalnızca aralık yıl değiştiriyorsa yazılır: "10–14.12",
+ * "28.11–3.12", "30.12.23–2.01.24" (satırda mesafe ve süreye yer kalsın). */
+export function dayRangeTr(a: string, b: string): string {
+  const [ya, ma, da] = a.split("-");
+  const [yb, mb, db] = b.split("-");
+  const d = (x: string) => String(Number(x));
+  if (ya !== yb) return `${d(da)}.${ma}.${ya.slice(2)}–${d(db)}.${mb}.${yb.slice(2)}`;
+  if (ma !== mb) return `${d(da)}.${ma}–${d(db)}.${mb}`;
+  return `${d(da)}–${d(db)}.${mb}`;
+}
+
 export function isoToTr(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   return m ? `${m[3]}.${m[2]}.${m[1]}` : "";

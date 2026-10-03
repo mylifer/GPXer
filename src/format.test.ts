@@ -84,3 +84,12 @@ describe("searchKey", () => {
     expect(searchKey("Bayrampaşa").includes(searchKey("paşa"))).toBe(true);
   });
 });
+
+describe("dayRangeTr", () => {
+  it("shortens ranges", async () => {
+    const { dayRangeTr } = await import("./format");
+    expect(dayRangeTr("2023-12-10", "2023-12-14")).toBe("10–14.12");
+    expect(dayRangeTr("2023-11-28", "2023-12-03")).toBe("28.11–3.12");
+    expect(dayRangeTr("2023-12-30", "2024-01-02")).toBe("30.12.23–2.01.24");
+  });
+});
