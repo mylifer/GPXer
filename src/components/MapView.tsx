@@ -78,19 +78,27 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
   winRef.current = win;
   const refs: MapRefs = { mapRef, readyRef, pendingRef, live, hoverPopup, chooser, chooserPaths, hoverPath, moveFrame, moveEvent, mapHovering };
 
+  // Üst kenar, birkaç satıra inebilen araç çubuğunun altından başlar
+  // (`--toolbar-bottom`, MapToolbar koyar).
+  const padding = (base: number) => {
+    const el = container.current;
+    const bar = el ? parseFloat(getComputedStyle(el).getPropertyValue("--toolbar-bottom")) : NaN;
+    return { top: Number.isFinite(bar) ? Math.max(base, bar + 20) : base, bottom: base, left: base, right: base };
+  };
+
   useImperativeHandle(ref, () => ({
     fitFiles(list) {
       const map = mapRef.current;
       const b = boundsOf(list, winRef.current);
       if (!map || !b) return;
-      map.fitBounds(b, { padding: 60, maxZoom: 16, duration: 600 });
+      map.fitBounds(b, { padding: padding(60), maxZoom: 16, duration: 600 });
     },
     fitPoints(pts) {
       const map = mapRef.current;
       if (!map || pts.length === 0) return;
       const b = new maplibregl.LngLatBounds(pts[0], pts[0]);
       for (const p of pts) b.extend(p);
-      map.fitBounds(b, { padding: 80, maxZoom: 17, duration: 600 });
+      map.fitBounds(b, { padding: padding(80), maxZoom: 17, duration: 600 });
     },
     centerOn(pt, minZoom = 13) {
       const map = mapRef.current;
