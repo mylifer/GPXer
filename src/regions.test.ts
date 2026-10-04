@@ -27,4 +27,23 @@ describe("provinces", () => {
     expect(list[0].first).toBe("2023-05-01");
     expect(visitedProvinces([s], fc, "2024-01-01", "")).toEqual([]);
   });
+
+  it("counts a province crossed inside the date range even if entered before it", () => {
+    // 1 Mayıs İstanbul'da başlayan kayıt, 2 Mayıs'ta hâlâ İstanbul'da, sonra Ankara.
+    const t = Date.UTC(2023, 4, 1, 6);
+    const day = 86_400_000;
+    const s = {
+      path: "y",
+      timeZone: "Europe/Istanbul",
+      lines: [[[29.03, 40.99], [29.04, 40.99], [32.85, 39.92]]],
+      times: [[t, t + day, t + day + 3 * 3_600_000]],
+      stats: { startTime: t },
+    } as unknown as FileSummary;
+    const list = visitedProvinces([s], fc, "2023-05-02", "");
+    expect(list.map((p) => [p.name, p.first])).toEqual([
+      ["İstanbul", "2023-05-02"],
+      ["Ankara", "2023-05-02"],
+    ]);
+    expect(provincesOf(s, fc).get("İstanbul")).toBe(t);
+  });
 });

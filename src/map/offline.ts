@@ -62,6 +62,29 @@ const quadkey = (x: number, y: number, z: number) => {
   return q;
 };
 
+/** Yazı tipi parçaları (Latin, Türkçe, Yunan, Kiril, noktalama): vektör altlığın
+ * yazıları çevrimdışı da çizilsin. */
+const GLYPH_RANGES = [0, 1, 3, 4, 32];
+
+/** Görünen yazı katmanlarının yazı tiplerinin adresleri (MapLibre'nin istediği biçimde). */
+function glyphUrls(map: maplibregl.Map): string[] {
+  const tpl = map.getGlyphs();
+  if (!tpl) return [];
+  const stacks = new Set<string>();
+  // "text-font" düz liste ya da ifade olabilir: içindeki yazı tipi listeleri toplanır.
+  const walk = (v: unknown) => {
+    if (!Array.isArray(v)) return;
+    if (v.length && v.every((x) => typeof x === "string") && !/^[a-z-]+$/.test(v[0])) stacks.add(v.join(","));
+    else v.forEach(walk);
+  };
+  for (const l of map.getStyle().layers)
+    if (l.type === "symbol" && l.layout?.visibility !== "none") walk((l.layout as Record<string, unknown> | undefined)?.["text-font"]);
+  const out: string[] = [];
+  for (const st of stacks)
+    for (const r of GLYPH_RANGES) out.push(tpl.replace("{fontstack}", st).replace("{range}", `${r * 256}-${r * 256 + 255}`));
+  return out;
+}
+
 /** Görünen alanın, açık katmanlarda şu anki yakınlaştırmadan `extra` düzey
  * ötesine kadarki karo adresleri. Toplu indirmeye kapalı sunucular atlanır.
  * Düzey ve adres MapLibre'nin isteyeceğiyle aynı hesaplanır (karo boyutu,
@@ -75,7 +98,7 @@ export function visibleTileUrls(map: maplibregl.Map, extra: number): { urls: str
       .map((l) => (l as { source: string }).source),
   );
   if (map.getTerrain()) visible.add(map.getTerrain()!.source);
-  const urls = new Set<string>();
+  const urls = new Set<string>(glyphUrls(map));
   const seen = new Set<string>();
   const skipped = new Set<string>();
   let capped = false;

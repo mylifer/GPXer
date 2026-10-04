@@ -73,33 +73,55 @@ export function regionAt(lon: number, lat: number, regions: Region[], hint?: Reg
   return regions.find(test) ?? null;
 }
 
-/** Kaydın geçtiği iller ve her birine ilk girildiği an. Noktalar ~1 km
- * seyreltilerek denenir (sınırdaki birkaç yüz metre ihmal edilir). */
-const visitCache = new WeakMap<FileSummary, { fc: ProvinceFC; v: Map<string, number | null> }>();
-export function provincesOf(s: FileSummary, fc: ProvinceFC): Map<string, number | null> {
-  const hit = visitCache.get(s);
+/** Kaydın geçtiği iller: her ilde bulunulan günler (yerel gün → o gündeki ilk an).
+ * Noktalar ~1 km seyreltilerek denenir (sınırdaki birkaç yüz metre ihmal edilir).
+ * Zamansız kayıtta gün anahtarı boştur. */
+const dayCache = new WeakMap<FileSummary, { fc: ProvinceFC; v: Map<string, Map<string, number | null>> }>();
+function provinceDaysOf(s: FileSummary, fc: ProvinceFC): Map<string, Map<string, number | null>> {
+  const hit = dayCache.get(s);
   if (hit && hit.fc === fc) return hit.v;
   const regions = regionsOf(fc);
-  const out = new Map<string, number | null>();
+  const zone = tzOf(s);
+  const out = new Map<string, Map<string, number | null>>();
   // Türkiye'nin kabaca sınır kutusu: dışındaki kayıtlarda hiç deneme yapılmaz.
   const inTr = (lon: number, lat: number) => lon > 25.5 && lon < 45 && lat > 35.7 && lat < 42.2;
   let hint: Region | null = null;
   s.lines.forEach((line, i) => {
     const times = s.times[i];
     let last: [number, number] | null = null;
+    let lastRegion: Region | null = null;
+    let lastDay = "";
     line.forEach(([lon, lat], j) => {
       if (!inTr(lon, lat)) return;
-      if (last && Math.abs(lon - last[0]) < 0.01 && Math.abs(lat - last[1]) < 0.008 && j < line.length - 1) return;
+      const t = times?.[j] ?? s.stats.startTime;
+      const day = t != null ? dayKey(t, zone) : "";
+      // Seyreltme: yakın nokta atlanır, ama gün değişince yeni gün kaydedilsin diye denenir.
+      if (last && day === lastDay && Math.abs(lon - last[0]) < 0.01 && Math.abs(lat - last[1]) < 0.008 && j < line.length - 1) return;
       last = [lon, lat];
       const r = regionAt(lon, lat, regions, hint);
       if (!r) return;
       hint = r;
-      const t = times?.[j] ?? s.stats.startTime;
-      const prev = out.get(r.name);
-      if (prev === undefined || (t != null && (prev == null || t < prev))) out.set(r.name, t ?? null);
+      if (r === lastRegion && day === lastDay) return;
+      lastRegion = r;
+      lastDay = day;
+      let days = out.get(r.name);
+      if (!days) out.set(r.name, (days = new Map()));
+      const prev = days.get(day);
+      if (prev === undefined || (t != null && (prev == null || t < prev))) days.set(day, t ?? null);
     });
   });
-  visitCache.set(s, { fc, v: out });
+  dayCache.set(s, { fc, v: out });
+  return out;
+}
+
+/** Kaydın geçtiği iller ve her birine ilk girildiği an. */
+export function provincesOf(s: FileSummary, fc: ProvinceFC): Map<string, number | null> {
+  const out = new Map<string, number | null>();
+  for (const [name, days] of provinceDaysOf(s, fc)) {
+    let first: number | null | undefined;
+    for (const t of days.values()) if (first === undefined || (t != null && (first == null || t < first))) first = t;
+    out.set(name, first ?? null);
+  }
   return out;
 }
 
@@ -118,10 +140,21 @@ export interface ProvinceVisit {
 export function visitedProvinces(files: FileSummary[], fc: ProvinceFC, from: string, to: string): ProvinceVisit[] {
   const m = new Map<string, ProvinceVisit>();
   for (const s of files) {
-    const zone = tzOf(s);
-    for (const [name, t] of provincesOf(s, fc)) {
-      const day = t != null ? dayKey(t, zone) : "";
-      if ((from || to) && day && !dayIn(day, from, to)) continue;
+    for (const [name, days] of provinceDaysOf(s, fc)) {
+      // Tarih aralığında bulunulan ilk gün: aralıktan önce girilip aralıkta da
+      // geçilen il sayılır (çok günlük kayıtlar).
+      let day = "";
+      let t: number | null = null;
+      let found = false;
+      for (const [d, at] of days) {
+        if ((from || to) && d && !dayIn(d, from, to)) continue;
+        if (!found || (at != null && (t == null || at < t))) {
+          day = d;
+          t = at;
+        }
+        found = true;
+      }
+      if (!found) continue;
       const v = m.get(name);
       if (!v) m.set(name, { name, first: day, records: 1, at: t });
       else {

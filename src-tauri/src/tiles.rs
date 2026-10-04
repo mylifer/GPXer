@@ -15,15 +15,24 @@ const FRESH: Duration = Duration::from_secs(30 * 24 * 3600);
 /// Önbelleğin üst sınırı; aşılınca en eski karolar silinir.
 const MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
+/// Bu kadar yeni karoda bir sınır denetlenir (uygulama açıkken de).
+const PRUNE_EVERY: usize = 3000;
+
 pub(crate) struct TileCache {
     dir: PathBuf,
     agent: ureq::Agent,
+    /// Son denetimden beri yazılan karo sayısı.
+    written: std::sync::atomic::AtomicUsize,
+    /// Aynı anda tek temizlik.
+    pruning: std::sync::Mutex<()>,
 }
 
 impl TileCache {
     pub(crate) fn new(dir: PathBuf) -> Self {
         let _ = std::fs::create_dir_all(&dir);
         Self {
+            written: Default::default(),
+            pruning: Default::default(),
             dir,
             agent: ureq::AgentBuilder::new()
                 .timeout(Duration::from_secs(20))
@@ -65,6 +74,12 @@ impl TileCache {
             let _ = std::fs::create_dir_all(d);
         }
         let _ = crate::store::write_atomic(&p, bytes);
+        let n = self
+            .written
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if n % PRUNE_EVERY == PRUNE_EVERY - 1 {
+            self.prune();
+        }
     }
 
     fn download(&self, url: &str) -> Result<Vec<u8>, String> {
@@ -121,6 +136,10 @@ impl TileCache {
 
     /// Sınır aşıldıysa en eski karoları siler.
     pub(crate) fn prune(&self) {
+        // Başka bir istek zaten temizliyorsa beklemeden geçilir.
+        let Ok(_guard) = self.pruning.try_lock() else {
+            return;
+        };
         let mut files: Vec<(SystemTime, u64, PathBuf)> = walkdir::WalkDir::new(&self.dir)
             .into_iter()
             .flatten()
