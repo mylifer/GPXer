@@ -12,7 +12,7 @@ import {
   tzOf,
 } from "../format";
 import { periodRange } from "./DateRange";
-import { dayBuckets, dayIn, rangeShare } from "../days";
+import { dayBuckets, dayIn, dedupedDays, dedupedTotals, rangeShare } from "../days";
 import { Modal } from "./Modal";
 import { CalendarHeatmap } from "./CalendarHeatmap";
 import { ACTIVITIES, placeLabel } from "../types";
@@ -81,29 +81,32 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
   const buckets = useMemo<Bucket[]>(() => {
     const map = new Map<string, Bucket>();
     const len = period === "month" ? 7 : 4;
+    const bucketOf = (key: string) => {
+      let b = map.get(key);
+      if (!b) {
+        b = { key, label: "", short: "", distance: 0, moving: 0, gain: 0, count: 0 };
+        map.set(key, b);
+      }
+      return b;
+    };
+    // Mesafe, süre ve tırmanış: birden çok güne yayılan kayıtlar verisi olan
+    // günlere dağılır; aynı yolculuğun kopyaları bir kez sayılır.
+    for (const [day, t] of dedupedDays(dated.map((f) => f.summary))) {
+      if (!dayIn(day, from, to)) continue;
+      const b = bucketOf(day.slice(0, len));
+      b.distance += t.distanceM;
+      b.moving += t.movingMs;
+      b.gain += t.gainM;
+    }
+    // Kayıt, dokunduğu her dönemde bir kez sayılır (günler sıralı).
     for (const f of dated) {
-      const s = f.summary;
-      // Birden çok güne yayılan kayıt: mesafe ve süre verisi olan günlere göre
-      // dönemlere dağılır; tırmanışın günlük dökümü olmadığından mesafe oranında.
-      const days = dayBuckets(s);
-      const total = s.stats.distanceM;
-      const gain = s.stats.elevationGainM ?? 0;
       let last = "";
-      days.forEach((d, i) => {
-        if (!dayIn(d.day, from, to)) return;
+      for (const d of dayBuckets(f.summary)) {
+        if (!dayIn(d.day, from, to)) continue;
         const key = d.day.slice(0, len);
-        let b = map.get(key);
-        if (!b) {
-          b = { key, label: "", short: "", distance: 0, moving: 0, gain: 0, count: 0 };
-          map.set(key, b);
-        }
-        b.distance += d.distanceM;
-        b.moving += d.movingMs;
-        b.gain += total > 0 ? (gain * d.distanceM) / total : i === 0 ? gain : 0;
-        // Kayıt, dokunduğu her dönemde bir kez sayılır (günler sıralı).
-        if (key !== last) b.count += 1;
+        if (key !== last) bucketOf(key).count += 1;
         last = key;
-      });
+      }
     }
     if (map.size === 0) return [];
     // Boş dönemler de eksende yer alsın ki aralar görünsün.
@@ -139,20 +142,15 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
   }, [dated, period, from, to, tzMode]);
 
   const totals = useMemo(() => {
-    let distance = 0,
-      moving = 0,
-      gain = 0;
-    const days = new Set<string>();
-    let partial = 0;
-    for (const f of files) {
-      const part = rangeShare(f.summary, from, to);
-      distance += part.distanceM;
-      moving += part.movingMs;
-      gain += part.gainM;
-      if (part.partial) partial++;
-      for (const d of dayBuckets(f.summary)) if (dayIn(d.day, from, to)) days.add(d.day);
-    }
-    return { distance, moving, gain, days: days.size, count: files.length, partial };
+    // Aynı yolculuğun kopyaları (ör. konum geçmişi ve yol eklenmiş sürümü,
+    // aynı kaydın birkaç kopyası) bir kez sayılır.
+    const t = dedupedTotals(
+      files.map((f) => f.summary),
+      from,
+      to,
+    );
+    const partial = files.filter((f) => rangeShare(f.summary, from, to).partial).length;
+    return { distance: t.distanceM, moving: t.movingMs, gain: t.gainM, days: t.days, count: files.length, partial };
   }, [files, from, to, tzMode]);
 
   const records = useMemo(() => {
@@ -281,7 +279,11 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
           {ACTIVITIES.map((a) => {
             const list = files.filter((f) => f.summary.activity === a.id);
             if (!list.length) return null;
-            const dist = list.reduce((x, f) => x + rangeShare(f.summary, from, to).distanceM, 0);
+            const dist = dedupedTotals(
+              list.map((f) => f.summary),
+              from,
+              to,
+            ).distanceM;
             return (
               <button key={a.id} className="type-tile" onClick={() => onActivity(a.id)} title="Listeyi bu türe göre filtrele">
                 <span>

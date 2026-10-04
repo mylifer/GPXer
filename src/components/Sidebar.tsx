@@ -1,11 +1,11 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import type { FileEntry } from "../types";
 import { ACTIVITIES } from "../types";
 import type { FileMeta, NamedPlace } from "../api";
 import type { Overlap } from "../overlaps";
 import { filtersActive, resetFilters, type Filters, type GroupBy, type SortKey } from "../prefs";
 import { fmtDistance, fmtDuration, fmtElevation, fmtNumber, type TzMode } from "../format";
-import { rangeShare } from "../days";
+import { dedupedTotals } from "../days";
 import { DateRange } from "./DateRange";
 import { FileList } from "./FileList";
 
@@ -73,21 +73,12 @@ export interface SidebarProps {
 }
 
 export const Sidebar = memo(function Sidebar(p: SidebarProps) {
-  const totals = (() => {
-    let dist = 0,
-      moving = 0,
-      gain = 0,
-      visible = 0;
-    for (const f of p.shown) {
-      if (!f.visible) continue;
-      visible++;
-      const part = rangeShare(f.summary, p.filters.from, p.filters.to);
-      dist += part.distanceM;
-      moving += part.movingMs;
-      gain += part.gainM;
-    }
-    return { dist, moving, gain, visible };
-  })();
+  // Aynı yolculuğun kopyaları bir kez sayılır (bkz. dedupedDays).
+  const totals = useMemo(() => {
+    const vis = p.shown.filter((f) => f.visible).map((f) => f.summary);
+    const t = dedupedTotals(vis, p.filters.from, p.filters.to);
+    return { dist: t.distanceM, moving: t.movingMs, gain: t.gainM, visible: vis.length };
+  }, [p.shown, p.filters.from, p.filters.to, p.tzMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const allVisible = p.shown.length > 0 && p.shown.every((f) => f.visible);
   const set = (patch: Partial<Filters>) => p.onFilters({ ...p.filters, ...patch });

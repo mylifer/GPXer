@@ -222,3 +222,65 @@ export function rangeShare(s: FileSummary, from: string, to: string): Share {
   const frac = st.distanceM > 0 ? r.distanceM / st.distanceM : 0;
   return { distanceM: r.distanceM, movingMs: r.movingMs, gainM: (st.elevationGainM ?? 0) * frac, partial: true };
 }
+
+export interface DayTotal {
+  distanceM: number;
+  movingMs: number;
+  /** Tırmanışın günlük dökümü yok: kaydın mesafesi oranında. */
+  gainM: number;
+}
+
+const dedupCache = new WeakMap<FileSummary[], { tz: string; days: Map<string, DayTotal> }>();
+
+/** Kayıtların gün gün toplamı, kopyalar bir kez sayılarak: aynı saatte
+ * birden çok kaydın verisi varsa (aynı yolculuğun kopyaları, konum geçmişi
+ * ile o günün kaydı) o saat için en çok mesafeli kayıt sayılır. Aynı gün
+ * farklı saatlerdeki ayrı etkinlikler etkilenmez. Saatlik dökümü olmayan
+ * (zamansız ya da eski önbellek) kayıtlar başladıkları güne olduğu gibi yazılır. */
+export function dedupedDays(files: FileSummary[]): Map<string, DayTotal> {
+  const tz = files.map(tzKey).join("|");
+  const hit = dedupCache.get(files);
+  if (hit && hit.tz === tz) return hit.days;
+  const best = new Map<number, { d: number; m: number; s: FileSummary }>();
+  const days = new Map<string, DayTotal>();
+  const add = (day: string, d: number, m: number, g: number) => {
+    const x = days.get(day);
+    if (x) {
+      x.distanceM += d;
+      x.movingMs += m;
+      x.gainM += g;
+    } else days.set(day, { distanceM: d, movingMs: m, gainM: g });
+  };
+  for (const s of files) {
+    const hours = Array.isArray(s.hours) ? s.hours : [];
+    if (hours.length === 0) {
+      if (s.stats.startTime != null)
+        add(dayKey(s.stats.startTime, tzOf(s)), s.stats.distanceM, s.stats.movingMs ?? 0, s.stats.elevationGainM ?? 0);
+      continue;
+    }
+    for (const [h, d, m] of hours) {
+      const cur = best.get(h);
+      if (!cur || d > cur.d || (d === cur.d && m > cur.m)) best.set(h, { d, m, s });
+    }
+  }
+  for (const [h, { d, m, s }] of best) {
+    const total = s.stats.distanceM;
+    const g = total > 0 ? ((s.stats.elevationGainM ?? 0) * d) / total : 0;
+    for (const [k, f] of hourDays(h, s.stats.startTime, tzOf(s))) add(k, d * f, m * f, g * f);
+  }
+  dedupCache.set(files, { tz, days });
+  return days;
+}
+
+/** [`dedupedDays`] toplamı, tarih aralığında. */
+export function dedupedTotals(files: FileSummary[], from: string, to: string): DayTotal & { days: number } {
+  const out = { distanceM: 0, movingMs: 0, gainM: 0, days: 0 };
+  for (const [day, t] of dedupedDays(files)) {
+    if (!dayIn(day, from, to)) continue;
+    out.distanceM += t.distanceM;
+    out.movingMs += t.movingMs;
+    out.gainM += t.gainM;
+    if (t.distanceM > 0 || t.movingMs > 0) out.days++;
+  }
+  return out;
+}

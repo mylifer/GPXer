@@ -5,7 +5,7 @@ import { findRoutes, type Route } from "../routes";
 import { linesHitBox } from "../geo";
 import { SEQ_DARK, SEQ_LIGHT, placeLabel, rampColor, type FileEntry } from "../types";
 import type { Prefs } from "../prefs";
-import { dayBuckets, rangeShare, touchesRange } from "../days";
+import { dayBuckets, dedupedTotals, touchesRange } from "../days";
 import { dayKey, monthLabel, searchKey, tzOf } from "../format";
 import { findOverlaps } from "../overlaps";
 import { flightsOf, uniqueFlights, type Flight } from "../flights";
@@ -121,9 +121,16 @@ export function useFilteredFiles({
         map.set(key, g);
       }
       g.items.push(f);
-      const part = rangeShare(f.summary, prefs.filters.from, prefs.filters.to);
-      g.distanceM += part.distanceM;
-      g.movingMs += part.movingMs;
+    }
+    // Grup toplamı: aynı yolculuğun kopyaları bir kez sayılır.
+    for (const g of map.values()) {
+      const t = dedupedTotals(
+        g.items.map((f) => f.summary),
+        prefs.filters.from,
+        prefs.filters.to,
+      );
+      g.distanceM = t.distanceM;
+      g.movingMs = t.movingMs;
     }
     return [...map.values()];
   }, [shown, prefs.groupBy, prefs.tzMode, prefs.filters.from, prefs.filters.to]); // eslint-disable-line react-hooks/exhaustive-deps

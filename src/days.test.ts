@@ -104,3 +104,27 @@ describe("touchesRange / rangePart", () => {
     expect(rangeShare(s, "2024-03-01", "2024-03-05")).toEqual({ distanceM: 6000, movingMs: 3 * H, gainM: 60, partial: false });
   });
 });
+
+describe("dedupedDays", () => {
+  it("counts copies of the same trip once, separate activities fully", async () => {
+    const { dedupedTotals } = await import("./days");
+    const H = 3_600_000;
+    const t0 = Date.UTC(2024, 5, 4, 8);
+    const rec = (start: number, hours: [number, number, number][], dist: number) =>
+      ({
+        path: String(start) + dist,
+        timeZone: "UTC",
+        hours,
+        stats: { startTime: start, distanceM: dist, movingMs: hours.length * H, elevationGainM: 100 },
+      }) as unknown as import("./api").FileSummary;
+    const trip = rec(t0, [[t0, 10_000, H], [t0 + H, 20_000, H]], 30_000);
+    const copy = rec(t0, [[t0, 10_000, H], [t0 + H, 20_000, H]], 30_000);
+    // Konum geçmişi aynı saatlerde daha az mesafe görüyor.
+    const history = rec(t0 - 5 * H, [[t0 - 5 * H, 1_000, H], [t0, 8_000, H], [t0 + H, 15_000, H]], 24_000);
+    // Aynı gün akşam ayrı bir yürüyüş.
+    const walk = rec(t0 + 10 * H, [[t0 + 10 * H, 3_000, H]], 3_000);
+    const t = dedupedTotals([trip, copy, history, walk], "", "");
+    expect(t.distanceM).toBe(30_000 + 1_000 + 3_000);
+    expect(t.gainM).toBeCloseTo(100 + 100 * (1_000 / 24_000) + 100);
+  });
+});

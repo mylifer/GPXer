@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import type { FileEntry } from "../types";
 import { SEQ_DARK, SEQ_LIGHT } from "../types";
 import { MONTHS, fmtDistance, fmtDuration, fmtNumber, isoOf } from "../format";
-import { dayBuckets, dayIn } from "../days";
+import { dayBuckets, dayIn, dedupedDays } from "../days";
 
 interface Day {
   count: number;
@@ -28,16 +28,21 @@ interface Props {
 export function CalendarHeatmap({ files, from, to, onDay }: Props) {
   const days = useMemo(() => {
     const m = new Map<string, Day>();
-    // Birden çok güne yayılan kayıt, verisi olan her güne kendi payıyla yazılır.
+    // Birden çok güne yayılan kayıt verisi olan her güne yazılır; mesafe ve
+    // süre aynı yolculuğun kopyaları bir kez sayılarak (bkz. dedupedDays).
     for (const f of files) {
       for (const b of dayBuckets(f.summary)) {
         if (!dayIn(b.day, from, to)) continue;
         const d = m.get(b.day) ?? { count: 0, distance: 0, moving: 0 };
         d.count++;
-        d.distance += b.distanceM;
-        d.moving += b.movingMs;
         m.set(b.day, d);
       }
+    }
+    for (const [day, t] of dedupedDays(files.map((f) => f.summary))) {
+      const d = m.get(day);
+      if (!d) continue;
+      d.distance += t.distanceM;
+      d.moving += t.movingMs;
     }
     return m;
   }, [files, from, to]);
