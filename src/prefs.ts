@@ -70,10 +70,19 @@ export interface Prefs {
   photoOffsetH: number;
   /** Haritada gezilen il ve ülkeler. */
   regionsLayer: boolean;
+  /** Yıllık hedefler (0: hedef yok). */
+  goals: Goals;
   /** Haritada 3B arazi (eğik görünüm, gölgeli kabartma). */
   terrain3d: boolean;
   /** Araç kayıtları için yakıt tüketimi ve fiyatı. */
   fuel: FuelPrefs;
+}
+
+export interface Goals {
+  /** Yılda gidilecek mesafe (km). */
+  km: number;
+  /** Yılda kayıt olan (yolda geçen) gün sayısı. */
+  days: number;
 }
 
 const DEFAULT_FILTERS: Filters = {
@@ -124,6 +133,7 @@ const DEFAULTS: Prefs = {
   regionsLayer: false,
   fuel: DEFAULT_FUEL,
   terrain3d: false,
+  goals: { km: 0, days: 0 },
 };
 
 export const PREFS_KEY = "gpxer.prefs.v1";
@@ -216,6 +226,11 @@ export function sanitizePrefs(raw: unknown): Prefs {
     regionsLayer: pick(s.regionsLayer, isBool, D.regionsLayer),
     fuel: pick(s.fuel, isFuelPrefs, D.fuel),
     terrain3d: pick(s.terrain3d, isBool, D.terrain3d),
+    goals: pick(
+      s.goals,
+      (v): v is Goals => !!v && typeof v === "object" && isNum((v as Goals).km) && isNum((v as Goals).days),
+      D.goals,
+    ),
   };
 }
 

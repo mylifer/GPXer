@@ -2343,3 +2343,34 @@ kbd {
   gap: 6px;
   font-size: 13px;
 }
+
+.goals {
+  margin-top: 6px;
+}
+.goal {
+  margin: 6px 0 10px;
+}
+.goal-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.goal-bar {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--panel-2);
+  margin: 4px 0 2px;
+}
+.goal-fill {
+  height: 100%;
+  border-radius: 5px;
+  background: var(--accent);
+}
+.goal-mark {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--text);
+}

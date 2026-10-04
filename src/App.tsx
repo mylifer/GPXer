@@ -703,6 +703,7 @@ export default function App() {
           onClose={() => setDialog(null)}
           onSaveImage={saveImage}
           fuel={prefs.fuel}
+          goals={prefs.goals}
           onPeriod={(from, to) => {
             setDialog(null);
             up({ filters: { ...prefs.filters, from, to } });

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FUEL_KINDS, type FuelKind, type FuelPrefs } from "../fuel";
-import type { Prefs } from "../prefs";
+import type { Goals, Prefs } from "../prefs";
 import type { NamedPlace, Settings } from "../api";
 import type { TzMode } from "../format";
 import { Modal } from "./Modal";
@@ -54,6 +54,7 @@ export function SettingsDialog({
   const [folders, setFolders] = useState(settings.watchedFolders);
   const [tz, setTz] = useState<TzMode>(prefs.tzMode);
   const [fuel, setFuel] = useState<FuelPrefs>(prefs.fuel);
+  const [goals, setGoals] = useState<Goals>(prefs.goals);
   const [clean, setClean] = useState(settings.stats.cleanSpikes);
   const [perType, setPerType] = useState(settings.stats.perType);
   const [stays, setStays] = useState(settings.stats.collapseStays);
@@ -71,7 +72,7 @@ export function SettingsDialog({
         },
         watchedFolders: folders,
       },
-      { tzMode: tz, fuel: { ...fuel, per100: Math.max(0, fuel.per100 || 0), price: Math.max(0, fuel.price || 0) } },
+      { tzMode: tz, goals: { km: Math.max(0, goals.km || 0), days: Math.max(0, goals.days || 0) }, fuel: { ...fuel, per100: Math.max(0, fuel.per100 || 0), price: Math.max(0, fuel.price || 0) } },
       places
         .map((x) => ({ ...x, name: x.name.trim(), radiusM: Math.max(10, Math.min(5000, Math.round(x.radiusM) || 150)) }))
         .filter((x) => x.name),
@@ -156,6 +157,21 @@ export function SettingsDialog({
             Kaydın yapıldığı yerin saat dilimine göre göster
           </label>
           <small>Başka bir ülkede kaydedilen loglarda ikinci seçenek yerel saati doğru gösterir.</small>
+        </fieldset>
+
+        <fieldset>
+          <legend>Yıllık hedefler</legend>
+          <div className="field-row">
+            <label className="field">
+              <span>Mesafe (km)</span>
+              <input type="number" min={0} step={100} value={goals.km} onChange={(e) => setGoals({ ...goals, km: e.target.valueAsNumber })} />
+            </label>
+            <label className="field">
+              <span>Yolda geçen gün</span>
+              <input type="number" min={0} step={1} value={goals.days} onChange={(e) => setGoals({ ...goals, days: e.target.valueAsNumber })} />
+            </label>
+          </div>
+          <small>Özet'in başında bu yılki ilerleme ve takvime göre önde mi geride mi olduğunuz gösterilir. 0: hedef yok.</small>
         </fieldset>
 
         <fieldset>

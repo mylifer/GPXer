@@ -25,6 +25,8 @@ import { countryName, flagOf } from "../visits";
 import { timeAtPlaces, visitedPlaces } from "../summary";
 import { YearCardSection } from "./YearCardSection";
 import { ProvinceSection } from "./ProvinceSection";
+import { GoalsSection } from "./GoalsSection";
+import type { Goals } from "../prefs";
 
 const FLIGHT_ROWS = 200;
 const TOP_CITIES = 8;
@@ -72,11 +74,12 @@ interface Props {
   /** Gün anahtarları saat dilimi kipine bağlı: değişince hesaplar yenilenir. */
   tzMode: TzMode;
   fuel: FuelPrefs;
+  goals: Goals;
   /** Yıl kartını kaydet (kaydetme penceresi açılır). */
   onSaveImage(name: string, base64: string): void;
 }
 
-export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage, fuel }: Props) {
+export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage, fuel, goals }: Props) {
   const [period, setPeriod] = useState<Period>("month");
   const [measure, setMeasure] = useState<Measure>("distance");
   const [hover, setHover] = useState<number | null>(null);
@@ -292,6 +295,7 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
             </div>
           )}
         </div>
+        <GoalsSection files={files} goals={goals} from={from} to={to} />
         <p className="muted small-note">
           Kenar çubuğundaki filtreye uyan {fmtNumber(files.length)} kayıt.
           {totals.partial > 0 &&
