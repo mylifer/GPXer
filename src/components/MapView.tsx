@@ -13,6 +13,8 @@ import { installInteractions } from "../map/interactions";
 import { useAreaSelect, useBaseLayerSwitch, useDetailLayers, useRegionLayers, useTrackLayers } from "../map/useMapLayers";
 import { usePhotoMarkers } from "../map/usePhotoMarkers";
 import { MapContextMenu } from "../map/MapContextMenu";
+import { recordTrip, type VideoOptions } from "../map/video";
+import type { Detail } from "../api";
 
 export { BASE_LAYERS, type BaseLayer } from "../map/style";
 export { metricDomain } from "../map/geojson";
@@ -26,6 +28,8 @@ export interface MapHandle {
   exportPng(): Promise<string>;
   /** Noktayı ortaya alır (gerekirse yakınlaştırır). */
   centerOn(lonLat: [number, number], minZoom?: number): void;
+  /** Kaydı baştan sona çizerek video kaydeder. */
+  recordVideo(d: Detail, o: Omit<VideoOptions, "padding">): Promise<Blob>;
 }
 
 export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(props, ref) {
@@ -108,6 +112,11 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
       const map = mapRef.current;
       if (!map) return;
       map.easeTo({ center: pt, zoom: Math.max(map.getZoom(), minZoom), duration: 600 });
+    },
+    recordVideo(d, o) {
+      const map = mapRef.current;
+      if (!map || !readyRef.current) return Promise.reject(new Error("Harita hazır değil"));
+      return recordTrip(map, d, { ...o, padding: padding(60) });
     },
     exportPng() {
       const map = mapRef.current;

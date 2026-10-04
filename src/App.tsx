@@ -27,13 +27,15 @@ import { DuplicatesDialog } from "./components/DuplicatesDialog";
 import { findDuplicates } from "./duplicates";
 import { useRegions } from "./hooks/useRegions";
 import { DayDialog } from "./components/DayDialog";
+import { VideoDialog } from "./components/VideoDialog";
+import { blobToBase64 } from "./lib/blob";
 import { dayBuckets } from "./days";
 import { HoverDetailPanel, HoverMapView } from "./components/HoverViews";
 import { MapToolbar } from "./components/MapToolbar";
 import { MapLegends } from "./components/MapLegends";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
-import { fmtBytes, fmtDistance, fmtElevation, fmtNumber, isoOf } from "./format";
+import { fmtBytes, fmtDistance, fmtElevation, fmtNumber, isoOf, tzOf } from "./format";
 import { createIdxStore } from "./lib/idxStore";
 import type { Dialog } from "./hooks/dialog";
 import { useBaseLayer, usePrefs } from "./hooks/usePrefs";
@@ -607,6 +609,7 @@ export default function App() {
             onNamePlace={onNamePlace}
             onFocusPoint={(pt) => mapRef.current?.centerOn(pt, 15)}
             fuel={prefs.fuel}
+            onVideo={() => setDialog("video")}
           />
         )}
       </main>
@@ -665,6 +668,33 @@ export default function App() {
           }}
           places={places}
           onFlight={showFlight}
+        />
+      )}
+      {dialog === "video" && selectedEntry && detail && (
+        <VideoDialog
+          onClose={() => setDialog(null)}
+          onRecord={async (seconds, onProgress, signal) => {
+            const s = selectedEntry.summary;
+            try {
+              const blob = await mapRef.current!.recordVideo(detail, {
+                seconds,
+                title: s.name || s.fileName,
+                tz: tzOf(s),
+                color: "#e8553d",
+                onProgress,
+                signal,
+              });
+              const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+              const stem = (s.name || s.fileName).replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]+/g, "_");
+              const path = await pickSavePath(`${stem}.${ext}`, [{ name: ext.toUpperCase(), extensions: [ext] }]);
+              if (!path) return;
+              await writeBase64File(path, await blobToBase64(blob));
+              setDialog(null);
+              say("Video kaydedildi.");
+            } catch (e) {
+              if ((e as Error)?.name !== "AbortError") fail(`Video kaydedilemedi: ${e}`);
+            }
+          }}
         />
       )}
       {dialog === "day" && (

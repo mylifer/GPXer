@@ -80,6 +80,7 @@ interface Props {
   onNamePlace(lon: number, lat: number, place: NamedPlace | null): void;
   onFocusPoint(lonLat: [number, number]): void;
   fuel: FuelPrefs;
+  onVideo(): void;
 }
 
 const STOPS_PAGE = 100;
@@ -451,6 +452,14 @@ export function DetailPanel(p: Props) {
             title={d && d.lat.length < 2 ? "Oynatmak için en az iki nokta gerekir" : "Oynat / duraklat (Boşluk)"}
           >
             {p.playing ? "❚❚ Duraklat" : "▶ Oynat"}
+          </button>
+          <button
+            className="btn small"
+            onClick={p.onVideo}
+            disabled={!d || d.lat.length < 2}
+            title="Yolculuğu haritada çizerek video olarak kaydet"
+          >
+            🎥 Video
           </button>
           <select value={p.playSpeed} onChange={(e) => p.onPlaySpeed(Number(e.target.value))} title="Oynatma hızı">
             {PLAY_SPEEDS.map((v) => (

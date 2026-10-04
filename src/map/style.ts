@@ -308,4 +308,27 @@ export function addOverlayLayers(map: maplibregl.Map) {
       "circle-stroke-width": 3,
     },
   });
+  // Video kaydı: ilerledikçe çizilen iz ve baş noktası (yalnızca kayıt sırasında).
+  for (const id of ["video-trail", "video-head"]) map.addSource(id, { type: "geojson", data: EMPTY });
+  map.addLayer({
+    id: "video-trail-casing",
+    type: "line",
+    source: "video-trail",
+    layout: { visibility: "none", "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": "#ffffff", "line-width": 9 },
+  });
+  map.addLayer({
+    id: "video-trail",
+    type: "line",
+    source: "video-trail",
+    layout: { visibility: "none", "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": "#e8553d", "line-width": 5 },
+  });
+  map.addLayer({
+    id: "video-head",
+    type: "circle",
+    source: "video-head",
+    layout: { visibility: "none" },
+    paint: { "circle-radius": 8, "circle-color": "#e8553d", "circle-stroke-color": "#fff", "circle-stroke-width": 3 },
+  });
 }
