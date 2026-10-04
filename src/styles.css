@@ -2512,3 +2512,37 @@ kbd {
   color: var(--text-muted);
   text-align: center;
 }
+
+.year-compare-chart {
+  width: 100%;
+  max-width: 480px;
+  height: auto;
+  display: block;
+}
+.year-compare-chart text {
+  font-size: 4.5px;
+  fill: var(--text-muted);
+}
+.yc-a,
+.yc-a-bg {
+  fill: #9aa7b4;
+  background: #9aa7b4;
+}
+.yc-b,
+.yc-b-bg {
+  fill: var(--accent);
+  background: var(--accent);
+}
+.sw-inline {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+td.up {
+  color: #2f7d5d;
+}
+td.down {
+  color: #c0453c;
+}
