@@ -162,3 +162,49 @@ pub fn merge(mut parts: Vec<Gpx>, name: Option<String>) -> Gpx {
     }
     out
 }
+
+/// Asıl segmentler (izler, yoksa rotalar), değiştirilebilir.
+fn primary_segments_mut(gpx: &mut Gpx) -> impl Iterator<Item = &mut Vec<Point>> {
+    let source = if gpx.tracks.is_empty() {
+        &mut gpx.routes
+    } else {
+        &mut gpx.tracks
+    };
+    source.iter_mut().flat_map(|t| t.segments.iter_mut())
+}
+
+/// `[start, end]` (dahil) noktalarını siler; komşular düz çizgiyle birleşir.
+/// Boşalan segmentler atılır. Silinen nokta sayısını döner.
+pub fn delete_range(gpx: &mut Gpx, start: usize, end: usize) -> usize {
+    let mut k = 0;
+    let mut removed = 0;
+    for seg in primary_segments_mut(gpx) {
+        seg.retain(|_| {
+            let keep = k < start || k > end;
+            k += 1;
+            if !keep {
+                removed += 1;
+            }
+            keep
+        });
+    }
+    for t in gpx.tracks.iter_mut().chain(gpx.routes.iter_mut()) {
+        t.segments.retain(|s| !s.is_empty());
+    }
+    removed
+}
+
+/// `index` sıralı noktayı yeni konuma taşır.
+pub fn move_point(gpx: &mut Gpx, index: usize, lat: f64, lon: f64) -> bool {
+    let mut k = 0;
+    for seg in primary_segments_mut(gpx) {
+        if index < k + seg.len() {
+            let p = &mut seg[index - k];
+            p.lat = lat;
+            p.lon = lon;
+            return true;
+        }
+        k += seg.len();
+    }
+    false
+}

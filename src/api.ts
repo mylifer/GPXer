@@ -205,6 +205,11 @@ export interface RewriteResult {
 export const fixElevation = (path: string) => invoke<RewriteResult>("fix_elevation", { path });
 /** Seyrek kaydı yola oturtur (çevrimiçi harita eşleştirme). */
 export const snapToRoads = (path: string) => invoke<RewriteResult>("snap_to_roads", { path });
+/** Kayıtta noktaları siler / bir noktayı taşır (yerinde, geri alınabilir). */
+export const deletePoints = (path: string, start: number, end: number) =>
+  invoke<RewriteResult>("delete_points", { path, start, end });
+export const movePoint = (path: string, index: number, lat: number, lon: number) =>
+  invoke<RewriteResult>("move_point", { path, index, lat, lon });
 export const undoRewrite = (path: string, previous: string) => invoke<LoadResult>("undo_rewrite", { path, previous });
 /** Kayıtlara tek seferde etiket ekler; değişen kayıtların yeni bilgileri döner. */
 export const addTag = (paths: string[], tag: string) => invoke<Record<string, FileMeta>>("add_tag", { paths, tag });

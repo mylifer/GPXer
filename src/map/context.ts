@@ -57,6 +57,10 @@ export interface MapViewProps {
   /** Fotoğrafın eşleştiği kaydın özeti (ad ve saat dilimi için). */
   summaryOf(path: string): FileSummary | undefined;
   onPhotoRecord(path: string): void;
+  /** Nokta düzenleme kipi (seçili kaydın ayrıntısı ve seçili nokta); kapalıysa null. */
+  editing: { detail: Detail; idx: number | null } | null;
+  onEditPick(i: number): void;
+  onEditMove(i: number, lonLat: [number, number]): void;
   /** Güzergâh aramasının A/B noktası seçildi. */
   onRoutePoint(which: "a" | "b", lonLat: [number, number]): void;
   /** Haritada gösterilen güzergâh arama noktaları. */

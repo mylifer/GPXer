@@ -69,3 +69,58 @@ pub(crate) async fn undo_rewrite(
     })
     .await?
 }
+
+/// Kayıttaki `[start, end]` noktalarını siler (grafik/harita sıraları; ham
+/// dosyada aradaki tüm noktalar). Geri alınabilir.
+#[tauri::command]
+pub(crate) async fn delete_points(
+    app: AppHandle,
+    path: String,
+    start: usize,
+    end: usize,
+) -> Result<RewriteResult, String> {
+    run_blocking(move || {
+        let cfg = app.state::<SettingsStore>().stats();
+        let p = crate::prepared(&app, &path, &cfg)?;
+        if start > end || end >= p.len() {
+            return Err("Geçersiz aralık".into());
+        }
+        if end - start + 1 >= p.len() {
+            return Err("Kaydın tüm noktaları silinemez".into());
+        }
+        let (a, b) = (crate::raw_index(&p, start)?, crate::raw_index(&p, end)?);
+        rewrite_record(&app, &path, |gpx| {
+            if gpx_core::ops::delete_range(gpx, a, b) == 0 {
+                return Err("Silinecek nokta yok".into());
+            }
+            Ok(())
+        })
+    })
+    .await?
+}
+
+/// Noktayı haritada sürüklendiği yere taşır. Geri alınabilir.
+#[tauri::command]
+pub(crate) async fn move_point(
+    app: AppHandle,
+    path: String,
+    index: usize,
+    lat: f64,
+    lon: f64,
+) -> Result<RewriteResult, String> {
+    run_blocking(move || {
+        if !(lat.is_finite() && lon.is_finite() && lat.abs() <= 90.0 && lon.abs() <= 180.0) {
+            return Err("Geçersiz konum".into());
+        }
+        let cfg = app.state::<SettingsStore>().stats();
+        let p = crate::prepared(&app, &path, &cfg)?;
+        let i = crate::raw_index(&p, index)?;
+        rewrite_record(&app, &path, |gpx| {
+            if !gpx_core::ops::move_point(gpx, i, lat, lon) {
+                return Err("Geçersiz nokta".into());
+            }
+            Ok(())
+        })
+    })
+    .await?
+}

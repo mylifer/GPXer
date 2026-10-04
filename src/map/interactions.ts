@@ -54,7 +54,7 @@ export function installInteractions(map: maplibregl.Map, r: MapRefs) {
   };
 
   map.on("click", (e) => {
-    if (live.current.areaMode) return;
+    if (live.current.areaMode || live.current.editing) return;
     chooser.current?.remove();
     const spot = map.queryRenderedFeatures(hitBox(e.point, 6), { layers: ["stops", "hotspots"] })[0];
     if (spot) {

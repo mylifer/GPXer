@@ -407,3 +407,53 @@ export function useRoutePins(map: maplibregl.Map | null, pins: { a: [number, num
     return () => made.forEach((m) => m.remove());
   }, [map, a?.[0], a?.[1], b?.[0], b?.[1]]);
 }
+
+/** Nokta düzenleme: izin noktasına tıklanınca seçilir, sürüklenebilir işaretçi
+ * olarak gösterilir; bırakılınca yeni konum bildirilir. */
+export function useEditPoint(
+  map: maplibregl.Map | null,
+  edit: { detail: Detail; idx: number | null } | null,
+  onPick: (i: number) => void,
+  onMove: (i: number, lonLat: [number, number]) => void,
+) {
+  const detail = edit?.detail ?? null;
+  const idx = edit?.idx ?? null;
+  // Tıklanan yere en yakın örnek (ekranda 14 px içinde).
+  useEffect(() => {
+    if (!map || !detail) return;
+    const canvas = map.getCanvas();
+    canvas.style.cursor = "crosshair";
+    const click = (e: maplibregl.MapMouseEvent) => {
+      let best = -1;
+      let bestD = 14 * 14;
+      for (let i = 0; i < detail.lat.length; i++) {
+        const p = map.project([detail.lon[i], detail.lat[i]]);
+        const d = (p.x - e.point.x) ** 2 + (p.y - e.point.y) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      if (best >= 0) onPick(best);
+    };
+    map.on("click", click);
+    return () => {
+      map.off("click", click);
+      canvas.style.cursor = "";
+    };
+  }, [map, detail]);
+  useEffect(() => {
+    if (!map || !detail || idx == null || idx >= detail.lat.length) return;
+    const el = document.createElement("div");
+    el.className = "edit-pin";
+    el.title = "Sürükleyerek taşıyın";
+    const m = new maplibreglNs.Marker({ element: el, draggable: true }).setLngLat([detail.lon[idx], detail.lat[idx]]).addTo(map);
+    m.on("dragend", () => {
+      const ll = m.getLngLat();
+      onMove(idx, [ll.lng, ll.lat]);
+    });
+    return () => {
+      m.remove();
+    };
+  }, [map, detail, idx]);
+}

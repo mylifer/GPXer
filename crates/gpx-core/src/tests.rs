@@ -1686,3 +1686,26 @@ fn snap_fills_road_between_sparse_points() {
     assert!(pts[1].ele.unwrap() > 0.0 && pts[1].ele.unwrap() < 1.0);
     assert!(snap::median_step_m(&gpx).unwrap() < 400.0);
 }
+
+#[test]
+fn delete_range_and_move_point() {
+    let seg = |a: i64, n: i64| {
+        (a..a + n)
+            .map(|k| pt(41.0, 29.0 + k as f64 * 0.001, k))
+            .collect::<Vec<_>>()
+    };
+    let mut gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg(0, 5), seg(5, 3)],
+        }],
+        ..Default::default()
+    };
+    // Birinci segmentin sonu ve ikincinin tamamı.
+    assert_eq!(ops::delete_range(&mut gpx, 3, 7), 5);
+    assert_eq!(gpx.tracks[0].segments.len(), 1);
+    assert_eq!(gpx.tracks[0].segments[0].len(), 3);
+    assert!(ops::move_point(&mut gpx, 1, 40.5, 30.5));
+    assert_eq!(gpx.tracks[0].segments[0][1].lat, 40.5);
+    assert!(!ops::move_point(&mut gpx, 3, 0.0, 0.0));
+}

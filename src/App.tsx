@@ -9,6 +9,9 @@ import {
   restoreLibrary,
   snapToRoads,
   undoRewrite,
+  deletePoints,
+  movePoint,
+  type RewriteResult,
   writeBase64File,
   writeTextFile,
   photoThumb,
@@ -77,7 +80,11 @@ export default function App() {
   const [routePins, setRoutePins] = useState<{ a: [number, number] | null; b: [number, number] | null }>({ a: null, b: null });
   // Yerinde düzeltilen kayıtlar (geri almak için önceki halin yolu) ve süren işlem.
   const [detailRev, setDetailRev] = useState(0);
-  const [rewritten, setRewritten] = useState<Record<string, string>>({});
+  /** Yerinde düzeltilen kayıtların önceki halleri (geri alma yığını, son en sonda). */
+  const [rewritten, setRewritten] = useState<Record<string, string[]>>({});
+  /** Haritada nokta düzenleme kipi ve seçili nokta (ayrıntı örnek sırası). */
+  const [editMode, setEditMode] = useState(false);
+  const [editIdx, setEditIdx] = useState<number | null>(null);
   const [rewriting, setRewriting] = useState<{ path: string; kind: RewriteKind } | null>(null);
   const [areaMode, setAreaMode] = useState(false);
   const [compare, setCompare] = useState<[string, string] | null>(null);
@@ -214,14 +221,33 @@ export default function App() {
     },
     [patchFiles, fail],
   );
+  const applyRewrite = useCallback(
+    (path: string, r: RewriteResult) => {
+      replaceSummary(r.result);
+      setRewritten((m) => ({ ...m, [path]: [...(m[path] ?? []), r.previous] }));
+      setDetailRev((x) => x + 1);
+    },
+    [replaceSummary],
+  );
+  /** Nokta düzenleme (silme, taşıma): yerinde, geri alınabilir. */
+  const editPoints = useCallback(
+    async (path: string, run: () => Promise<RewriteResult>, msg: string) => {
+      try {
+        applyRewrite(path, await run());
+        setEditIdx(null);
+        say(`${msg} “Düzeltmeyi geri al” ile geri alınabilir.`);
+      } catch (e) {
+        fail(String(e));
+      }
+    },
+    [applyRewrite, say, fail],
+  );
   const rewrite = useCallback(
     async (path: string, kind: RewriteKind) => {
       setRewriting({ path, kind });
       try {
         const r = await (kind === "elevation" ? fixElevation(path) : snapToRoads(path));
-        replaceSummary(r.result);
-        setRewritten((m) => ({ ...m, [path]: r.previous }));
-        setDetailRev((x) => x + 1);
+        applyRewrite(path, r);
         const after = r.result.status === "ok" ? r.result.file.stats : null;
         say(
           kind === "elevation"
@@ -234,17 +260,20 @@ export default function App() {
         setRewriting(null);
       }
     },
-    [replaceSummary, say, fail],
+    [applyRewrite, say, fail],
   );
   const undoRewriteOf = useCallback(
     async (path: string) => {
-      const prev = rewritten[path];
+      const stack = rewritten[path];
+      const prev = stack?.[stack.length - 1];
       if (!prev) return;
       try {
         replaceSummary(await undoRewrite(path, prev));
         setRewritten((m) => {
           const n = { ...m };
-          delete n[path];
+          const rest = (n[path] ?? []).slice(0, -1);
+          if (rest.length) n[path] = rest;
+          else delete n[path];
           return n;
         });
         setDetailRev((x) => x + 1);
@@ -255,6 +284,23 @@ export default function App() {
     },
     [rewritten, replaceSummary, say, fail],
   );
+  // Nokta düzenlemede Delete seçili noktayı siler; kayıt değişince seçim kalkar.
+  useEffect(() => {
+    setEditIdx(null);
+  }, [selected]);
+  useEffect(() => {
+    if (!editMode || editIdx == null || !detail || !selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest("input, textarea, select, [contenteditable]")) return;
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        editPoints(selected, () => deletePoints(selected, detail.idx[editIdx], detail.idx[editIdx]), "Nokta silindi.");
+      } else if (e.key === "Escape") setEditIdx(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editMode, editIdx, detail, selected, editPoints]);
   // ---------- Gezi hikâyesi (tek sayfalık HTML) ----------
   const makeStory = useCallback(async () => {
     const entry = selectedEntry;
@@ -524,6 +570,13 @@ export default function App() {
             regions={regions}
             terrain={prefs.terrain3d}
             routePins={routePins}
+            editing={editMode && detail && selected ? { detail, idx: editIdx } : null}
+            onEditPick={setEditIdx}
+            onEditMove={(i, [lon, lat]) =>
+              detail &&
+              selected &&
+              editPoints(selected, () => movePoint(selected, detail.idx[i], lat, lon), "Nokta taşındı.")
+            }
             onRoutePoint={(which, p) => {
               const next = { ...routePins, [which]: p };
               setRoutePins(next);
@@ -641,6 +694,30 @@ export default function App() {
             onExportGpx={exportSelectedGpx}
             onRewrite={(kind) => rewrite(selectedEntry.summary.path, kind)}
             onUndoRewrite={rewritten[selectedEntry.summary.path] ? () => undoRewriteOf(selectedEntry.summary.path) : undefined}
+            onDeleteRange={() =>
+              detail &&
+              range &&
+              editPoints(
+                selectedEntry.summary.path,
+                () => deletePoints(selectedEntry.summary.path, detail.idx[range[0]], detail.idx[range[1]]),
+                "Aralıktaki noktalar silindi.",
+              )
+            }
+            editMode={editMode}
+            onEditMode={() => {
+              setEditMode((v) => !v);
+              setEditIdx(null);
+            }}
+            editIdx={editIdx}
+            onDeletePoint={() =>
+              detail &&
+              editIdx != null &&
+              editPoints(
+                selectedEntry.summary.path,
+                () => deletePoints(selectedEntry.summary.path, detail.idx[editIdx], detail.idx[editIdx]),
+                "Nokta silindi.",
+              )
+            }
             rewriting={rewriting?.path === selectedEntry.summary.path ? rewriting.kind : null}
             meta={meta[selectedEntry.summary.path] ?? EMPTY_META}
             allTags={allTags}

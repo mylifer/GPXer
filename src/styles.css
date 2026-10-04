@@ -2374,3 +2374,13 @@ kbd {
   width: 2px;
   background: var(--text);
 }
+
+.edit-pin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid #d8453c;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: grab;
+}

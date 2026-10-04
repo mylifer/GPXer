@@ -270,7 +270,7 @@ async fn range_stats(
 /// Kütüphanedeki kaydın ayarlara göre hazırlanmış (sıçramaları ayıklanmış)
 /// hali; grafikteki nokta sıraları bu hale göredir. Son kullanılanlar
 /// bellekte tutulur.
-fn prepared(
+pub(crate) fn prepared(
     app: &AppHandle,
     path: &str,
     cfg: &gpx_core::StatsConfig,
@@ -289,7 +289,7 @@ fn read_raw(app: &AppHandle, path: &str) -> Result<gpx_core::parse::Gpx, String>
 }
 
 /// Hazırlanmış kayıttaki nokta sırasını ham kayıttaki sıraya çevirir.
-fn raw_index(p: &gpx_core::Prepared, i: usize) -> Result<usize, String> {
+pub(crate) fn raw_index(p: &gpx_core::Prepared, i: usize) -> Result<usize, String> {
     p.raw_index(i).ok_or_else(|| "Geçersiz nokta".to_owned())
 }
 
@@ -425,6 +425,8 @@ pub fn run() {
             backup::restore_library,
             dem::fix_elevation,
             rewrite::undo_rewrite,
+            rewrite::delete_points,
+            rewrite::move_point,
             snap::snap_to_roads,
             links::open_street_view,
             weather::weather_at,

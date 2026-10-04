@@ -84,6 +84,12 @@ interface Props {
   fuel: FuelPrefs;
   onVideo(): void;
   onStory(): void;
+  onDeleteRange(): void;
+  /** Haritada nokta düzenleme kipi: noktaya tıklanır, sürüklenerek taşınır ya da silinir. */
+  editMode: boolean;
+  onEditMode(): void;
+  editIdx: number | null;
+  onDeletePoint(): void;
 }
 
 const STOPS_PAGE = 100;
@@ -518,6 +524,19 @@ export function DetailPanel(p: Props) {
           >
             🎥 Video
           </button>
+          <button
+            className={`btn small${p.editMode ? " primary" : ""}`}
+            onClick={p.onEditMode}
+            disabled={!d}
+            title="Haritada izin bir noktasına tıklayın: sürükleyerek taşıyın ya da silin (Delete). Değişiklikler geri alınabilir."
+          >
+            ✥ Noktaları düzenle
+          </button>
+          {p.editMode && p.editIdx != null && (
+            <button className="btn small" onClick={p.onDeletePoint} title="Seçili noktayı sil (Delete)">
+              🗑 Noktayı sil
+            </button>
+          )}
           <button className="btn small" onClick={p.onStory} title="Harita, istatistikler, gün gün döküm, yükseklik ve fotoğraflarla tek sayfalık gezi hikâyesi (HTML)">
             📖 Hikâye
           </button>
@@ -554,6 +573,9 @@ export function DetailPanel(p: Props) {
           </button>
           <button className="btn small" onClick={p.onTrim} title="Aralığı yeni kayıt olarak kaydet">
             Kırp
+          </button>
+          <button className="btn small" onClick={p.onDeleteRange} title="Aralıktaki noktaları kayıttan sil (hatalı GPS noktaları için; geri alınabilir)">
+            Aralığı sil
           </button>
           <button className="btn small" onClick={p.onSplit} title="Kaydı aralığın başından ikiye böl">
             Buradan böl
