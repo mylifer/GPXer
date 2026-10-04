@@ -1,5 +1,6 @@
 mod archive;
 mod backup;
+mod bookmarks;
 mod dem;
 mod edit;
 mod export;
@@ -397,6 +398,7 @@ pub fn run() {
             app.manage(SettingsStore::open(&root));
             app.manage(meta);
             app.manage(PlacesStore::open(&root));
+            app.manage(bookmarks::BookmarkStore::open(&root));
             // Harita karoları: önbellek klasöründe (yoksa veri klasöründe).
             let cache_dir = app
                 .path()
@@ -443,6 +445,8 @@ pub fn run() {
             snap::snap_to_roads,
             links::open_street_view,
             archive::import_archive,
+            bookmarks::get_bookmarks,
+            bookmarks::set_bookmarks,
             tiles::tile,
             tiles::prefetch_tiles,
             tiles::tile_cache_info,

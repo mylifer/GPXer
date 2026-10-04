@@ -12,6 +12,7 @@ import {
   deletePoints,
   movePoint,
   type RewriteResult,
+  type Bookmark,
   writeBase64File,
   writeTextFile,
   prefetchTiles,
@@ -37,6 +38,8 @@ import { useRegions } from "./hooks/useRegions";
 import { DayDialog } from "./components/DayDialog";
 import { VideoDialog } from "./components/VideoDialog";
 import { RouteSearchDialog } from "./components/RouteSearchDialog";
+import { BookmarkEditor, BookmarkList } from "./components/BookmarkDialogs";
+import { useBookmarks } from "./hooks/useBookmarks";
 import { blobToBase64 } from "./lib/blob";
 import { storyHtml, type StoryPhoto } from "./story";
 import { nightsOf } from "./nights";
@@ -80,6 +83,8 @@ export default function App() {
   /** İmleç (fare ya da oynatma); App'i her karede yeniden çizmemek için state değil. */
   const [cursor] = useState(createIdxStore);
   const [dialog, setDialog] = useState<Dialog>(null);
+  /** Düzenlenen (ya da yeni) yer imi. */
+  const [editMark, setEditMark] = useState<{ mark: Bookmark; isNew: boolean } | null>(null);
   /** Güzergâh aramasının A ve B noktaları (haritada sağ tık menüsünden). */
   const [routePins, setRoutePins] = useState<{ a: [number, number] | null; b: [number, number] | null }>({ a: null, b: null });
   // Yerinde düzeltilen kayıtlar (geri almak için önceki halin yolu) ve süren işlem.
@@ -153,6 +158,7 @@ export default function App() {
     libraryFlights,
     selOverlaps,
   } = useFilteredFiles({ files, prefs, meta, places, dark, selected, routeInfoRef });
+  const bookmarks = useBookmarks(fail);
   const regions = useRegions(shown, prefs.filters.from, prefs.filters.to, prefs.regionsLayer);
   // Gün akışı: kaydı olan günler ve açılış günü (seçili kaydın ilk günü, yoksa son gün).
   const daysWithData = useMemo(
@@ -622,6 +628,11 @@ export default function App() {
             regions={regions}
             terrain={prefs.terrain3d}
             customLayers={prefs.customLayers}
+            bookmarks={prefs.bookmarksLayer ? bookmarks.marks : null}
+            onBookmark={(b) => setEditMark({ mark: b, isNew: false })}
+            onBookmarkHere={([lon, lat]) =>
+              setEditMark({ mark: { id: `y${Date.now().toString(36)}`, name: "", note: "", lat, lon, wish: false, created: Date.now() }, isNew: true })
+            }
             routePins={routePins}
             editing={editMode && detail && selected ? { detail, idx: editIdx } : null}
             onEditPick={setEditIdx}
@@ -657,6 +668,7 @@ export default function App() {
             clearPhotos={clearPhotos}
             photoTrack={makePhotoTracks}
             downloadArea={downloadArea}
+            openBookmarks={() => setDialog("bookmarks")}
           />
 
           <MapLegends
@@ -873,6 +885,37 @@ export default function App() {
               if ((e as Error)?.name !== "AbortError") fail(`Video kaydedilemedi: ${e}`);
             }
           }}
+        />
+      )}
+      {editMark && (
+        <BookmarkEditor
+          mark={editMark.mark}
+          onClose={() => setEditMark(null)}
+          onSave={(b) => {
+            bookmarks.upsert(b);
+            setEditMark(null);
+            if (!prefs.bookmarksLayer) up({ bookmarksLayer: true });
+          }}
+          onDelete={
+            editMark.isNew
+              ? undefined
+              : () => {
+                  bookmarks.remove(editMark.mark.id);
+                  setEditMark(null);
+                }
+          }
+        />
+      )}
+      {dialog === "bookmarks" && (
+        <BookmarkList
+          marks={bookmarks.marks}
+          files={files.map((f) => f.summary)}
+          onGo={(b) => {
+            setDialog(null);
+            mapRef.current?.centerOn([b.lon, b.lat], 13);
+          }}
+          onEdit={(b) => setEditMark({ mark: b, isNew: false })}
+          onClose={() => setDialog(null)}
         />
       )}
       {dialog === "route" && routePins.a && routePins.b && (

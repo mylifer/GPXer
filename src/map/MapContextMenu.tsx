@@ -34,11 +34,13 @@ export function MapContextMenu({
   map,
   onInfo,
   onRoutePoint,
+  onBookmarkHere,
 }: {
   map: maplibregl.Map | null;
   onInfo(msg: string): void;
   /** Güzergâh aramasının başlangıç (A) ya da varış (B) noktası. */
   onRoutePoint(which: "a" | "b", lonLat: [number, number]): void;
+  onBookmarkHere(lonLat: [number, number]): void;
 }) {
   const [spot, setSpot] = useState<Spot | null>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -114,7 +116,7 @@ export function MapContextMenu({
   // Menü harita kenarından taşmasın.
   const box = map?.getContainer().getBoundingClientRect();
   const left = Math.min(spot.x, (box?.width ?? 1e4) - 270);
-  const top = Math.min(spot.y, (box?.height ?? 1e4) - 300);
+  const top = Math.min(spot.y, (box?.height ?? 1e4) - 330);
   return (
     <div ref={menu} className="map-menu" style={{ left: Math.max(0, left), top: Math.max(0, top) }} role="menu">
       <div className="map-menu-title">Koordinatı kopyala</div>
@@ -123,6 +125,15 @@ export function MapContextMenu({
           {label}
         </button>
       ))}
+      <button
+        role="menuitem"
+        onClick={() => {
+          setSpot(null);
+          onBookmarkHere([spot.lon, spot.lat]);
+        }}
+      >
+        📌 Buraya yer imi koy…
+      </button>
       <div className="map-menu-title">Sokak görünümü (tarayıcıda)</div>
       <button role="menuitem" onClick={() => street("google")}>
         Google Street View'da aç

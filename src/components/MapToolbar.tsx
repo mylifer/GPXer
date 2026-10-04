@@ -24,6 +24,7 @@ export function MapToolbar({
   clearPhotos,
   photoTrack,
   downloadArea,
+  openBookmarks,
 }: {
   prefs: Prefs;
   up(patch: Partial<Prefs>): void;
@@ -40,6 +41,7 @@ export function MapToolbar({
   clearPhotos(): void;
   photoTrack(): void;
   downloadArea(): void;
+  openBookmarks(): void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Dar pencerede çubuk birkaç satıra iner; bildirimler (`.toasts`) altında
@@ -162,6 +164,7 @@ export function MapToolbar({
       )}
       <LayersMenu
         actions={[
+          { label: "📌 Yer imleri listesi", title: "İşaretlediğiniz yerler ve gitmek istedikleriniz", run: openBookmarks },
           {
             label: "⤓ Görünen alanı çevrimdışı için indir",
             title:
@@ -183,6 +186,13 @@ export function MapToolbar({
             title: "Haritayı eğik bakışla, dağ ve vadileri üç boyutlu göster (sağ tuşla sürükleyerek döndürülür; internet gerekir)",
             on: prefs.terrain3d,
             toggle: () => up({ terrain3d: !prefs.terrain3d }),
+          },
+          {
+            id: "bookmarks",
+            label: "Yer imleri",
+            title: "Haritada sağ tıklayıp koyduğunuz yer imleri (📌) ve gitmek istedikleriniz (⭐)",
+            on: prefs.bookmarksLayer,
+            toggle: () => up({ bookmarksLayer: !prefs.bookmarksLayer }),
           },
           ...prefs.customLayers.map((l) => ({
             id: l.id,

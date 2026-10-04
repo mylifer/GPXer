@@ -3,7 +3,7 @@
 import { useEffect, type RefObject } from "react";
 import type * as maplibregl from "maplibre-gl";
 import * as maplibreglNs from "maplibre-gl";
-import type { Detail, NamedPlace } from "../api";
+import type { Bookmark, Detail, NamedPlace } from "../api";
 import type { FileEntry } from "../types";
 import { SEQ_DARK, SEQ_LIGHT } from "../types";
 import type { TrackColorBy } from "../prefs";
@@ -486,4 +486,24 @@ export function useCustomLayers(r: MapRefs, layers: CustomLayer[]) {
       }
     });
   }, [key]);
+}
+
+/** Yer imleri (işaretçi; tıklayınca düzenleme). */
+export function useBookmarkMarkers(map: maplibregl.Map | null, marks: Bookmark[] | null, onClick: (b: Bookmark) => void) {
+  const key = JSON.stringify(marks?.map((m) => [m.id, m.lat, m.lon, m.name, m.wish]) ?? null);
+  useEffect(() => {
+    if (!map || !marks) return;
+    const made = marks.map((b) => {
+      const el = document.createElement("div");
+      el.className = "bookmark-pin";
+      el.textContent = b.wish ? "⭐" : "📌";
+      el.title = b.note ? `${b.name}\n${b.note}` : b.name;
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onClick(b);
+      });
+      return new maplibreglNs.Marker({ element: el, anchor: "bottom" }).setLngLat([b.lon, b.lat]).addTo(map);
+    });
+    return () => made.forEach((m) => m.remove());
+  }, [map, key]);
 }

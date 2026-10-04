@@ -211,6 +211,18 @@ export const deletePoints = (path: string, start: number, end: number) =>
 export const movePoint = (path: string, index: number, lat: number, lon: number) =>
   invoke<RewriteResult>("move_point", { path, index, lat, lon });
 export const undoRewrite = (path: string, previous: string) => invoke<LoadResult>("undo_rewrite", { path, previous });
+export interface Bookmark {
+  id: string;
+  name: string;
+  note: string;
+  lat: number;
+  lon: number;
+  /** Gidilmek istenen yer. */
+  wish: boolean;
+  created: number;
+}
+export const getBookmarks = () => invoke<Bookmark[]>("get_bookmarks");
+export const setBookmarks = (items: Bookmark[]) => invoke<void>("set_bookmarks", { items });
 /** Çevrimdışı harita: karoları önbelleğe indirir; önbellek boyutu ve temizleme. */
 export const prefetchTiles = (urls: string[]) => invoke<number>("prefetch_tiles", { urls });
 export const tileCacheInfo = () => invoke<{ bytes: number; count: number }>("tile_cache_info");

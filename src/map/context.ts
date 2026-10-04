@@ -65,6 +65,11 @@ export interface MapViewProps {
   onRoutePoint(which: "a" | "b", lonLat: [number, number]): void;
   /** Haritada gösterilen güzergâh arama noktaları. */
   routePins: { a: [number, number] | null; b: [number, number] | null };
+  /** Haritadaki yer imleri; katman kapalıysa null. */
+  bookmarks: import("../api").Bookmark[] | null;
+  onBookmark(b: import("../api").Bookmark): void;
+  /** Sağ tık menüsünden “Buraya yer imi koy”. */
+  onBookmarkHere(lonLat: [number, number]): void;
   /** Kullanıcının eklediği harita katmanları. */
   customLayers: import("../customLayers").CustomLayer[];
   /** 3B arazi görünümü. */

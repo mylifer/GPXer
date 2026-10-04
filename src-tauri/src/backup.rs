@@ -3,6 +3,7 @@
 //! açma yolundan geçer (kopyalar atlanır), bilgiler mevcut olanlarla
 //! birleştirilir. Ayarlar (izlenen klasörler bilgisayara özgü) yedeklenmez.
 
+use crate::bookmarks::{Bookmark, BookmarkStore};
 use crate::library::{Library, LoadResult};
 use crate::meta::{FileMeta, MetaStore};
 use crate::places::{NamedPlace, PlacesStore};
@@ -17,6 +18,7 @@ const RECORDS_DIR: &str = "kayitlar/";
 const META_FILE: &str = "bilgiler.json";
 const PLACES_FILE: &str = "yerler.json";
 const MANIFEST_FILE: &str = "gpxer-yedek.json";
+const BOOKMARKS_FILE: &str = "yer-imleri.json";
 
 #[derive(Serialize, Deserialize)]
 struct Manifest {
@@ -57,6 +59,7 @@ pub(crate) async fn backup_library(app: AppHandle, dest: String) -> Result<Backu
             &app.state::<Library>().files(),
             &app.state::<MetaStore>().all(),
             &app.state::<PlacesStore>().all(),
+            &app.state::<BookmarkStore>().all(),
         )
         .map_err(|e| format!("Yedek yazılamadı: {e}"))
     })
@@ -68,6 +71,7 @@ fn write_backup(
     files: &[String],
     meta: &HashMap<String, FileMeta>,
     places: &[NamedPlace],
+    bookmarks: &[Bookmark],
 ) -> std::io::Result<BackupInfo> {
     use zip::write::SimpleFileOptions;
     // Yarım yedek kalmasın: geçici dosyaya yazılıp yerine taşınır.
@@ -92,6 +96,8 @@ fn write_backup(
         zip.write_all(&serde_json::to_vec_pretty(&by_name).map_err(std::io::Error::other)?)?;
         zip.start_file(PLACES_FILE, opts)?;
         zip.write_all(&serde_json::to_vec_pretty(places).map_err(std::io::Error::other)?)?;
+        zip.start_file(BOOKMARKS_FILE, opts)?;
+        zip.write_all(&serde_json::to_vec_pretty(bookmarks).map_err(std::io::Error::other)?)?;
         let manifest = Manifest {
             app: "GPXer".into(),
             version: env!("CARGO_PKG_VERSION").into(),
@@ -131,6 +137,7 @@ struct Extracted {
     paths: Vec<(String, String)>,
     meta: HashMap<String, FileMeta>,
     places: Vec<NamedPlace>,
+    bookmarks: Vec<Bookmark>,
 }
 
 /// Yedeği `tmp` klasörüne açar; (geçici yol, yedekteki ad) çiftleri döner.
@@ -153,6 +160,9 @@ fn extract(src: &Path, tmp: &Path) -> Result<Extracted, String> {
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default();
     let places: Vec<NamedPlace> = read(&mut zip, PLACES_FILE)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let bookmarks: Vec<Bookmark> = read(&mut zip, BOOKMARKS_FILE)
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default();
     std::fs::create_dir_all(tmp).map_err(|e| e.to_string())?;
@@ -181,6 +191,7 @@ fn extract(src: &Path, tmp: &Path) -> Result<Extracted, String> {
         paths,
         meta,
         places,
+        bookmarks,
     })
 }
 
@@ -217,6 +228,18 @@ fn restore_into(app: &AppHandle, src: &Path, tmp: &Path) -> Result<RestoreInfo, 
         store
             .set(all)
             .map_err(|e| format!("Yerler yazılamadı: {e}"))?;
+    }
+    let bm = app.state::<BookmarkStore>();
+    let mut marks = bm.all();
+    let n = marks.len();
+    for b in x.bookmarks {
+        if !marks.iter().any(|m| m.id == b.id) {
+            marks.push(b);
+        }
+    }
+    if marks.len() > n {
+        bm.set(marks)
+            .map_err(|e| format!("Yer imleri yazılamadı: {e}"))?;
     }
     Ok(RestoreInfo {
         results,
@@ -255,8 +278,14 @@ mod tests {
             radius_m: 150.0,
         }];
         let dest = root.join("yedek.zip");
-        let info =
-            write_backup(&dest, &[a.to_string_lossy().into_owned()], &meta, &places).unwrap();
+        let info = write_backup(
+            &dest,
+            &[a.to_string_lossy().into_owned()],
+            &meta,
+            &places,
+            &[],
+        )
+        .unwrap();
         assert_eq!(info.records, 1);
         assert!(!root.join("yedek.zip.tmp").exists());
         let x = extract(&dest, &root.join("ac")).unwrap();
