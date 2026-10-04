@@ -44,6 +44,8 @@ import { BookmarkEditor, BookmarkList } from "./components/BookmarkDialogs";
 import { useBookmarks } from "./hooks/useBookmarks";
 import { PlanPanel, type PlanState } from "./components/PlanPanel";
 import { PasswordModal, type PasswordAsk } from "./components/PasswordModal";
+import { CommandPalette, type Command } from "./components/CommandPalette";
+import { BASE_LAYERS } from "./map/style";
 import { explorerGeoJSON, explorerStats } from "./explorer";
 import { inZone, privacyZones } from "./privacy";
 import { blobToBase64 } from "./lib/blob";
@@ -55,7 +57,7 @@ import { MapToolbar } from "./components/MapToolbar";
 import { MapLegends } from "./components/MapLegends";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
-import { fmtBytes, fmtDistance, fmtElevation, fmtNumber, isoOf, isoToTr, tzOf } from "./format";
+import { fmtBytes, fmtDate, fmtDistance, fmtElevation, fmtNumber, isoOf, isoToTr, tzOf } from "./format";
 import { photoTrips, tripGpx } from "./photos";
 import { createIdxStore } from "./lib/idxStore";
 import type { Dialog } from "./hooks/dialog";
@@ -573,6 +575,7 @@ ${pts}
   });
 
   useMenuHandlers({
+    palette: () => setPalette(true),
     open_files: pickFiles,
     open_folder: pickFolder,
     close_all: closeAll,
@@ -607,6 +610,78 @@ ${pts}
     clearMulti,
   } = useListActions({ rows, selected, pick, setMulti, patchFiles, up, prefsRef, filesRef, shownRef, setDialog });
 
+  // ---------- Komut paleti (Ctrl/⌘+K) ----------
+  const [palette, setPalette] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setPalette(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const commands = useMemo<Command[]>(() => {
+    if (!palette) return [];
+    const c: Command[] = [];
+    const add = (group: string, id: string, label: string, run: () => void, hint?: string, keywords?: string) =>
+      c.push({ group, id, label, run, hint, keywords });
+    const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl";
+    add("İşlem", "open", "Dosya aç…", pickFiles, `${MOD}+O`, "gpx fit tcx kml zip strava garmin takeout içe aktar");
+    add("İşlem", "folder", "Klasör aç…", pickFolder, `${MOD}+Shift+O`);
+    add("İşlem", "summary", "Özet", () => setDialog("summary"), `${MOD}+I`, "istatistik yıl kartı hedef ülke il");
+    add("İşlem", "settings", "Ayarlar", () => setDialog("settings"), `${MOD}+,`, "yakıt hedef katman gizlilik yedek");
+    add("İşlem", "day", "Gün akışı", () => setDialog("day"), undefined, "zaman çizelgesi timeline");
+    add("İşlem", "goto", "Tarihe git (neredeydim?)", openGoTo, "G");
+    if (duplicateGroups.length) add("İşlem", "dups", `Kopya kayıtlar (${duplicateGroups.length})`, () => setDialog("duplicates"));
+    add("İşlem", "plan", "Rota planla", () => setPlan((s) => s ?? { points: [], profile: "car", route: null, busy: false, error: null }), undefined, "yol tarifi güzergah");
+    add("İşlem", "bookmarks", "Yer imleri listesi", () => setDialog("bookmarks"), undefined, "gitmek istediklerim");
+    add("İşlem", "offline", "Görünen alanı çevrimdışı için indir", downloadArea, undefined, "offline karo");
+    add("İşlem", "fit", "Tümüne yakınlaştır", fitAll, `${MOD}+0`);
+    add("İşlem", "png", "Harita görüntüsünü kaydet (PNG)", exportPng, `${MOD}+Shift+E`);
+    add("İşlem", "csv", "Özet tablosunu dışa aktar (CSV)", exportCsv, `${MOD}+E`);
+    add("İşlem", "backup", "Yedek al…", backup, undefined, "zip parola");
+    add("İşlem", "restore", "Yedekten geri yükle…", restore);
+    add("İşlem", "sidebar", "Kenar çubuğunu aç/kapat", () => up({ sidebarOpen: !prefs.sidebarOpen }), `${MOD}+B`);
+    add("İşlem", "help", "Yardım ve kısayollar", () => setDialog("help"), "?");
+    const toggle = (id: string, label: string, on: boolean, patch: Partial<typeof prefs>) =>
+      add("Katman", id, `${label}: ${on ? "kapat" : "aç"}`, () => up(patch));
+    toggle("heat", "Isı haritası", prefs.heatmap, { heatmap: !prefs.heatmap });
+    toggle("regions", "Gezilen il ve ülkeler", prefs.regionsLayer, { regionsLayer: !prefs.regionsLayer });
+    toggle("terrain", "3B arazi", prefs.terrain3d, { terrain3d: !prefs.terrain3d });
+    toggle("explorer", "Keşif kareleri", prefs.explorerLayer, { explorerLayer: !prefs.explorerLayer });
+    toggle("bm", "Yer imleri", prefs.bookmarksLayer, { bookmarksLayer: !prefs.bookmarksLayer });
+    toggle("flights", "Uçuşlar", prefs.flightsLayer, { flightsLayer: !prefs.flightsLayer });
+    toggle("stops", "Duraklamalar", prefs.stopsLayer, { stopsLayer: !prefs.stopsLayer });
+    for (const l of BASE_LAYERS) add("Altlık", `base-${l.id}`, `Altlık: ${l.label}`, () => setBaseLayer(l.id));
+    if (selectedEntry) {
+      const s = selectedEntry.summary;
+      const nm = s.name || s.fileName;
+      add("Seçili", "sel-zoom", `Yakınlaştır: ${nm}`, () => zoomTo(s.path));
+      add("Seçili", "sel-save", "Farklı kaydet…", exportSelectedGpx, `${MOD}+S`);
+      add("Seçili", "sel-video", "Yolculuk videosu…", () => setDialog("video"));
+      add("Seçili", "sel-story", "Gezi hikâyesi (HTML)…", makeStory);
+      add("Seçili", "sel-ele", "Yüksekliği düzelt", () => rewrite(s.path, "elevation"), undefined, "dem arazi");
+      add("Seçili", "sel-snap", "Yola oturt", () => rewrite(s.path, "snap"), undefined, "harita eşleştirme");
+      add("Seçili", "sel-edit", "Noktaları düzenle", () => setEditMode(true));
+    }
+    for (const p of places) add("Yer", `place-${p.id}`, p.name, () => mapRef.current?.centerOn([p.lon, p.lat], 14), "adlandırılmış yer");
+    for (const b of bookmarks.marks)
+      add("Yer", `bm-${b.id}`, `${b.wish ? "⭐" : "📌"} ${b.name}`, () => mapRef.current?.centerOn([b.lon, b.lat], 13), "yer imi", b.note);
+    for (const f of shown) {
+      const s = f.summary;
+      add(
+        "Kayıt",
+        `rec-${s.path}`,
+        s.name || s.fileName,
+        () => selectAndZoom(s.path),
+        s.stats.startTime != null ? fmtDate(s.stats.startTime, tzOf(s)) : undefined,
+        `${s.fileName} ${s.startPlace ?? ""} ${s.endPlace ?? ""}`,
+      );
+    }
+    return c;
+  }, [palette, prefs, selectedEntry, places, bookmarks.marks, shown, duplicateGroups]);
   useKeyboard({
     rows,
     selected,
@@ -997,6 +1072,7 @@ ${pts}
           }}
         />
       )}
+      {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
       {pwAsk && <PasswordModal ask={pwAsk} onDone={() => setPwAsk(null)} />}
       {editMark && (
         <BookmarkEditor

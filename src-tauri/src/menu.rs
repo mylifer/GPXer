@@ -40,6 +40,9 @@ pub(crate) fn build_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tau
         .accelerator("CmdOrCtrl+S")
         .build(app)?;
     let merge = MenuItemBuilder::with_id("merge", "Seçilenleri Birleştir…").build(app)?;
+    let palette = MenuItemBuilder::with_id("palette", "Komut Paleti…")
+        .accelerator("CmdOrCtrl+K")
+        .build(app)?;
 
     let mut file = SubmenuBuilder::new(app, "Dosya")
         .item(&open_files)
@@ -77,6 +80,7 @@ pub(crate) fn build_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tau
         .item(&heatmap)
         .separator()
         .item(&summary)
+        .item(&palette)
         .build()?;
 
     let mut menu = MenuBuilder::new(app);
