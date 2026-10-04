@@ -1504,3 +1504,36 @@ fn detail_speed_handles_sparse_points_and_jumps_after_stops() {
     let max = d.speed.iter().flatten().fold(0.0f32, |m, v| m.max(*v));
     assert!(max < 200.0, "{max}");
 }
+
+#[test]
+fn flight_altitude_is_not_an_elevation_record() {
+    // Yerde 100 m; sonra 10 dk uçuş (10 km yükseklik, 800 km/sa), uçuşun
+    // sonunda neredeyse duran bir nokta 6.600 m'de; sonra yine yerde.
+    let ground = |k: i64, t: i64| Point {
+        ele: Some(100.0 + (k % 3) as f32),
+        ..pt(41.0, 29.0 + k as f64 * 1e-4, t)
+    };
+    let mut seg: Vec<Point> = (0..30).map(|k| ground(k, k * 10)).collect();
+    for k in 0..20 {
+        seg.push(Point {
+            ele: Some(10_000.0),
+            ..pt(41.0, 29.1 + k as f64 * 0.02, 300 + k * 9)
+        });
+    }
+    let last = *seg.last().unwrap();
+    seg.push(Point {
+        ele: Some(6600.0),
+        ..pt(41.0, last.lon + 1e-5, 300 + 20 * 9)
+    });
+    seg.extend((0..30).map(|k| Point {
+        ele: Some(100.0),
+        ..pt(41.0, last.lon + 0.01 + k as f64 * 1e-4, 2000 + k * 10)
+    }));
+    let s = track_stats(&[&seg], &StatsConfig::default());
+    assert!(s.max_ele_m.unwrap() < 200.0, "{:?}", s.max_ele_m);
+    assert!(
+        s.elevation_gain_m.unwrap_or(0.0) < 50.0,
+        "{:?}",
+        s.elevation_gain_m
+    );
+}

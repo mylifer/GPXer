@@ -101,6 +101,48 @@ impl Acc {
 
 /// Birden çok segment üzerinden istatistik hesaplar. Segmentler arası
 /// boşluklar (cihaz kapalıyken) mesafeye ve hareket süresine eklenmez.
+/// Uçakta alınan noktalar: komşusuna göre 300 km/sa'ten hızlı ya da 9.000 m'den
+/// yüksek olanlar ile bunlara 30 dakikadan yakın 3.000 m'den yüksek noktalar
+/// (uçuşun yavaş görünen ucu). Yükseklikleri tırmanışa ve en yüksek noktaya
+/// katılmaz (uçuşu da kaydeden bir yolculukta "en yüksek nokta 10.929 m"
+/// çıkıyordu).
+fn airborne_flags(seg: &[Point]) -> Vec<bool> {
+    const AIR_SPEED_MS: f64 = 300.0 / 3.6;
+    const AIR_ELE_M: f32 = 9000.0;
+    const NEAR_ELE_M: f32 = 3000.0;
+    const NEAR_MS: i64 = 30 * 60 * 1000;
+    let fast = |a: &Point, b: &Point| match (a.time, b.time) {
+        (Some(ta), Some(tb)) if tb != ta => {
+            haversine_m(a, b) / ((tb - ta).abs() as f64 / 1000.0) > AIR_SPEED_MS
+        }
+        _ => false,
+    };
+    let mut air: Vec<bool> = (0..seg.len())
+        .map(|i| {
+            seg[i].ele.is_some_and(|e| e > AIR_ELE_M)
+                || (i > 0 && fast(&seg[i - 1], &seg[i]))
+                || (i + 1 < seg.len() && fast(&seg[i], &seg[i + 1]))
+        })
+        .collect();
+    if !air.iter().any(|&a| a) {
+        return air;
+    }
+    let times: Vec<i64> = seg
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| air[i])
+        .filter_map(|(_, p)| p.time)
+        .collect();
+    for (i, p) in seg.iter().enumerate() {
+        if !air[i] && p.ele.is_some_and(|e| e > NEAR_ELE_M) {
+            if let Some(t) = p.time {
+                air[i] = times.iter().any(|&a| (a - t).abs() <= NEAR_MS);
+            }
+        }
+    }
+    air
+}
+
 pub fn compute_stats<'a>(
     segments: impl IntoIterator<Item = &'a [Point]>,
     cfg: &StatsConfig,
@@ -145,6 +187,7 @@ pub(crate) fn compute_stats_capped<'a>(
         let mut cum = Vec::with_capacity(seg.len());
         let mut d = 0.0;
         let mut ele_ref: Option<f64> = None;
+        let air = airborne_flags(seg);
 
         for (i, p) in seg.iter().enumerate() {
             bbox[0] = bbox[0].min(p.lon);
@@ -161,7 +204,7 @@ pub(crate) fn compute_stats_capped<'a>(
                 s.end_time = Some(s.end_time.map_or(t, |v: i64| v.max(t)));
             }
 
-            if let Some(e) = p.ele {
+            if let Some(e) = p.ele.filter(|_| !air[i]) {
                 let e = e as f64;
                 has_ele = true;
                 s.min_ele_m = Some(s.min_ele_m.map_or(e, |v: f64| v.min(e)));
