@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { LayersMenu } from "./LayersMenu";
 import type { Settings } from "../api";
 import type { Prefs } from "../prefs";
@@ -26,6 +26,7 @@ export function MapToolbar({
   downloadArea,
   openBookmarks,
   openPlan,
+  search,
 }: {
   prefs: Prefs;
   up(patch: Partial<Prefs>): void;
@@ -44,6 +45,8 @@ export function MapToolbar({
   downloadArea(): void;
   openBookmarks(): void;
   openPlan(): void;
+  /** Haritada yer arama kutusu. */
+  search?: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Dar pencerede çubuk birkaç satıra iner; bildirimler (`.toasts`) altında
@@ -224,6 +227,7 @@ export function MapToolbar({
         onClear={clearPhotos}
         onTrack={photoTrack}
       />
+      {search}
     </div>
   );
 }

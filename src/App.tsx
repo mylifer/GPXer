@@ -58,6 +58,7 @@ import { isModern } from "./ui/mode";
 import { Rail } from "./ui/Rail";
 import { ModernSidebar } from "./ui/ModernSidebar";
 import { ModernMapToolbar } from "./ui/ModernMapToolbar";
+import { MapSearch } from "./components/MapSearch";
 import { MapLegends } from "./components/MapLegends";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
@@ -659,6 +660,15 @@ ${pts}
     clearMulti,
   } = useListActions({ rows, selected, pick, setMulti, patchFiles, up, prefsRef, filesRef, shownRef, setDialog });
 
+  // ---------- Haritada yer arama ----------
+  // Gezilen ülkeler aramada öne alınır (ör. "Paris": Fransa'ya gidildiyse oradaki).
+  const visitedCountries = useMemo(() => {
+    const cc = new Set<string>();
+    for (const f of files) for (const v of f.summary.visits ?? []) cc.add(v[1]);
+    return [...cc];
+  }, [files]);
+  const mapCenter = useCallback(() => mapRef.current?.center() ?? null, []);
+
   // ---------- Komut paleti (Ctrl/⌘+K) ----------
   const [palette, setPalette] = useState(false);
   useEffect(() => {
@@ -685,6 +695,7 @@ ${pts}
     add("İşlem", "day", "Gün akışı", () => setDialog("day"), undefined, "zaman çizelgesi timeline");
     add("İşlem", "goto", "Tarihe git (neredeydim?)", openGoTo, "G");
     if (duplicateGroups.length) add("İşlem", "dups", `Kopya kayıtlar (${duplicateGroups.length})`, () => setDialog("duplicates"));
+    add("İşlem", "search", "Haritada ara", () => (document.querySelector<HTMLInputElement>('input[aria-label="Haritada ara"]')?.focus()), `${MOD}+F`, "yer adres şehir bul");
     add("İşlem", "plan", "Rota planla", () => openPlan(), undefined, "yol tarifi güzergah");
     add("İşlem", "bookmarks", "Yer imleri listesi", () => setDialog("bookmarks"), undefined, "gitmek istediklerim");
     add("İşlem", "offline", "Görünen alanı çevrimdışı için indir", downloadArea, undefined, "offline karo");
@@ -937,6 +948,15 @@ ${pts}
             downloadArea={downloadArea}
             openBookmarks={() => setDialog("bookmarks")}
             openPlan={openPlan}
+            search={
+              <MapSearch
+                places={places}
+                bookmarks={bookmarks.marks}
+                prefer={visitedCountries}
+                center={mapCenter}
+                onShow={(h, zoom) => mapRef.current?.showPlace({ lat: h.lat, lon: h.lon, bbox: h.bbox, zoom, label: h.name })}
+              />
+            }
           />
 
           {plan && (

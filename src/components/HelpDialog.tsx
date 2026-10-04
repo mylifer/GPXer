@@ -15,6 +15,7 @@ const KEYS: [string, string][] = [
   [`${MOD}+Shift+H`, "Isı haritası aç/kapat"],
   [`${MOD}+,`, "Ayarlar"],
   [`${MOD}+K`, "Komut paleti: tüm işlemler, kayıtlar ve yerler tek arama kutusunda"],
+  [`${MOD}+F`, "Haritada yer ara: şehir, kasaba, adres; adlandırılmış yerler ve yer imleri"],
   [`${MOD}+Shift+W`, "Kütüphaneyi boşalt"],
   ["↑ / ↓", "Listede önceki / sonraki kayıt"],
   ["Boşluk", "Seçili kaydı oynat / duraklat"],

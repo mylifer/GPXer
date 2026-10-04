@@ -208,6 +208,7 @@ export function ModernMapToolbar(p: Props) {
           onTrack={p.photoTrack}
         />
       </div>
+      {p.search && <div className="tool-group tool-search">{p.search}</div>}
     </div>
   );
 }

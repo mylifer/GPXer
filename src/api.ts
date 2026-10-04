@@ -291,3 +291,18 @@ export const photoThumb = (path: string) => invoke<string | null>("photo_thumb",
 /** Kayıtları tek dosyada dışa aktarır; `dest` pickSavePath'ten gelmeli. */
 export const exportMany = (paths: string[], dest: string, format: ExportFormat) =>
   invoke<void>("export_many", { paths, dest, format });
+/** Haritada yer arama sonucu. */
+export interface PlaceHit {
+  name: string;
+  detail: string;
+  lat: number;
+  lon: number;
+  /** [batı, güney, doğu, kuzey] */
+  bbox: [number, number, number, number] | null;
+  kind: string;
+}
+/** Çevrimdışı yerleşim araması (`prefer`: öne alınacak ülke kodları). */
+export const searchPlacesOffline = (query: string, prefer: string[]) => invoke<PlaceHit[]>("search_places_offline", { query, prefer });
+/** Çevrimiçi yer/adres araması (OpenStreetMap, Photon); haritanın ortasına yakın sonuçlar önce. */
+export const searchPlacesOnline = (query: string, lat: number | null, lon: number | null) =>
+  invoke<PlaceHit[]>("search_places_online", { query, lat, lon });

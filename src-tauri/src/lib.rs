@@ -12,6 +12,7 @@ mod meta;
 mod photos;
 mod places;
 mod rewrite;
+mod search;
 mod settings;
 mod snap;
 mod store;
@@ -456,6 +457,8 @@ pub fn run() {
             edit::add_gpx_record,
             edit::time_zone_at,
             weather::weather_at,
+            search::search_places_offline,
+            search::search_places_online,
             take_pending_paths,
             library_files,
             remove_files,

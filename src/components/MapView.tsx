@@ -35,6 +35,10 @@ export interface MapHandle {
   offlineTileUrls(extra: number): { urls: string[]; skipped: string[]; capped: boolean };
   /** Kaydı baştan sona çizerek video kaydeder. */
   recordVideo(d: Detail, o: Omit<VideoOptions, "padding" | "zones">): Promise<Blob>;
+  /** Aranan yeri gösterir: kutusu varsa kutuya sığdırır, yoksa yakınlaştırır; geçici işaret koyar. */
+  showPlace(p: { lat: number; lon: number; bbox?: [number, number, number, number] | null; zoom: number; label: string }): void;
+  /** Haritanın ortası [boylam, enlem]. */
+  center(): [number, number] | null;
 }
 
 export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(props, ref) {
@@ -99,7 +103,24 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
     return { top: Number.isFinite(below) ? Math.max(base, below + 20) : base, bottom: base, left: base, right: base };
   };
 
+  const searchPin = useRef<maplibregl.Marker | null>(null);
   useImperativeHandle(ref, () => ({
+    showPlace({ lat, lon, bbox, zoom, label }) {
+      const map = mapRef.current;
+      if (!map) return;
+      if (bbox && bbox[2] - bbox[0] > 0.002) map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: padding(60), maxZoom: 16, duration: 800 });
+      else map.flyTo({ center: [lon, lat], zoom, duration: 800 });
+      searchPin.current?.remove();
+      const el = document.createElement("div");
+      el.className = "search-pin";
+      el.title = label;
+      el.dataset.noI18n = "";
+      searchPin.current = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([lon, lat]).addTo(map);
+    },
+    center() {
+      const c = mapRef.current?.getCenter();
+      return c ? [c.lng, c.lat] : null;
+    },
     fitFiles(list) {
       const map = mapRef.current;
       const b = boundsOf(list, winRef.current);
