@@ -1,4 +1,22 @@
 import { useMemo, useRef, useState } from "react";
+import {
+  IconArrowBackUp,
+  IconArrowsSplit,
+  IconBook,
+  IconDeviceFloppy,
+  IconMountain,
+  IconPlayerPauseFilled,
+  IconPlayerPlayFilled,
+  IconPointer,
+  IconRepeat,
+  IconRoad,
+  IconScissors,
+  IconTrash,
+  IconVideo,
+  IconX,
+  IconZoomIn,
+} from "@tabler/icons-react";
+import { Btn, IconBtn } from "../ui/primitives";
 import { weatherDays, weatherFor, weatherLabel, type WeatherDay } from "../weather";
 import { fmtCo2, fmtFuel, fmtMoney, fuelFor, type FuelPrefs } from "../fuel";
 import { nightsOf, type Night } from "../nights";
@@ -401,45 +419,45 @@ export function DetailPanel(p: Props) {
           )}
         </div>
         {p.routeCount > 1 && (
-          <button className="btn small" onClick={p.onOpenRoute} title="Aynı güzergâhtaki kayıtları karşılaştır">
-            ↻ Bu güzergâh: {p.routeCount} kez
-          </button>
+          <Btn icon={<IconRepeat size={15} />} emoji="↻" onClick={p.onOpenRoute} title="Aynı güzergâhtaki kayıtları karşılaştır">
+            {`Bu güzergâh: ${p.routeCount} kez`}
+          </Btn>
         )}
-        <button className="btn small" onClick={p.onZoom}>
+        <Btn icon={<IconZoomIn size={15} />} onClick={p.onZoom}>
           Yakınlaştır
-        </button>
+        </Btn>
         {p.onUndoRewrite ? (
-          <button className="btn small" onClick={p.onUndoRewrite} title="Kaydın düzeltmeden önceki haline dön">
-            ↶ Düzeltmeyi geri al
-          </button>
+          <Btn icon={<IconArrowBackUp size={15} />} emoji="↶" onClick={p.onUndoRewrite} title="Kaydın düzeltmeden önceki haline dön">
+            Düzeltmeyi geri al
+          </Btn>
         ) : (
           <>
-            <button
-              className="btn small"
+            <Btn
+              icon={<IconMountain size={15} />}
+              emoji={p.rewriting === "elevation" ? undefined : "⛰"}
               onClick={() => p.onRewrite("elevation")}
               disabled={p.rewriting != null}
               title="Telefon GPS'inin gürültülü yüksekliğini arazi yüksekliğiyle (Copernicus DEM, 90 m) değiştirir; tırmanış gerçekçi olur. İnternet gerekir (Open-Meteo). Orijinal dosyanız değişmez; geri alınabilir."
             >
-              {p.rewriting === "elevation" ? "Yükseklikler alınıyor…" : "⛰ Yüksekliği düzelt"}
-            </button>
+              {p.rewriting === "elevation" ? "Yükseklikler alınıyor…" : "Yüksekliği düzelt"}
+            </Btn>
             {isSparse(s) && (
-              <button
-                className="btn small"
+              <Btn
+                icon={<IconRoad size={15} />}
+                emoji={p.rewriting === "snap" ? undefined : "🛣"}
                 onClick={() => p.onRewrite("snap")}
                 disabled={p.rewriting != null}
                 title="Seyrek noktalı kaydı (ör. Google konum geçmişi) yollara oturtur: noktalar arası düz çizgiler izlenen yol olur. İnternet gerekir (OpenStreetMap yönlendirme servisi). Orijinal dosyanız değişmez; geri alınabilir."
               >
-                {p.rewriting === "snap" ? "Yola oturtuluyor…" : "🛣 Yola oturt"}
-              </button>
+                {p.rewriting === "snap" ? "Yola oturtuluyor…" : "Yola oturt"}
+              </Btn>
             )}
           </>
         )}
-        <button className="btn small" onClick={p.onExportGpx} title="Farklı kaydet (GPX, KML, TCX, FIT) (Ctrl/⌘+S)">
+        <Btn icon={<IconDeviceFloppy size={15} />} onClick={p.onExportGpx} title="Farklı kaydet (GPX, KML, TCX, FIT) (Ctrl/⌘+S)">
           Farklı kaydet…
-        </button>
-        <button className="icon-btn" onClick={p.onClose} title="Kapat (Esc)">
-          ×
-        </button>
+        </Btn>
+        <IconBtn icon={<IconX size={18} />} glyph="×" label="Kapat (Esc)" onClick={p.onClose} />
       </header>
       <MetaEditor summary={s} meta={p.meta} allTags={p.allTags} onChange={p.onMeta} />
       <div className="detail-toolbar">
@@ -510,38 +528,48 @@ export function DetailPanel(p: Props) {
           </select>
         </label>
         <div className="play">
-          <button
-            className="btn small primary"
+          <Btn
+            primary
+            icon={p.playing ? <IconPlayerPauseFilled size={14} /> : <IconPlayerPlayFilled size={14} />}
+            emoji={p.playing ? "❚❚" : "▶"}
             onClick={p.onPlay}
             disabled={!d || d.lat.length < 2}
             title={d && d.lat.length < 2 ? "Oynatmak için en az iki nokta gerekir" : "Oynat / duraklat (Boşluk)"}
           >
-            {p.playing ? "❚❚ Duraklat" : "▶ Oynat"}
-          </button>
-          <button
-            className="btn small"
+            {p.playing ? "Duraklat" : "Oynat"}
+          </Btn>
+          <Btn
+            icon={<IconVideo size={15} />}
+            emoji="🎥"
             onClick={p.onVideo}
             disabled={!d || d.lat.length < 2}
             title="Yolculuğu haritada çizerek video olarak kaydet"
           >
-            🎥 Video
-          </button>
-          <button
-            className={`btn small${p.editMode ? " primary" : ""}`}
+            Video
+          </Btn>
+          <Btn
+            icon={<IconPointer size={15} />}
+            emoji="✥"
+            active={p.editMode}
             onClick={p.onEditMode}
             disabled={!d}
             title="Haritada izin bir noktasına tıklayın: sürükleyerek taşıyın ya da silin (Delete). Değişiklikler geri alınabilir."
           >
-            ✥ Noktaları düzenle
-          </button>
+            Noktaları düzenle
+          </Btn>
           {p.editMode && p.editIdx != null && (
-            <button className="btn small" onClick={p.onDeletePoint} title="Seçili noktayı sil (Delete)">
-              🗑 Noktayı sil
-            </button>
+            <Btn icon={<IconTrash size={15} />} emoji="🗑" danger onClick={p.onDeletePoint} title="Seçili noktayı sil (Delete)">
+              Noktayı sil
+            </Btn>
           )}
-          <button className="btn small" onClick={p.onStory} title="Harita, istatistikler, gün gün döküm, yükseklik ve fotoğraflarla tek sayfalık gezi hikâyesi (HTML)">
-            📖 Hikâye
-          </button>
+          <Btn
+            icon={<IconBook size={15} />}
+            emoji="📖"
+            onClick={p.onStory}
+            title="Harita, istatistikler, gün gün döküm, yükseklik ve fotoğraflarla tek sayfalık gezi hikâyesi (HTML)"
+          >
+            Hikâye
+          </Btn>
           <select value={p.playSpeed} onChange={(e) => p.onPlaySpeed(Number(e.target.value))} title="Oynatma hızı">
             {PLAY_SPEEDS.map((v) => (
               <option key={v} value={v}>
@@ -570,21 +598,19 @@ export function DetailPanel(p: Props) {
             <span className="muted">hesaplanıyor…</span>
           )}
           <span className="spacer" />
-          <button className="btn small" onClick={p.onZoomRange}>
+          <Btn icon={<IconZoomIn size={15} />} onClick={p.onZoomRange}>
             Haritada göster
-          </button>
-          <button className="btn small" onClick={p.onTrim} title="Aralığı yeni kayıt olarak kaydet">
+          </Btn>
+          <Btn icon={<IconScissors size={15} />} onClick={p.onTrim} title="Aralığı yeni kayıt olarak kaydet">
             Kırp
-          </button>
-          <button className="btn small" onClick={p.onDeleteRange} title="Aralıktaki noktaları kayıttan sil (hatalı GPS noktaları için; geri alınabilir)">
+          </Btn>
+          <Btn icon={<IconTrash size={15} />} danger onClick={p.onDeleteRange} title="Aralıktaki noktaları kayıttan sil (hatalı GPS noktaları için; geri alınabilir)">
             Aralığı sil
-          </button>
-          <button className="btn small" onClick={p.onSplit} title="Kaydı aralığın başından ikiye böl">
+          </Btn>
+          <Btn icon={<IconArrowsSplit size={15} />} onClick={p.onSplit} title="Kaydı aralığın başından ikiye böl">
             Buradan böl
-          </button>
-          <button className="icon-btn" onClick={() => p.onRange(null)} title="Seçimi kaldır (çift tıklama)">
-            ×
-          </button>
+          </Btn>
+          <IconBtn icon={<IconX size={18} />} glyph="×" label="Seçimi kaldır (çift tıklama)" onClick={() => p.onRange(null)} />
         </div>
       )}
 

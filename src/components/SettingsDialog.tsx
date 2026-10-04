@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { lang, saveLang, type Lang } from "../i18n";
+import { saveUiMode, uiMode, type UiMode } from "../ui/mode";
 import { CustomLayersEditor } from "./CustomLayersEditor";
 import { FUEL_KINDS, type FuelKind, type FuelPrefs } from "../fuel";
 import type { Goals, Prefs } from "../prefs";
@@ -60,6 +61,7 @@ export function SettingsDialog({
   const [goals, setGoals] = useState<Goals>(prefs.goals);
   const [layers, setLayers] = useState(prefs.customLayers);
   const [language, setLanguage] = useState<Lang>(lang);
+  const [ui, setUi] = useState<UiMode>(uiMode);
   const [clean, setClean] = useState(settings.stats.cleanSpikes);
   const [perType, setPerType] = useState(settings.stats.perType);
   const [stays, setStays] = useState(settings.stats.collapseStays);
@@ -67,8 +69,10 @@ export function SettingsDialog({
 
   const save = () => {
     // Dil değişince arayüz yeniden yüklenir (çeviri ve biçimler açılışta kurulur).
-    const reload = language !== lang;
-    if (reload) saveLang(language);
+    // Dil ya da görünüm değişince arayüz yeniden yüklenir.
+    const reload = language !== lang || ui !== uiMode;
+    if (language !== lang) saveLang(language);
+    if (ui !== uiMode) saveUiMode(ui);
     const saved = onSave(
       {
         stats: {
@@ -92,11 +96,21 @@ export function SettingsDialog({
     <Modal title="Ayarlar" onClose={onClose}>
       <div className="form">
         <fieldset>
-          <legend>Dil / Language</legend>
-          <select value={language} onChange={(e) => setLanguage(e.target.value as Lang)} aria-label="Dil / Language" data-no-i18n>
-            <option value="tr">Türkçe</option>
-            <option value="en">English</option>
-          </select>
+          <legend>Görünüm ve dil</legend>
+          <label className="field">
+            <span>Arayüz</span>
+            <select value={ui} onChange={(e) => setUi(e.target.value as UiMode)}>
+              <option value="modern">Modern</option>
+              <option value="classic">Klasik (ilk tasarım)</option>
+            </select>
+          </label>
+          <label className="field">
+            <span data-no-i18n>Dil / Language</span>
+            <select value={language} onChange={(e) => setLanguage(e.target.value as Lang)} aria-label="Dil / Language" data-no-i18n>
+              <option value="tr">Türkçe</option>
+              <option value="en">English</option>
+            </select>
+          </label>
         </fieldset>
 
         <fieldset>

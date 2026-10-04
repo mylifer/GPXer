@@ -25,7 +25,7 @@ import {
   type RewriteKind,
 } from "./api";
 import type { MapHandle } from "./components/MapView";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar as ClassicSidebar } from "./components/Sidebar";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SummaryPanel } from "./components/SummaryPanel";
@@ -53,7 +53,11 @@ import { storyHtml, type StoryPhoto } from "./story";
 import { nightsOf } from "./nights";
 import { dayBuckets } from "./days";
 import { HoverDetailPanel, HoverMapView } from "./components/HoverViews";
-import { MapToolbar } from "./components/MapToolbar";
+import { MapToolbar as ClassicMapToolbar } from "./components/MapToolbar";
+import { isModern } from "./ui/mode";
+import { Rail } from "./ui/Rail";
+import { ModernSidebar } from "./ui/ModernSidebar";
+import { ModernMapToolbar } from "./ui/ModernMapToolbar";
 import { MapLegends } from "./components/MapLegends";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
@@ -82,6 +86,10 @@ import { useKeyboard } from "./hooks/useKeyboard";
  * birleştirilip arayüze bağlanır. Kancaların çağrılma sırası efektlerin
  * çalışma sırasını belirler; sırayı değiştirirken dikkat.
  */
+// Görünüme göre kenar çubuğu ve araç çubuğu (Klasik: ilk tasarım).
+const Sidebar = isModern ? ModernSidebar : ClassicSidebar;
+const MapToolbar = isModern ? ModernMapToolbar : ClassicMapToolbar;
+
 /** Bir pencere (Modal) ya da komut paleti açık mı. */
 const anyModalOpen = () => !!document.querySelector(".modal-backdrop, .palette");
 
@@ -776,6 +784,23 @@ ${pts}
 
   return (
     <div className={`app${prefs.sidebarOpen ? "" : " sidebar-closed"}`}>
+      {isModern && (
+        <Rail
+          sidebarOpen={prefs.sidebarOpen}
+          hasFiles={files.length > 0}
+          onToggleSidebar={() => up({ sidebarOpen: !prefs.sidebarOpen })}
+          onOpenFiles={pickFiles}
+          onOpenFolder={pickFolder}
+          onSummary={openSummary}
+          onDay={() => setDialog("day")}
+          onGoTo={openGoTo}
+          onBookmarks={() => setDialog("bookmarks")}
+          onPlan={openPlan}
+          onPalette={() => setPalette(true)}
+          onHelp={openHelp}
+          onSettings={openSettings}
+        />
+      )}
       {prefs.sidebarOpen && (
         <Sidebar
           files={files}
