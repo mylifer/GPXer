@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CustomLayersEditor } from "./CustomLayersEditor";
 import { FUEL_KINDS, type FuelKind, type FuelPrefs } from "../fuel";
 import type { Goals, Prefs } from "../prefs";
-import type { NamedPlace, Settings } from "../api";
-import type { TzMode } from "../format";
+import { clearTileCache, tileCacheInfo, type NamedPlace, type Settings } from "../api";
+import { fmtBytes, fmtNumber, type TzMode } from "../format";
 import { Modal } from "./Modal";
 
 /** Etkinlik türüne göre hazır eşikler. */
@@ -159,6 +159,15 @@ export function SettingsDialog({
             Kaydın yapıldığı yerin saat dilimine göre göster
           </label>
           <small>Başka bir ülkede kaydedilen loglarda ikinci seçenek yerel saati doğru gösterir.</small>
+        </fieldset>
+
+        <fieldset>
+          <legend>Çevrimdışı harita</legend>
+          <small>
+            Haritada görülen yerlerin karoları bilgisayarda saklanır ve internet yokken de açılır (en çok 2 GB; eskiler
+            kendiliğinden silinir). Bir bölgeyi önceden indirmek için: Katmanlar ▾ → Görünen alanı çevrimdışı için indir.
+          </small>
+          <TileCacheInfo />
         </fieldset>
 
         <fieldset>
@@ -346,5 +355,31 @@ export function SettingsDialog({
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** Karo önbelleğinin boyutu ve temizleme düğmesi. */
+function TileCacheInfo() {
+  const [info, setInfo] = useState<{ bytes: number; count: number } | null>(null);
+  useEffect(() => {
+    tileCacheInfo()
+      .then(setInfo)
+      .catch(() => setInfo(null));
+  }, []);
+  return (
+    <div className="row-actions">
+      <span>{info ? `${fmtNumber(info.count)} karo · ${fmtBytes(info.bytes)}` : "—"}</span>
+      <button
+        className="btn small"
+        disabled={!info?.count}
+        onClick={() =>
+          clearTileCache()
+            .then(() => setInfo({ bytes: 0, count: 0 }))
+            .catch(() => {})
+        }
+      >
+        Önbelleği temizle
+      </button>
+    </div>
   );
 }

@@ -1,4 +1,5 @@
 import * as maplibregl from "maplibre-gl";
+import { fetchJson } from "./offline";
 import type { LayerSpecification, StyleSpecification } from "maplibre-gl";
 import { EMPTY } from "./geojson";
 
@@ -93,9 +94,7 @@ export const RASTER_MAX_ZOOM: Record<BaseLayer, number> = {
  * mantığı onları diğer altlık katmanları gibi açıp kapatır.
  */
 export async function addVectorBase(map: maplibregl.Map, id: BaseLayer, url: string): Promise<boolean> {
-  const res = await fetch(url);
-  if (!res.ok) return false;
-  const style = (await res.json()) as StyleSpecification;
+  const style = await fetchJson<StyleSpecification>(url);
   if (!style.layers?.length || !style.sources) return false;
   const srcPrefix = `${id}-v-`;
   for (const [name, src] of Object.entries(style.sources)) {

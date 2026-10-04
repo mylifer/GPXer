@@ -14,12 +14,14 @@ import { useAreaSelect, useBaseLayerSwitch, useDetailLayers, useCustomLayers, us
 import { usePhotoMarkers } from "../map/usePhotoMarkers";
 import { MapContextMenu } from "../map/MapContextMenu";
 import { recordTrip, type VideoOptions } from "../map/video";
+import { installTileCache, transformRequest, visibleTileUrls } from "../map/offline";
 import type { Detail } from "../api";
 
 export { BASE_LAYERS, type BaseLayer } from "../map/style";
 export { metricDomain } from "../map/geojson";
 
 maplibregl.setWorkerUrl(workerUrl);
+installTileCache();
 
 export interface MapHandle {
   fitFiles(files: FileEntry[]): void;
@@ -28,6 +30,8 @@ export interface MapHandle {
   exportPng(): Promise<string>;
   /** Noktayı ortaya alır (gerekirse yakınlaştırır). */
   centerOn(lonLat: [number, number], minZoom?: number): void;
+  /** Görünen alanın çevrimdışı için indirilecek karo adresleri. */
+  offlineTileUrls(extra: number): { urls: string[]; skipped: string[]; capped: boolean };
   /** Kaydı baştan sona çizerek video kaydeder. */
   recordVideo(d: Detail, o: Omit<VideoOptions, "padding">): Promise<Blob>;
 }
@@ -113,6 +117,10 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
       if (!map) return;
       map.easeTo({ center: pt, zoom: Math.max(map.getZoom(), minZoom), duration: 600 });
     },
+    offlineTileUrls(extra) {
+      const map = mapRef.current;
+      return map ? visibleTileUrls(map, extra) : { urls: [], skipped: [], capped: false };
+    },
     recordVideo(d, o) {
       const map = mapRef.current;
       if (!map || !readyRef.current) return Promise.reject(new Error("Harita hazır değil"));
@@ -158,6 +166,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
       center: init?.center ?? [35, 39],
       zoom: init?.zoom ?? 5,
       attributionControl: { compact: true },
+      transformRequest,
     });
     mapRef.current = map;
     setMapObj(map);

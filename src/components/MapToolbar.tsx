@@ -23,6 +23,7 @@ export function MapToolbar({
   pickPhotos,
   clearPhotos,
   photoTrack,
+  downloadArea,
 }: {
   prefs: Prefs;
   up(patch: Partial<Prefs>): void;
@@ -38,6 +39,7 @@ export function MapToolbar({
   pickPhotos(folder: boolean): void;
   clearPhotos(): void;
   photoTrack(): void;
+  downloadArea(): void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Dar pencerede çubuk birkaç satıra iner; bildirimler (`.toasts`) altında
@@ -159,6 +161,14 @@ export function MapToolbar({
         </>
       )}
       <LayersMenu
+        actions={[
+          {
+            label: "⤓ Görünen alanı çevrimdışı için indir",
+            title:
+              "Açık katmanların bu alandaki karolarını 3 yakınlaştırma düzeyi ötesine kadar indirir; internet yokken de açılır (gezilen yerler zaten kendiliğinden saklanır)",
+            run: downloadArea,
+          },
+        ]}
         items={[
           {
             id: "regions",

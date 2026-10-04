@@ -14,6 +14,7 @@ mod rewrite;
 mod settings;
 mod snap;
 mod store;
+mod tiles;
 mod weather;
 
 use gpx_core::{Detail, Stats};
@@ -396,6 +397,16 @@ pub fn run() {
             app.manage(SettingsStore::open(&root));
             app.manage(meta);
             app.manage(PlacesStore::open(&root));
+            // Harita karoları: önbellek klasöründe (yoksa veri klasöründe).
+            let cache_dir = app
+                .path()
+                .app_cache_dir()
+                .unwrap_or_else(|_| root.join("cache"))
+                .join("karolar");
+            let tiles = tiles::TileCache::new(cache_dir);
+            app.manage(tiles);
+            let h = handle.clone();
+            std::thread::spawn(move || h.state::<tiles::TileCache>().prune());
             app.set_menu(menu::build_menu(handle)?)?;
             // Büyük ya da ağdaki klasörü izlemeye almak saniyeler sürebilir;
             // pencere beklemesin.
@@ -432,6 +443,10 @@ pub fn run() {
             snap::snap_to_roads,
             links::open_street_view,
             archive::import_archive,
+            tiles::tile,
+            tiles::prefetch_tiles,
+            tiles::tile_cache_info,
+            tiles::clear_tile_cache,
             edit::add_gpx_record,
             edit::time_zone_at,
             weather::weather_at,

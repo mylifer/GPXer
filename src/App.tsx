@@ -14,6 +14,7 @@ import {
   type RewriteResult,
   writeBase64File,
   writeTextFile,
+  prefetchTiles,
   addGpxRecord,
   timeZoneAt,
   photoThumb,
@@ -304,6 +305,24 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [editMode, editIdx, detail, selected, editPoints]);
+  // ---------- Çevrimdışı harita: görünen alanı indir ----------
+  const downloadArea = useCallback(async () => {
+    const r = mapRef.current?.offlineTileUrls(3);
+    if (!r) return;
+    const note = r.skipped.length ? ` (${r.skipped.join(", ")} toplu indirmeye izin vermediği için atlandı; “Sokak” yerine başka altlık seçin)` : "";
+    if (!r.urls.length) {
+      say(`İndirilecek karo yok${note}.`);
+      return;
+    }
+    say(`${fmtNumber(r.urls.length)} harita karosu indiriliyor…${r.capped ? " (en çok 4.000; daha küçük bir alana yakınlaşın)" : ""}`);
+    let ok = 0;
+    try {
+      for (let i = 0; i < r.urls.length; i += 400) ok += await prefetchTiles(r.urls.slice(i, i + 400));
+      say(`Bu alan çevrimdışı kullanıma hazır: ${fmtNumber(ok)} / ${fmtNumber(r.urls.length)} karo${note}.`);
+    } catch (e) {
+      fail(`Karolar indirilemedi: ${e}`);
+    }
+  }, [say, fail]);
   // ---------- Fotoğraflardan iz ----------
   const makePhotoTracks = useCallback(async () => {
     try {
@@ -637,6 +656,7 @@ export default function App() {
             pickPhotos={pickPhotos}
             clearPhotos={clearPhotos}
             photoTrack={makePhotoTracks}
+            downloadArea={downloadArea}
           />
 
           <MapLegends

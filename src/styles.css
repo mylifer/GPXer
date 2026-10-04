@@ -2384,3 +2384,9 @@ kbd {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   cursor: grab;
 }
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}

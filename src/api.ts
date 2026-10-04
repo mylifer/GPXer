@@ -211,6 +211,10 @@ export const deletePoints = (path: string, start: number, end: number) =>
 export const movePoint = (path: string, index: number, lat: number, lon: number) =>
   invoke<RewriteResult>("move_point", { path, index, lat, lon });
 export const undoRewrite = (path: string, previous: string) => invoke<LoadResult>("undo_rewrite", { path, previous });
+/** Çevrimdışı harita: karoları önbelleğe indirir; önbellek boyutu ve temizleme. */
+export const prefetchTiles = (urls: string[]) => invoke<number>("prefetch_tiles", { urls });
+export const tileCacheInfo = () => invoke<{ bytes: number; count: number }>("tile_cache_info");
+export const clearTileCache = () => invoke<void>("clear_tile_cache");
 /** Arayüzde oluşturulan GPX metnini yeni kayıt olarak ekler. */
 export const addGpxRecord = (name: string, gpx: string) => invoke<LoadResult>("add_gpx_record", { name, gpx });
 /** Konumun IANA saat dilimi. */
