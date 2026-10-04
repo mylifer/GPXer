@@ -174,6 +174,13 @@ export function MapToolbar({
             on: prefs.terrain3d,
             toggle: () => up({ terrain3d: !prefs.terrain3d }),
           },
+          ...prefs.customLayers.map((l) => ({
+            id: l.id,
+            label: l.name,
+            title: `${l.url} (Ayarlar → Harita katmanları)`,
+            on: l.on,
+            toggle: () => up({ customLayers: prefs.customLayers.map((x) => (x.id === l.id ? { ...x, on: !x.on } : x)) }),
+          })),
         ]}
       />
       <PhotoControl

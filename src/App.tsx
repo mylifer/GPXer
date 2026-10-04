@@ -602,6 +602,7 @@ export default function App() {
             flights={mapFlights}
             regions={regions}
             terrain={prefs.terrain3d}
+            customLayers={prefs.customLayers}
             routePins={routePins}
             editing={editMode && detail && selected ? { detail, idx: editIdx } : null}
             onEditPick={setEditIdx}

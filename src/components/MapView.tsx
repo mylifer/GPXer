@@ -10,7 +10,7 @@ import { STYLE, addOverlayLayers, type BaseLayer } from "../map/style";
 import { boundsOf, type DateWindow } from "../map/geojson";
 import type { MapRefs, MapViewProps } from "../map/context";
 import { installInteractions } from "../map/interactions";
-import { useAreaSelect, useBaseLayerSwitch, useDetailLayers, useEditPoint, useRegionLayers, useRoutePins, useTerrain, useTrackLayers } from "../map/useMapLayers";
+import { useAreaSelect, useBaseLayerSwitch, useDetailLayers, useCustomLayers, useEditPoint, useRegionLayers, useRoutePins, useTerrain, useTrackLayers } from "../map/useMapLayers";
 import { usePhotoMarkers } from "../map/usePhotoMarkers";
 import { MapContextMenu } from "../map/MapContextMenu";
 import { recordTrip, type VideoOptions } from "../map/video";
@@ -207,6 +207,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
   usePhotoMarkers(refs, photos);
   useRegionLayers(refs, props.regions);
   useTerrain(refs, props.terrain);
+  useCustomLayers(refs, props.customLayers);
   useRoutePins(mapObj, props.routePins);
   useEditPoint(
     mapObj,

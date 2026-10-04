@@ -65,6 +65,8 @@ export interface MapViewProps {
   onRoutePoint(which: "a" | "b", lonLat: [number, number]): void;
   /** Haritada gösterilen güzergâh arama noktaları. */
   routePins: { a: [number, number] | null; b: [number, number] | null };
+  /** Kullanıcının eklediği harita katmanları. */
+  customLayers: import("../customLayers").CustomLayer[];
   /** 3B arazi görünümü. */
   terrain: boolean;
   /** Gezilen il ve ülkeler katmanı; kapalıysa null. */

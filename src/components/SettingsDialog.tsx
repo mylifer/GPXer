@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CustomLayersEditor } from "./CustomLayersEditor";
 import { FUEL_KINDS, type FuelKind, type FuelPrefs } from "../fuel";
 import type { Goals, Prefs } from "../prefs";
 import type { NamedPlace, Settings } from "../api";
@@ -55,6 +56,7 @@ export function SettingsDialog({
   const [tz, setTz] = useState<TzMode>(prefs.tzMode);
   const [fuel, setFuel] = useState<FuelPrefs>(prefs.fuel);
   const [goals, setGoals] = useState<Goals>(prefs.goals);
+  const [layers, setLayers] = useState(prefs.customLayers);
   const [clean, setClean] = useState(settings.stats.cleanSpikes);
   const [perType, setPerType] = useState(settings.stats.perType);
   const [stays, setStays] = useState(settings.stats.collapseStays);
@@ -72,7 +74,7 @@ export function SettingsDialog({
         },
         watchedFolders: folders,
       },
-      { tzMode: tz, goals: { km: Math.max(0, goals.km || 0), days: Math.max(0, goals.days || 0) }, fuel: { ...fuel, per100: Math.max(0, fuel.per100 || 0), price: Math.max(0, fuel.price || 0) } },
+      { tzMode: tz, customLayers: layers, goals: { km: Math.max(0, goals.km || 0), days: Math.max(0, goals.days || 0) }, fuel: { ...fuel, per100: Math.max(0, fuel.per100 || 0), price: Math.max(0, fuel.price || 0) } },
       places
         .map((x) => ({ ...x, name: x.name.trim(), radiusM: Math.max(10, Math.min(5000, Math.round(x.radiusM) || 150)) }))
         .filter((x) => x.name),
@@ -157,6 +159,15 @@ export function SettingsDialog({
             Kaydın yapıldığı yerin saat dilimine göre göster
           </label>
           <small>Başka bir ülkede kaydedilen loglarda ikinci seçenek yerel saati doğru gösterir.</small>
+        </fieldset>
+
+        <fieldset>
+          <legend>Harita katmanları</legend>
+          <small>
+            Kendi karo (XYZ, ör. <code>https://…/{"{z}/{x}/{y}"}.png</code>) ya da WMS adresinizi ekleyin; katman altlığın
+            üstünde, izlerin altında çizilir ve Katmanlar ▾ menüsünden açılıp kapatılır.
+          </small>
+          <CustomLayersEditor layers={layers} onChange={setLayers} />
         </fieldset>
 
         <fieldset>

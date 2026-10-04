@@ -3,6 +3,7 @@
  * bozuksa varsayılanlar kullanılır; uygulama bunlar olmadan da çalışır.
  */
 
+import { isCustomLayers, type CustomLayer } from "./customLayers";
 import { DEFAULT_FUEL, isFuelPrefs, type FuelPrefs } from "./fuel";
 import type { TzMode } from "./format";
 
@@ -70,6 +71,8 @@ export interface Prefs {
   photoOffsetH: number;
   /** Haritada gezilen il ve ülkeler. */
   regionsLayer: boolean;
+  /** Kullanıcının eklediği harita katmanları. */
+  customLayers: CustomLayer[];
   /** Yıllık hedefler (0: hedef yok). */
   goals: Goals;
   /** Haritada 3B arazi (eğik görünüm, gölgeli kabartma). */
@@ -134,6 +137,7 @@ const DEFAULTS: Prefs = {
   fuel: DEFAULT_FUEL,
   terrain3d: false,
   goals: { km: 0, days: 0 },
+  customLayers: [],
 };
 
 export const PREFS_KEY = "gpxer.prefs.v1";
@@ -226,6 +230,7 @@ export function sanitizePrefs(raw: unknown): Prefs {
     regionsLayer: pick(s.regionsLayer, isBool, D.regionsLayer),
     fuel: pick(s.fuel, isFuelPrefs, D.fuel),
     terrain3d: pick(s.terrain3d, isBool, D.terrain3d),
+    customLayers: pick(s.customLayers, isCustomLayers, D.customLayers),
     goals: pick(
       s.goals,
       (v): v is Goals => !!v && typeof v === "object" && isNum((v as Goals).km) && isNum((v as Goals).days),

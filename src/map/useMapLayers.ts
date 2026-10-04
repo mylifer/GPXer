@@ -11,6 +11,7 @@ import type { BBox } from "../geo";
 import type { Flight } from "../flights";
 import { runWhenReady, setData, type MapRefs } from "./context";
 import type { RegionData } from "../hooks/useRegions";
+import { tileUrl, type CustomLayer } from "../customLayers";
 import { dayIn } from "../days";
 import { fastDayKey } from "../format";
 import {
@@ -456,4 +457,33 @@ export function useEditPoint(
       m.remove();
     };
   }, [map, detail, idx]);
+}
+
+/** Kullanıcının eklediği raster katmanlar: altlığın üstünde, izlerin altında. */
+export function useCustomLayers(r: MapRefs, layers: CustomLayer[]) {
+  const key = JSON.stringify(layers);
+  useEffect(() => {
+    runWhenReady(r, (map) => {
+      const want = new Map(layers.map((l) => [`custom-${l.id}`, l]));
+      // Kaldırılan ya da adresi değişen katmanlar silinir.
+      for (const { id } of map.getStyle().layers) {
+        if (!id.startsWith("custom-")) continue;
+        const l = want.get(id);
+        const src = map.getSource(id) as maplibregl.RasterTileSource | undefined;
+        if (!l || (src && src.tiles?.[0] !== tileUrl(l.url))) {
+          map.removeLayer(id);
+          if (map.getSource(id)) map.removeSource(id);
+        }
+      }
+      const before = ["hillshade", "regions-countries", "heat"].find((x) => map.getLayer(x));
+      for (const [id, l] of want) {
+        if (!map.getSource(id)) {
+          map.addSource(id, { type: "raster", tiles: [tileUrl(l.url)], tileSize: 256, attribution: l.name });
+          map.addLayer({ id, type: "raster", source: id }, before);
+        }
+        map.setLayoutProperty(id, "visibility", l.on ? "visible" : "none");
+        map.setPaintProperty(id, "raster-opacity", Math.max(0.05, Math.min(1, l.opacity)));
+      }
+    });
+  }, [key]);
 }
