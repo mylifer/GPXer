@@ -117,6 +117,89 @@ fn imports_fit_as_gpx() {
 }
 
 #[test]
+fn cache_log_appends_and_replays() {
+    let root = temp_root("cachelog");
+    let cfg = StatsConfig::default();
+    let log = root.join("summary-cache.log");
+    let (pa, pb) = {
+        let lib = Library::open(&root).unwrap();
+        let pa = lib
+            .write_new("a", &track("41.0"))
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let pb = lib
+            .write_new("b", &track("42.0"))
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        lib.summarize(&pa, &cfg, None).unwrap();
+        lib.summarize(&pb, &cfg, None).unwrap();
+        lib.flush_cache().unwrap();
+        // Değişiklik yoksa yazılmaz; tek kayıt değişince yalnızca o satır eklenir.
+        let n0 = std::fs::read_to_string(&log).unwrap().lines().count();
+        lib.flush_cache().unwrap();
+        assert_eq!(std::fs::read_to_string(&log).unwrap().lines().count(), n0);
+        std::fs::write(&pa, track("40.0")).unwrap();
+        lib.summarize(&pa, &cfg, None).unwrap();
+        // Silinen dosya: silme satırı.
+        std::fs::remove_file(&pb).unwrap();
+        lib.flush_cache().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&log).unwrap().lines().count(),
+            n0 + 2
+        );
+        (pa, pb)
+    };
+    // Yeniden açılınca son durum: a güncel, b yok.
+    let lib = Library::open(&root).unwrap();
+    {
+        let c = lib.cache.lock().unwrap();
+        assert!(c.entries.contains_key(&pa));
+        assert!(!c.entries.contains_key(&pb));
+    }
+    // Yarım kalmış son satır (çökme) yok sayılır.
+    let mut bytes = std::fs::read(&log).unwrap();
+    bytes.extend_from_slice(b"{\"v\":1,\"p\":\"/x");
+    std::fs::write(&log, &bytes).unwrap();
+    drop(lib);
+    let lib = Library::open(&root).unwrap();
+    assert!(lib.cache.lock().unwrap().entries.contains_key(&pa));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn legacy_cache_is_migrated_to_log() {
+    let root = temp_root("cachemig");
+    let cfg = StatsConfig::default();
+    let pa = {
+        let lib = Library::open(&root).unwrap();
+        let pa = lib
+            .write_new("a", &track("41.0"))
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        lib.summarize(&pa, &cfg, None).unwrap();
+        // Eski biçimde yaz.
+        let c = lib.cache.lock().unwrap();
+        let old =
+            serde_json::json!({ "version": CACHE_VERSION, "entries": &c.entries, "seen": {} });
+        std::fs::write(
+            root.join("summary-cache.json"),
+            serde_json::to_vec(&old).unwrap(),
+        )
+        .unwrap();
+        pa
+    };
+    let lib = Library::open(&root).unwrap();
+    assert!(lib.cache.lock().unwrap().entries.contains_key(&pa));
+    lib.flush_cache().unwrap();
+    assert!(root.join("summary-cache.log").exists());
+    assert!(!root.join("summary-cache.json").exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn cache_invalidates_on_change() {
     let root = temp_root("cache");
     let lib = Library::open(&root).unwrap();
@@ -464,5 +547,71 @@ fn keeps_and_puts_back_previous_version() {
     assert!(lib
         .put_back(&path, &root.join("x.gpx").to_string_lossy())
         .is_err());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Ölçüm (elle çalıştırılır): 10 bin kayıtlık önbelleğin boyutu ve okuma/yazma süresi.
+#[test]
+#[ignore]
+fn cache_scale_measure() {
+    let root = temp_root("scale");
+    let src = root.join("t.gpx");
+    // ~30 km, 300 nokta, saatli.
+    let mut pts = String::new();
+    for i in 0..300 {
+        pts += &format!(
+            "<trkpt lat=\"{:.5}\" lon=\"{:.5}\"><ele>100</ele><time>2024-01-01T10:{:02}:{:02}Z</time></trkpt>",
+            41.0 + i as f64 * 0.0009 + ((i * 7919) % 13) as f64 * 0.0004,
+            29.0 + i as f64 * 0.0005 + ((i * 104729) % 17) as f64 * 0.0004,
+            i / 5,
+            (i % 5) * 12
+        );
+    }
+    std::fs::write(
+        &src,
+        format!("<gpx><trk><trkseg>{pts}</trkseg></trk></gpx>"),
+    )
+    .unwrap();
+    let cfg = StatsConfig::default();
+    let lib = Library::open(&root.join("lib")).unwrap();
+    let (summary, fp) = lib.summarize(src.to_str().unwrap(), &cfg, None).unwrap();
+    let mut entries = HashMap::new();
+    for i in 0..10_000 {
+        let mut s = summary.clone();
+        s.path = format!("/lib/{i}.gpx");
+        entries.insert(
+            s.path.clone(),
+            CacheEntry {
+                size: 1,
+                mtime: 1,
+                cfg,
+                chosen: None,
+                fingerprint: fp,
+                summary: s,
+            },
+        );
+    }
+    let t = std::time::Instant::now();
+    let mut bytes = Vec::new();
+    for (p, e) in &entries {
+        serde_json::to_writer(&mut bytes, &LogLineRef::entry(p, e)).unwrap();
+        bytes.push(b'\n');
+    }
+    let ser = t.elapsed();
+    let t = std::time::Instant::now();
+    let (back, _, lines) = replay_log(&bytes);
+    let de = t.elapsed();
+    let mut one = Vec::new();
+    let e = entries.values().next().unwrap();
+    serde_json::to_writer(&mut one, &LogLineRef::entry("x", e)).unwrap();
+    eprintln!(
+        "MEASURE size={} MB, full write={:?}, replay={:?}, entries={} lines={}, one appended line={} KB",
+        bytes.len() / 1_000_000,
+        ser,
+        de,
+        back.len(),
+        lines,
+        one.len() / 1000
+    );
     let _ = std::fs::remove_dir_all(&root);
 }

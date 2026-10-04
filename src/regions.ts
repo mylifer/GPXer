@@ -1,7 +1,7 @@
 import type { FeatureCollection, MultiPolygon } from "geojson";
 import type { FileSummary } from "./api";
 import { dayIn } from "./days";
-import { dayKey, tzOf } from "./format";
+import { fastDayKey, tzOf } from "./format";
 import provincesUrl from "./assets/geo/tr-iller.geojson?url";
 import countriesUrl from "./assets/geo/ulkeler.geojson?url";
 
@@ -94,7 +94,7 @@ function provinceDaysOf(s: FileSummary, fc: ProvinceFC): Map<string, Map<string,
     line.forEach(([lon, lat], j) => {
       if (!inTr(lon, lat)) return;
       const t = times?.[j] ?? s.stats.startTime;
-      const day = t != null ? dayKey(t, zone) : "";
+      const day = t != null ? fastDayKey(t, zone) : "";
       // Seyreltme: yakın nokta atlanır, ama gün değişince yeni gün kaydedilsin diye denenir.
       if (last && day === lastDay && Math.abs(lon - last[0]) < 0.01 && Math.abs(lat - last[1]) < 0.008 && j < line.length - 1) return;
       last = [lon, lat];

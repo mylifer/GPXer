@@ -25,6 +25,7 @@ import { t } from "../i18n";
 import { DateRange } from "../components/DateRange";
 import { FileList } from "../components/FileList";
 import type { SidebarProps } from "../components/Sidebar";
+import { useDebouncedText } from "../hooks/useDebouncedText";
 
 /** Modern görünümde kayıt listesi: arama, filtreler, liste ve toplamlar. */
 export const ModernSidebar = memo(function ModernSidebar(p: SidebarProps) {
@@ -36,6 +37,7 @@ export const ModernSidebar = memo(function ModernSidebar(p: SidebarProps) {
 
   const allVisible = p.shown.length > 0 && p.shown.every((f) => f.visible);
   const set = (patch: Partial<Filters>) => p.onFilters({ ...p.filters, ...patch });
+  const [query, setQuery] = useDebouncedText(p.filters.query, (q) => set({ query: q }));
   const filtered = p.shown.length !== p.files.length;
   const anyFilter = filtersActive(p.filters);
   const hiddenCount = p.shown.length - totals.visible;
@@ -92,9 +94,9 @@ export const ModernSidebar = memo(function ModernSidebar(p: SidebarProps) {
             size="xs"
             placeholder="Ad, yer, etiket ya da notta ara…"
             leftSection={<IconSearch size={14} />}
-            value={p.filters.query}
-            onChange={(e) => set({ query: e.currentTarget.value })}
-            rightSection={p.filters.query ? <CloseButton size="xs" onClick={() => set({ query: "" })} aria-label="Aramayı temizle" /> : null}
+            value={query}
+            onChange={(e) => setQuery(e.currentTarget.value)}
+            rightSection={query ? <CloseButton size="xs" onClick={() => setQuery("")} aria-label="Aramayı temizle" /> : null}
           />
           <DateRange from={p.filters.from} to={p.filters.to} years={p.years} onChange={(from, to) => set({ from, to })} />
           {(p.filters.from || p.filters.to) && (

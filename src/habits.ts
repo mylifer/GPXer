@@ -1,6 +1,6 @@
 import type { FileSummary } from "./api";
 import { dayIn } from "./days";
-import { dayKey, tzOffsetMs, tzOf } from "./format";
+import { dayKey, fastDayKey, tzOffsetMs, tzOf } from "./format";
 
 const H = 3_600_000;
 
@@ -34,7 +34,7 @@ export function drivingHabits(files: FileSummary[], from: string, to: string): H
   let night = 0;
   let total = 0;
   for (const [h, v] of hours) {
-    if ((from || to) && !dayIn(dayKey(h, tzOf({ timeZone: v.tz })), from, to)) continue;
+    if ((from || to) && !dayIn(fastDayKey(h, tzOf({ timeZone: v.tz })), from, to)) continue;
     // Alışkanlık kaydın yapıldığı yerin saatine göre (yurt dışında da doğru).
     const wall = new Date(h + tzOffsetMs(h, v.tz));
     const hr = wall.getUTCHours();

@@ -1,6 +1,6 @@
 /** MapView'in veri ve görünüm efektleri: her biri değiştiğinde haritadaki
  * kaynakları/katmanları günceller (harita hazır değilse hazır olunca). */
-import { useEffect, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import type * as maplibregl from "maplibre-gl";
 import * as maplibreglNs from "maplibre-gl";
 import type { Bookmark, Detail, NamedPlace } from "../api";
@@ -37,6 +37,7 @@ export function useTrackLayers(
   r: MapRefs,
   {
     files,
+    pool,
     selected,
     win,
     heatmap,
@@ -49,6 +50,7 @@ export function useTrackLayers(
     area,
   }: {
     files: FileEntry[];
+    pool: FileEntry[];
     selected: string | null;
     win: DateWindow | null;
     heatmap: boolean;
@@ -63,13 +65,49 @@ export function useTrackLayers(
 ) {
   const { live, hoverPopup, chooser, chooserPaths, hoverPath, mapHovering } = r;
   const whenReady = (fn: (map: maplibregl.Map) => void) => runWhenReady(r, fn);
+  // İz verisi tüm kütüphaneden kurulur; yalnızca kayıtlar, renkler ya da tarih
+  // penceresi değişince yeniden gönderilir. Filtre ve görünürlük değişince
+  // gösterilmeyen izler katman süzgeciyle gizlenir (süzgeci haritanın işçisi
+  // uygular): binlerce kayıtta her tuşta milyonlarca noktayı yeniden göndermek
+  // arayüzü donduruyordu.
+  const sentData = useRef<{ list: [FileEntry["summary"], string][]; win: DateWindow | null } | null>(null);
+  const hiddenPaths = useRef<string[]>([]);
+  const highlightRef = useRef<string[]>([]);
+  /** İz katmanlarının süzgeçleri: gizlenenler dışarıda, seçili katmanlarda yalnızca seçilenler. */
+  const applyFilters = (map: maplibregl.Map) => {
+    const hidden = hiddenPaths.current;
+    // `match` etiketleri sözlükle arar: on binlerce yolda da hızlı.
+    const visible: maplibregl.FilterSpecification = hidden.length ? ["match", ["get", "path"], hidden, false, true] : ["has", "path"];
+    const sel: maplibregl.FilterSpecification = ["in", ["get", "path"], ["literal", highlightRef.current]];
+    for (const id of ["tracks", "tracks-casing", "waypoints"]) map.setFilter(id, visible);
+    map.setFilter("tracks-selected", ["all", sel, visible]);
+    map.setFilter("tracks-selected-casing", ["all", sel, visible]);
+    // Boşluklar yalnızca seçili (ya da karşılaştırılan) kayıtta çizilir.
+    map.setFilter("gaps", ["all", sel, visible]);
+  };
   useEffect(() => {
     whenReady((map) => {
-      setData(map, "tracks", tracksGeoJSON(files, win));
-      setData(map, "gaps", gapsGeoJSON(files, win));
-      setData(map, "waypoints", waypointsGeoJSON(files));
+      const prev = sentData.current;
+      const same =
+        prev &&
+        prev.win === win &&
+        prev.list.length === pool.length &&
+        pool.every((f, i) => prev.list[i][0] === f.summary && prev.list[i][1] === f.color);
+      if (!same) {
+        sentData.current = { list: pool.map((f) => [f.summary, f.color]), win };
+        setData(map, "tracks", tracksGeoJSON(pool, win));
+        setData(map, "gaps", gapsGeoJSON(pool, win));
+        setData(map, "waypoints", waypointsGeoJSON(pool));
+      }
+      const shown = new Set(files.map((f) => f.summary.path));
+      const hidden: string[] = [];
+      for (const f of pool) if (!shown.has(f.summary.path)) hidden.push(f.summary.path);
+      const prevHidden = hiddenPaths.current;
+      if (same && hidden.length === prevHidden.length && hidden.every((p, i) => p === prevHidden[i])) return;
+      hiddenPaths.current = hidden;
+      applyFilters(map);
     });
-  }, [files, win]);
+  }, [files, pool, win]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // İz listesi ya da seçim değişince eski bilgi kutusu ekranda kalmasın (sonraki
   // fare hareketinde yeniden açılır); kaybolan izi gösteren seçim penceresi kapanır.
@@ -129,11 +167,8 @@ export function useTrackLayers(
   useEffect(() => {
     whenReady((map) => {
       const paths = highlightKey ? highlightKey.split("\n") : [];
-      const f: maplibregl.FilterSpecification = ["in", ["get", "path"], ["literal", paths]];
-      map.setFilter("tracks-selected", f);
-      map.setFilter("tracks-selected-casing", f);
-      // Boşluklar yalnızca seçili (ya da karşılaştırılan) kayıtta çizilir.
-      map.setFilter("gaps", f);
+      highlightRef.current = paths;
+      applyFilters(map);
       map.setPaintProperty("tracks", "line-opacity", paths.length ? 0.45 : 0.85);
       map.setPaintProperty("tracks-casing", "line-opacity", paths.length ? 0.4 : 0.9);
     });

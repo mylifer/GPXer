@@ -16,7 +16,12 @@ export interface MapViewState {
 }
 
 export interface MapViewProps {
+  /** Haritada gösterilecek kayıtlar (filtreden geçen, görünür olanlar). */
   files: FileEntry[];
+  /** Kütüphanedeki tüm kayıtlar: iz verisi bunlardan bir kez kurulur, `files`
+   * dışındakiler gizlenir (filtre değişince milyonlarca nokta yeniden
+   * gönderilmez). Verilmezse `files`. */
+  pool?: FileEntry[];
   selected: string | null;
   detail: Detail | null;
   hoverIdx: number | null;

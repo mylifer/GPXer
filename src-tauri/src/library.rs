@@ -4,7 +4,7 @@
 use crate::geo::{place_at, time_zone_at, untimed_visits, visits};
 use gpx_core::{Activity, FileSummary, Prepared, StatsConfig};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -107,6 +107,7 @@ struct SeenEntry {
     fingerprint: u64,
 }
 
+/// Eski biçim (tek JSON dosyası): yalnızca bir kez okunup günlüğe aktarılır.
 #[derive(Serialize, Deserialize, Default)]
 struct CacheFile {
     version: u32,
@@ -115,19 +116,117 @@ struct CacheFile {
     seen: HashMap<String, SeenEntry>,
 }
 
-/// Yazarken kopyalamadan seri hale getirmek için.
-#[derive(Serialize)]
-struct CacheFileRef<'a> {
-    version: u32,
-    entries: &'a HashMap<String, CacheEntry>,
-    seen: &'a HashMap<String, SeenEntry>,
+/// Önbellek günlüğünün bir satırı (okurken). Düz yapı: etiketli bir enum
+/// serde'yi satırı ara belleğe almaya zorlayıp okumayı iki kat yavaşlatıyordu.
+#[derive(Deserialize)]
+struct LogLine {
+    v: u32,
+    p: String,
+    /// Kütüphanedeki kaydın özeti.
+    #[serde(default)]
+    e: Option<Box<CacheEntry>>,
+    /// Kütüphane dışındaki dosyanın kopya bilgisi.
+    #[serde(default)]
+    s: Option<SeenEntry>,
+    /// Silindi (sürümden bağımsız uygulanır).
+    #[serde(default)]
+    d: bool,
 }
 
+/// Önbellek günlüğünün bir satırı (yazarken; kopyalamadan).
+#[derive(Serialize)]
+struct LogLineRef<'a> {
+    v: u32,
+    p: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    e: Option<&'a CacheEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    s: Option<&'a SeenEntry>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    d: bool,
+}
+
+impl<'a> LogLineRef<'a> {
+    fn entry(p: &'a str, e: &'a CacheEntry) -> Self {
+        Self {
+            v: CACHE_VERSION,
+            p,
+            e: Some(e),
+            s: None,
+            d: false,
+        }
+    }
+    fn seen(p: &'a str, s: &'a SeenEntry) -> Self {
+        Self {
+            v: CACHE_VERSION,
+            p,
+            e: None,
+            s: Some(s),
+            d: false,
+        }
+    }
+    fn del(p: &'a str) -> Self {
+        Self {
+            v: CACHE_VERSION,
+            p,
+            e: None,
+            s: None,
+            d: true,
+        }
+    }
+}
+
+/// Özet önbelleği. Diskte yalnızca eklenen bir günlük (JSON satırları):
+/// her değişiklikte yalnızca değişen kayıtlar dosyanın sonuna yazılır (tek
+/// dosyayı her seferinde baştan yazmak on bin kayıtta 100 MB demekti). Günlük
+/// canlı verinin iki katını aşınca sıkıştırılır.
 #[derive(Default)]
 struct Cache {
     entries: HashMap<String, CacheEntry>,
     seen: HashMap<String, SeenEntry>,
-    dirty: bool,
+    /// Son yazımdan beri değişen (eklenen, güncellenen, silinen) yollar.
+    changed: HashSet<String>,
+    /// Bir sonraki yazımda günlük baştan (sıkıştırılmış) yazılsın.
+    full: bool,
+    /// Günlükteki satır sayısı.
+    log_lines: usize,
+}
+
+/// Günlüğü okur: satırlar sırayla uygulanır; sürümü farklı ya da yarım kalmış
+/// (çökme) satırlar atlanır.
+fn replay_log(
+    bytes: &[u8],
+) -> (
+    HashMap<String, CacheEntry>,
+    HashMap<String, SeenEntry>,
+    usize,
+) {
+    use rayon::prelude::*;
+    let lines: Vec<&[u8]> = bytes
+        .split(|&b| b == b'\n')
+        .filter(|l| !l.is_empty())
+        .collect();
+    // Ayrıştırma paralel, uygulama sırayla (sonraki satır öncekini ezer).
+    let parsed: Vec<Option<LogLine>> = lines
+        .par_iter()
+        .map(|l| serde_json::from_slice(l).ok())
+        .collect();
+    let (mut entries, mut seen) = (HashMap::new(), HashMap::new());
+    for line in parsed.into_iter().flatten() {
+        if line.d {
+            entries.remove(&line.p);
+            seen.remove(&line.p);
+        } else if line.v != CACHE_VERSION {
+            continue;
+        } else if let Some(e) = line.e {
+            seen.remove(&line.p);
+            entries.insert(line.p, *e);
+        } else if let Some(s) = line.s {
+            entries.remove(&line.p);
+            seen.insert(line.p, s);
+        }
+    }
+    (entries, seen, lines.len())
 }
 
 /// Hazırlanmış kaydın anahtarı: dosya değişince ya da ayarlar değişince geçersiz.
@@ -143,6 +242,10 @@ pub struct Library {
     pub dir: PathBuf,
     pub trash_dir: PathBuf,
     cache_path: PathBuf,
+    /// Eski tek dosyalık önbellek (aktarıldıktan sonra silinir).
+    legacy_cache_path: PathBuf,
+    /// Önbellek yazımları sırayla (günlükte eski değer yenisinin ardına düşmesin).
+    flush_lock: Mutex<()>,
     dismissed_path: PathBuf,
     /// İçerik parmak izi → kütüphanedeki dosya yolu.
     known: Mutex<HashMap<u64, String>>,
@@ -284,18 +387,27 @@ impl Library {
         let dir = root.join("library");
         let trash_dir = dir.join(".trash");
         std::fs::create_dir_all(&trash_dir)?;
-        let cache_path = root.join("summary-cache.json");
+        let cache_path = root.join("summary-cache.log");
+        let legacy_cache_path = root.join("summary-cache.json");
         let dismissed_path = root.join("dismissed.json");
         let dismissed = std::fs::read(&dismissed_path)
             .ok()
             .and_then(|b| parse_dismissed(&b))
             .unwrap_or_default();
-        let file = std::fs::read(&cache_path)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<CacheFile>(&b).ok())
-            .filter(|c| c.version == CACHE_VERSION)
-            .unwrap_or_default();
-        let (mut entries, mut seen) = (file.entries, file.seen);
+        let (mut entries, mut seen, log_lines, from_legacy) = match std::fs::read(&cache_path) {
+            Ok(b) => {
+                let (e, s, n) = replay_log(&b);
+                (e, s, n, false)
+            }
+            Err(_) => {
+                let file = std::fs::read(&legacy_cache_path)
+                    .ok()
+                    .and_then(|b| serde_json::from_slice::<CacheFile>(&b).ok())
+                    .filter(|c| c.version == CACHE_VERSION)
+                    .unwrap_or_default();
+                (file.entries, file.seen, 0, true)
+            }
+        };
         // Eski önbellekteki kütüphane dışı tam özetler hafif kayda dönüşür.
         let outside: Vec<String> = entries
             .keys()
@@ -319,12 +431,16 @@ impl Library {
             dir,
             trash_dir,
             cache_path,
+            legacy_cache_path,
+            flush_lock: Mutex::default(),
             dismissed_path,
             known: Mutex::default(),
             cache: Mutex::new(Cache {
                 entries,
                 seen,
-                dirty: migrated,
+                changed: HashSet::new(),
+                full: migrated || from_legacy,
+                log_lines,
             }),
             dismissed: Mutex::new(dismissed),
             prepared: Mutex::default(),
@@ -581,7 +697,7 @@ impl Library {
                 },
             );
         }
-        cache.dirty = true;
+        cache.changed.insert(path.to_owned());
         Ok((summary, fingerprint))
     }
 
@@ -594,10 +710,15 @@ impl Library {
         (e.size == meta.len() && e.mtime == mtime_ms(&meta)).then_some(e.summary.activity)
     }
 
-    /// Önbelleği diske yazar; artık var olmayan dosyaların kayıtları atılır.
+    /// Önbellekteki değişiklikleri diske yazar; artık var olmayan dosyaların
+    /// kayıtları atılır.
     pub fn flush_cache(&self) -> std::io::Result<()> {
-        // Disk denetimleri ve yazma kilit dışında: ağ sürücüsündeki yollar
-        // yavaş olabilir, bu sırada özet hesaplayan işler beklemesin.
+        let _order = self
+            .flush_lock
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        // Disk denetimleri kilit dışında: ağ sürücüsündeki yollar yavaş
+        // olabilir, bu sırada özet hesaplayan işler beklemesin.
         let paths: Vec<String> = {
             let cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
             cache
@@ -611,30 +732,71 @@ impl Library {
             .into_iter()
             .filter(|p| !Path::new(p).exists())
             .collect();
-        let bytes = {
+        let (bytes, append, lines, changed, was_full) = {
             let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
-            for p in &gone {
-                cache.entries.remove(p);
-                cache.seen.remove(p);
+            for p in gone {
+                cache.entries.remove(&p);
+                cache.seen.remove(&p);
+                cache.changed.insert(p);
             }
-            if !cache.dirty && gone.is_empty() {
+            if cache.changed.is_empty() && !cache.full {
                 return Ok(());
             }
-            let bytes = serde_json::to_vec(&CacheFileRef {
-                version: CACHE_VERSION,
-                entries: &cache.entries,
-                seen: &cache.seen,
-            })
-            .map_err(std::io::Error::other)?;
-            cache.dirty = false;
-            bytes
+            let live = cache.entries.len() + cache.seen.len();
+            let compact = cache.full || cache.log_lines + cache.changed.len() > 2 * live + 2000;
+            let mut buf = Vec::new();
+            let mut lines = 0;
+            let mut put = |line: LogLineRef| -> std::io::Result<()> {
+                serde_json::to_writer(&mut buf, &line).map_err(std::io::Error::other)?;
+                buf.push(b'\n');
+                lines += 1;
+                Ok(())
+            };
+            if compact {
+                for (p, e) in &cache.entries {
+                    put(LogLineRef::entry(p, e))?;
+                }
+                for (p, s) in &cache.seen {
+                    put(LogLineRef::seen(p, s))?;
+                }
+            } else {
+                for p in &cache.changed {
+                    if let Some(e) = cache.entries.get(p) {
+                        put(LogLineRef::entry(p, e))?;
+                    } else if let Some(s) = cache.seen.get(p) {
+                        put(LogLineRef::seen(p, s))?;
+                    } else {
+                        put(LogLineRef::del(p))?;
+                    }
+                }
+            }
+            let was_full = cache.full;
+            cache.full = false;
+            let changed = std::mem::take(&mut cache.changed);
+            (buf, !compact, lines, changed, was_full)
         };
-        let res = crate::store::write_atomic(&self.cache_path, &bytes);
-        if res.is_err() {
-            self.cache
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .dirty = true;
+        let res = if append {
+            append_sync(&self.cache_path, &bytes)
+        } else {
+            crate::store::write_atomic(&self.cache_path, &bytes)
+        };
+        let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
+        match &res {
+            Ok(()) => {
+                cache.log_lines = if append {
+                    cache.log_lines + lines
+                } else {
+                    lines
+                };
+                if !append {
+                    let _ = std::fs::remove_file(&self.legacy_cache_path);
+                }
+            }
+            Err(_) => {
+                // Yazılamayanlar bir sonraki sefere kalır.
+                cache.changed.extend(changed);
+                cache.full |= was_full;
+            }
         }
         res
     }
@@ -737,7 +899,7 @@ impl Library {
                         summary: file.clone(),
                     },
                 );
-                cache.dirty = true;
+                cache.changed.insert(stored.clone());
             }
         }
         LoadResult::Ok {
@@ -881,6 +1043,17 @@ impl Library {
             }
         }
     }
+}
+
+/// Dosyanın sonuna ekler ve diske işler.
+fn append_sync(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    f.write_all(bytes)?;
+    f.sync_data()
 }
 
 #[cfg(test)]

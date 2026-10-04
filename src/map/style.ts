@@ -177,7 +177,11 @@ export function addOverlayLayers(map: maplibregl.Map) {
     paint: { "line-color": "#7a7f85", "line-width": 0.6, "line-opacity": 0.6 },
   });
   for (const id of ["tracks", "gaps", "waypoints", "cursor", "heat", "colored", "range", "stops", "hotspots", "area", "flights"]) {
-    map.addSource(id, { type: "geojson", data: EMPTY, tolerance: id === "tracks" ? 0.2 : 0.375 });
+    map.addSource(id, {
+      type: "geojson",
+      data: EMPTY,
+      tolerance: id === "tracks" ? 0.2 : 0.375,
+    });
   }
 
   map.addLayer({
@@ -238,7 +242,7 @@ export function addOverlayLayers(map: maplibregl.Map) {
     source: "tracks",
     filter: ["==", ["get", "path"], ""],
     layout: { "line-join": "round", "line-cap": "round" },
-    paint: { "line-color": "#ffffff", "line-width": 8 },
+    paint: { "line-color": "#ffffff", "line-width": 8, "line-opacity": 1 },
   });
   map.addLayer({
     id: "tracks-selected",
@@ -246,7 +250,7 @@ export function addOverlayLayers(map: maplibregl.Map) {
     source: "tracks",
     filter: ["==", ["get", "path"], ""],
     layout: { "line-join": "round", "line-cap": "round" },
-    paint: { "line-color": ["get", "color"], "line-width": 5 },
+    paint: { "line-color": ["get", "color"], "line-width": 5, "line-opacity": 1 },
   });
   map.addLayer({
     id: "colored",

@@ -8,6 +8,7 @@ import { fmtDistance, fmtDuration, fmtElevation, fmtNumber, type TzMode } from "
 import { dedupedTotals } from "../days";
 import { DateRange } from "./DateRange";
 import { FileList } from "./FileList";
+import { useDebouncedText } from "../hooks/useDebouncedText";
 
 export interface Group {
   key: string;
@@ -86,6 +87,7 @@ export const Sidebar = memo(function Sidebar(p: SidebarProps) {
 
   const allVisible = p.shown.length > 0 && p.shown.every((f) => f.visible);
   const set = (patch: Partial<Filters>) => p.onFilters({ ...p.filters, ...patch });
+  const [query, setQuery] = useDebouncedText(p.filters.query, (q) => set({ query: q }));
   const filtered = p.shown.length !== p.files.length;
   const anyFilter = filtersActive(p.filters);
   const hiddenCount = p.shown.length - totals.visible;
@@ -133,8 +135,8 @@ export const Sidebar = memo(function Sidebar(p: SidebarProps) {
           <input
             type="search"
             placeholder="Ad, yer, etiket ya da notta ara…"
-            value={p.filters.query}
-            onChange={(e) => set({ query: e.target.value })}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
           />
           <DateRange
             from={p.filters.from}

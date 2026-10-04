@@ -867,6 +867,7 @@ ${pts}
             ref={mapRef}
             onInfo={say}
             files={onMap}
+            pool={files}
             selected={selected}
             detail={detail}
             cursor={cursor}

@@ -229,7 +229,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
   }, []);
 
   const dark = baseLayer === "dark" || baseLayer === "satellite";
-  useTrackLayers(refs, { files, selected, win, heatmap, dark, showGaps, highlight, places, stopsLayer, flights, area });
+  useTrackLayers(refs, { files, pool: props.pool ?? files, selected, win, heatmap, dark, showGaps, highlight, places, stopsLayer, flights, area });
   useAreaSelect(refs, areaMode, box);
   const zone = useMemo(() => {
     const f = files.find((x) => x.summary.path === selected);
