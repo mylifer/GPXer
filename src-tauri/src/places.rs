@@ -14,6 +14,18 @@ pub struct NamedPlace {
     pub lon: f64,
     /// Yerin yarıçapı (m).
     pub radius_m: f64,
+    /// Gizlilik bölgesi: dışa aktarma ve paylaşımlarda çevresi kırpılır.
+    #[serde(default)]
+    pub private: bool,
+}
+
+/// Gizlilik bölgeleri `(enlem, boylam, yarıçap)`; en az 300 m.
+pub fn privacy_zones(places: &[NamedPlace]) -> Vec<(f64, f64, f64)> {
+    places
+        .iter()
+        .filter(|p| p.private)
+        .map(|p| (p.lat, p.lon, p.radius_m.max(300.0)))
+        .collect()
 }
 
 pub struct PlacesStore {
@@ -69,6 +81,7 @@ mod tests {
             lat: 41.06,
             lon: 28.98,
             radius_m: 150.0,
+            private: false,
         };
         store.set(vec![home.clone()]).unwrap();
         assert_eq!(store.all(), vec![home.clone()]);

@@ -2,6 +2,7 @@
 
 use crate::library::Library;
 use crate::meta::MetaStore;
+use crate::places::{privacy_zones, PlacesStore};
 use crate::settings::SettingsStore;
 use crate::{prepared, read_raw, run_blocking};
 use base64::Engine;
@@ -105,13 +106,16 @@ pub(crate) async fn export_as(
         if same_file(Path::new(&src), Path::new(&dest)) {
             return Err("Kayıt kendi üzerine kaydedilemez; başka bir yer seçin".into());
         }
-        if format == "gpx" {
+        let zones = privacy_zones(&app.state::<PlacesStore>().all());
+        if format == "gpx" && zones.is_empty() {
             return std::fs::copy(&src, &dest)
                 .map(|_| ())
                 .map_err(|e| e.to_string());
         }
-        let (gpx, _) = gpx_core::read_gpx_file(Path::new(&src)).map_err(|e| e.to_string())?;
+        let (mut gpx, _) = gpx_core::read_gpx_file(Path::new(&src)).map_err(|e| e.to_string())?;
+        gpx_core::ops::mask_zones(&mut gpx, &zones);
         let bytes = match format.as_str() {
+            "gpx" => gpx_core::write::write_gpx(&gpx).into_bytes(),
             "kml" => gpx_core::formats::write_kml(&gpx).into_bytes(),
             "tcx" => gpx_core::formats::write_tcx(&gpx).into_bytes(),
             "fit" => {
@@ -195,7 +199,11 @@ pub(crate) async fn export_many(
             .map(|p| read_raw(&app, p))
             .collect::<Result<Vec<_>, _>>()?;
         // Parçalar birleştirilirken taşınır (kopyalanmaz).
-        let merged = merge_for_export(parts);
+        let mut merged = merge_for_export(parts);
+        gpx_core::ops::mask_zones(
+            &mut merged,
+            &privacy_zones(&app.state::<PlacesStore>().all()),
+        );
         write_export(&merged, &format, activity, Path::new(&dest))
     })
     .await?

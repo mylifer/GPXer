@@ -15,6 +15,7 @@ import { usePhotoMarkers } from "../map/usePhotoMarkers";
 import { MapContextMenu } from "../map/MapContextMenu";
 import { recordTrip, type VideoOptions } from "../map/video";
 import { installTileCache, transformRequest, visibleTileUrls } from "../map/offline";
+import { maskCanvas } from "../privacy";
 import type { Detail } from "../api";
 
 export { BASE_LAYERS, type BaseLayer } from "../map/style";
@@ -33,7 +34,7 @@ export interface MapHandle {
   /** Görünen alanın çevrimdışı için indirilecek karo adresleri. */
   offlineTileUrls(extra: number): { urls: string[]; skipped: string[]; capped: boolean };
   /** Kaydı baştan sona çizerek video kaydeder. */
-  recordVideo(d: Detail, o: Omit<VideoOptions, "padding">): Promise<Blob>;
+  recordVideo(d: Detail, o: Omit<VideoOptions, "padding" | "zones">): Promise<Blob>;
 }
 
 export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(props, ref) {
@@ -124,7 +125,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
     recordVideo(d, o) {
       const map = mapRef.current;
       if (!map || !readyRef.current) return Promise.reject(new Error("Harita hazır değil"));
-      return recordTrip(map, d, { ...o, padding: padding(60) });
+      return recordTrip(map, d, { ...o, padding: padding(60), zones: live.current.privacyZones });
     },
     exportPng() {
       const map = mapRef.current;
@@ -139,6 +140,8 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
             out.height = src.height;
             const ctx = out.getContext("2d")!;
             ctx.drawImage(src, 0, 0);
+            // Gizlilik bölgeleri görüntüde örtülür.
+            maskCanvas(ctx, (p) => map.project(p), live.current.privacyZones, out.width / (src.clientWidth || out.width));
             const attrib = container.current?.querySelector(".maplibregl-ctrl-attrib-inner")?.textContent?.trim();
             const text = `GPXer${attrib ? " · " + attrib : ""}`;
             const scale = window.devicePixelRatio || 1;

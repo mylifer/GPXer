@@ -29,6 +29,7 @@ import { GoalsSection } from "./GoalsSection";
 import { HabitsSection } from "./HabitsSection";
 import { PlaceStatsSection } from "./PlaceStatsSection";
 import { YearCompareSection } from "./YearCompareSection";
+import { privacyZones } from "../privacy";
 import type { Goals } from "../prefs";
 
 const FLIGHT_ROWS = 200;
@@ -627,7 +628,7 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
           ))}
         </ul>
 
-        <YearCardSection files={files} from={from} onSave={onSaveImage} />
+        <YearCardSection files={files} from={from} onSave={onSaveImage} zones={privacyZones(places)} />
       </div>
     </Modal>
   );

@@ -2,16 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { dayBuckets } from "../days";
 import { CARD_H, CARD_W, drawYearCard, yearCardData } from "../shareCard";
 import type { FileEntry } from "../types";
+import type { Zone } from "../privacy";
 
 interface Props {
   files: FileEntry[];
   /** Kenar çubuğundaki tarih filtresinin başı: kart önce o yılı gösterir. */
   from: string;
   onSave(name: string, base64: string): void;
+  zones: Zone[];
 }
 
 /** Yılın özetini paylaşılabilir bir görüntü (PNG) olarak verir. */
-export function YearCardSection({ files, from, onSave }: Props) {
+export function YearCardSection({ files, from, onSave, zones }: Props) {
   const years = useMemo(() => {
     const set = new Set<string>();
     for (const f of files) for (const d of dayBuckets(f.summary)) set.add(d.day.slice(0, 4));
@@ -29,9 +31,9 @@ export function YearCardSection({ files, from, onSave }: Props) {
     canvas.height = CARD_H;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    drawYearCard(ctx, yearCardData(files, shown));
+    drawYearCard(ctx, yearCardData(files, shown, zones));
     setUrl(canvas.toDataURL("image/png"));
-  }, [open, shown, files]);
+  }, [open, shown, files, zones]);
 
   if (!years.length) return null;
   return (

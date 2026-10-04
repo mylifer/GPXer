@@ -265,7 +265,8 @@ export function SettingsDialog({
           <small>
             Haritada bir duraklamaya ya da sık durulan yere tıklayıp “Bu yere ad ver…” ile eklenir. Yarıçap içinde başlayan
             ya da biten kayıtlar ve oradaki duraklamalar bu adla gösterilir (“Ev → İş”); Özet'te her yerde geçen süre
-            listelenir.
+            listelenir. “Gizli” işaretli yerler (ör. ev) gizlilik bölgesidir: paylaşılan dosya ve görüntülerde çevresi
+            kırpılır.
           </small>
           {places.length === 0 ? (
             <div className="muted">Adlandırılmış yer yok.</div>
@@ -275,6 +276,9 @@ export function SettingsDialog({
                 <tr>
                   <th>Ad</th>
                   <th>Yarıçap (m)</th>
+                  <th title="Gizlilik bölgesi: dışa aktarılan dosyalarda, harita görüntüsünde, videoda, yıl kartında ve gezi hikâyesinde bu yerin çevresi (en az 300 m) kırpılır">
+                    Gizli
+                  </th>
                   <th />
                 </tr>
               </thead>
@@ -298,6 +302,14 @@ export function SettingsDialog({
                         value={x.radiusM}
                         onChange={(e) => editPlace(x.id, { radiusM: Number(e.target.value) })}
                         aria-label="Yarıçap (m)"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={!!x.private}
+                        onChange={(e) => editPlace(x.id, { private: e.target.checked })}
+                        aria-label={`${x.name} gizlilik bölgesi`}
                       />
                     </td>
                     <td>

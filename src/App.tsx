@@ -43,6 +43,7 @@ import { BookmarkEditor, BookmarkList } from "./components/BookmarkDialogs";
 import { useBookmarks } from "./hooks/useBookmarks";
 import { PlanPanel, type PlanState } from "./components/PlanPanel";
 import { explorerGeoJSON, explorerStats } from "./explorer";
+import { inZone, privacyZones } from "./privacy";
 import { blobToBase64 } from "./lib/blob";
 import { storyHtml, type StoryPhoto } from "./story";
 import { nightsOf } from "./nights";
@@ -164,6 +165,8 @@ export default function App() {
     selOverlaps,
   } = useFilteredFiles({ files, prefs, meta, places, dark, selected, routeInfoRef });
   const bookmarks = useBookmarks(fail);
+  /** Gizlilik bölgeleri (“gizli” işaretli adlandırılmış yerler). */
+  const zones = useMemo(() => privacyZones(places), [places]);
   /** Keşif kareleri (katman açıkken, gösterilen kayıtlardan). */
   const explorer = useMemo(() => {
     if (!prefs.explorerLayer) return null;
@@ -380,7 +383,7 @@ export default function App() {
       mapRef.current?.fitFiles([entry]);
       await new Promise((r) => setTimeout(r, 1500));
       const mapPng = await mapRef.current?.exportPng().catch(() => null);
-      const own = placedPhotos.placed.filter((ph) => ph.record === s.path).slice(0, 40);
+      const own = placedPhotos.placed.filter((ph) => ph.record === s.path && !inZone([ph.lon, ph.lat], zones)).slice(0, 40);
       const photos = (
         await Promise.all(
           own.map(async (ph) => {
@@ -398,7 +401,7 @@ export default function App() {
     } catch (e) {
       fail(`Gezi hikâyesi oluşturulamadı: ${e}`);
     }
-  }, [selectedEntry, detail, placedPhotos, places, say, fail]);
+  }, [selectedEntry, detail, placedPhotos, places, zones, say, fail]);
   const saveImage = useCallback(
     async (name: string, data: string) => {
       try {
@@ -687,6 +690,7 @@ ${pts}
             regions={regions}
             terrain={prefs.terrain3d}
             customLayers={prefs.customLayers}
+            privacyZones={zones}
             explorer={explorer?.geo ?? null}
             plan={plan ? { points: plan.points, line: plan.route?.coords.map(([la, lo]) => [lo, la] as [number, number]) ?? null } : null}
             onPlanAdd={(p) => setPlan((s) => s && { ...s, points: [...s.points, p] })}

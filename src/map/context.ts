@@ -65,6 +65,8 @@ export interface MapViewProps {
   onRoutePoint(which: "a" | "b", lonLat: [number, number]): void;
   /** Haritada gösterilen güzergâh arama noktaları. */
   routePins: { a: [number, number] | null; b: [number, number] | null };
+  /** Gizlilik bölgeleri (dışa aktarılan görüntülerde örtülür). */
+  privacyZones: import("../privacy").Zone[];
   /** Rota planlama kipi (noktalar ve hesaplanan yol); kapalıysa null. */
   plan: import("./useMapLayers").PlanView | null;
   onPlanAdd(p: [number, number]): void;

@@ -5,6 +5,7 @@ import { dayKey, dayRangeTr, fmtDistance, fmtDuration, fmtElevation, fmtNumber, 
 import { visitedPlaces } from "./summary";
 import type { FileEntry } from "./types";
 import { countryName } from "./visits";
+import { maskLines, type Zone } from "./privacy";
 
 /** Yıl kartında gösterilenler. */
 export interface YearCard {
@@ -23,7 +24,7 @@ export interface YearCard {
 }
 
 /** Bir yılın kartı için toplamlar (kopyalar bir kez sayılır, Özet ile aynı). */
-export function yearCardData(files: FileEntry[], year: string): YearCard {
+export function yearCardData(files: FileEntry[], year: string, zones: Zone[] = []): YearCard {
   const from = `${year}-01-01`;
   const to = `${year}-12-31`;
   const inYear = files.filter((f) => dayBuckets(f.summary).some((d) => d.day.startsWith(year)));
@@ -60,7 +61,7 @@ export function yearCardData(files: FileEntry[], year: string): YearCard {
     countries: v?.countries ?? [],
     cities: (v?.cities ?? []).slice(0, 6).map((c) => c.name),
     longest,
-    lines: sums.flatMap((s) => linesInYear(s, year)),
+    lines: sums.flatMap((s) => linesInYear(s, year)).flatMap((l) => maskLines([l.pts], zones).map((pts) => ({ activity: l.activity, pts }))),
   };
 }
 

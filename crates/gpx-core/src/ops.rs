@@ -208,3 +208,52 @@ pub fn move_point(gpx: &mut Gpx, index: usize, lat: f64, lon: f64) -> bool {
     }
     false
 }
+
+/// Gizlilik bölgeleri: `(enlem, boylam, yarıçap m)` çemberlerinin içindeki
+/// noktaları ve işaret noktalarını siler; segmentler bölgede bölünür (çizgi
+/// bölgeden geçmesin). Silinen nokta sayısını döner.
+pub fn mask_zones(gpx: &mut Gpx, zones: &[(f64, f64, f64)]) -> usize {
+    if zones.is_empty() {
+        return 0;
+    }
+    let inside = |lat: f64, lon: f64| {
+        zones.iter().any(|&(zl, zo, r)| {
+            let p = Point {
+                lat,
+                lon,
+                ..Default::default()
+            };
+            let z = Point {
+                lat: zl,
+                lon: zo,
+                ..Default::default()
+            };
+            crate::stats::haversine_m(&p, &z) <= r
+        })
+    };
+    let mut removed = 0;
+    for t in gpx.tracks.iter_mut().chain(gpx.routes.iter_mut()) {
+        let mut out: Vec<Vec<Point>> = Vec::new();
+        for seg in std::mem::take(&mut t.segments) {
+            let mut cur: Vec<Point> = Vec::new();
+            for p in seg {
+                if inside(p.lat, p.lon) {
+                    removed += 1;
+                    if !cur.is_empty() {
+                        out.push(std::mem::take(&mut cur));
+                    }
+                } else {
+                    cur.push(p);
+                }
+            }
+            if !cur.is_empty() {
+                out.push(cur);
+            }
+        }
+        t.segments = out;
+    }
+    gpx.tracks.retain(|t| !t.segments.is_empty());
+    gpx.routes.retain(|t| !t.segments.is_empty());
+    gpx.waypoints.retain(|w| !inside(w.point.lat, w.point.lon));
+    removed
+}

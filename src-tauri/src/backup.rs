@@ -276,6 +276,7 @@ mod tests {
             lat: 41.0,
             lon: 29.0,
             radius_m: 150.0,
+            private: false,
         }];
         let dest = root.join("yedek.zip");
         let info = write_backup(

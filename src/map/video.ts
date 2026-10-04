@@ -3,6 +3,7 @@ import type { Detail } from "../api";
 import { fmtDistance, fmtTimestamp } from "../format";
 import { EMPTY } from "./geojson";
 import { setData } from "./context";
+import { maskCanvas, type Zone } from "../privacy";
 
 export interface VideoOptions {
   /** Videonun süresi (sn). */
@@ -11,6 +12,8 @@ export interface VideoOptions {
   tz: string | undefined;
   color: string;
   padding: maplibregl.PaddingOptions;
+  /** Gizlilik bölgeleri: karede örtülür. */
+  zones: Zone[];
   onProgress(p: number): void;
   signal: AbortSignal;
 }
@@ -77,6 +80,7 @@ export async function recordTrip(map: maplibregl.Map, d: Detail, o: VideoOptions
   let k = 0;
   const overlay = () => {
     ctx.drawImage(src, 0, 0);
+    maskCanvas(ctx, (p) => map.project(p), o.zones, scale);
     const i = idx[k];
     const pad = 14 * scale;
     ctx.font = `600 ${16 * scale}px system-ui, sans-serif`;

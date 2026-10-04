@@ -1709,3 +1709,24 @@ fn delete_range_and_move_point() {
     assert_eq!(gpx.tracks[0].segments[0][1].lat, 40.5);
     assert!(!ops::move_point(&mut gpx, 3, 0.0, 0.0));
 }
+
+#[test]
+fn mask_zones_cuts_segments_around_private_places() {
+    let pts: Vec<Point> = (0..11)
+        .map(|k| pt(41.0, 29.0 + k as f64 * 0.001, k))
+        .collect();
+    let mut gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![pts],
+        }],
+        ..Default::default()
+    };
+    // Ortadaki noktanın 200 m çevresi (± ~2 nokta).
+    let n = ops::mask_zones(&mut gpx, &[(41.0, 29.005, 200.0)]);
+    assert_eq!(n, 5);
+    let segs = &gpx.tracks[0].segments;
+    assert_eq!(segs.len(), 2);
+    assert_eq!(segs[0].len() + segs[1].len(), 6);
+    assert_eq!(ops::mask_zones(&mut gpx, &[]), 0);
+}

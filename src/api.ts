@@ -140,6 +140,8 @@ export interface NamedPlace {
   lat: number;
   lon: number;
   radiusM: number;
+  /** Gizlilik bölgesi: dışa aktarma ve paylaşımlarda çevresi (en az 300 m) kırpılır. */
+  private?: boolean;
 }
 
 export interface PhotoInfo {
