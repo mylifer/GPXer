@@ -57,6 +57,10 @@ export interface MapViewProps {
   /** Fotoğrafın eşleştiği kaydın özeti (ad ve saat dilimi için). */
   summaryOf(path: string): FileSummary | undefined;
   onPhotoRecord(path: string): void;
+  /** Güzergâh aramasının A/B noktası seçildi. */
+  onRoutePoint(which: "a" | "b", lonLat: [number, number]): void;
+  /** Haritada gösterilen güzergâh arama noktaları. */
+  routePins: { a: [number, number] | null; b: [number, number] | null };
   /** 3B arazi görünümü. */
   terrain: boolean;
   /** Gezilen il ve ülkeler katmanı; kapalıysa null. */

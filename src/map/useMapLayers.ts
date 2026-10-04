@@ -2,6 +2,7 @@
  * kaynakları/katmanları günceller (harita hazır değilse hazır olunca). */
 import { useEffect, type RefObject } from "react";
 import type * as maplibregl from "maplibre-gl";
+import * as maplibreglNs from "maplibre-gl";
 import type { Detail, NamedPlace } from "../api";
 import type { FileEntry } from "../types";
 import { SEQ_DARK, SEQ_LIGHT } from "../types";
@@ -385,4 +386,24 @@ export function useTerrain(r: MapRefs, on: boolean) {
       }
     });
   }, [on]);
+}
+
+/** Güzergâh aramasının A ve B noktaları (işaretçi). */
+export function useRoutePins(map: maplibregl.Map | null, pins: { a: [number, number] | null; b: [number, number] | null }) {
+  const { a, b } = pins;
+  useEffect(() => {
+    if (!map) return;
+    const made: maplibregl.Marker[] = [];
+    for (const [label, p] of [
+      ["A", a],
+      ["B", b],
+    ] as const) {
+      if (!p) continue;
+      const el = document.createElement("div");
+      el.className = `route-pin route-pin-${label.toLowerCase()}`;
+      el.textContent = label;
+      made.push(new maplibreglNs.Marker({ element: el }).setLngLat(p).addTo(map));
+    }
+    return () => made.forEach((m) => m.remove());
+  }, [map, a?.[0], a?.[1], b?.[0], b?.[1]]);
 }

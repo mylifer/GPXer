@@ -30,6 +30,7 @@ import { findDuplicates } from "./duplicates";
 import { useRegions } from "./hooks/useRegions";
 import { DayDialog } from "./components/DayDialog";
 import { VideoDialog } from "./components/VideoDialog";
+import { RouteSearchDialog } from "./components/RouteSearchDialog";
 import { blobToBase64 } from "./lib/blob";
 import { storyHtml, type StoryPhoto } from "./story";
 import { nightsOf } from "./nights";
@@ -72,6 +73,8 @@ export default function App() {
   /** İmleç (fare ya da oynatma); App'i her karede yeniden çizmemek için state değil. */
   const [cursor] = useState(createIdxStore);
   const [dialog, setDialog] = useState<Dialog>(null);
+  /** Güzergâh aramasının A ve B noktaları (haritada sağ tık menüsünden). */
+  const [routePins, setRoutePins] = useState<{ a: [number, number] | null; b: [number, number] | null }>({ a: null, b: null });
   // Yerinde düzeltilen kayıtlar (geri almak için önceki halin yolu) ve süren işlem.
   const [detailRev, setDetailRev] = useState(0);
   const [rewritten, setRewritten] = useState<Record<string, string>>({});
@@ -520,6 +523,13 @@ export default function App() {
             flights={mapFlights}
             regions={regions}
             terrain={prefs.terrain3d}
+            routePins={routePins}
+            onRoutePoint={(which, p) => {
+              const next = { ...routePins, [which]: p };
+              setRoutePins(next);
+              if (next.a && next.b) setDialog("route");
+              else say(which === "a" ? "Başlangıç (A) seçildi; varış yerine sağ tıklayıp “Buraya (B)” seçin." : "Varış (B) seçildi; başlangıç yerine sağ tıklayıp “Buradan (A)” seçin.");
+            }}
             onFlight={showFlight}
             photos={mapPhotos}
             summaryOf={summaryOf}
@@ -729,6 +739,24 @@ export default function App() {
             } catch (e) {
               if ((e as Error)?.name !== "AbortError") fail(`Video kaydedilemedi: ${e}`);
             }
+          }}
+        />
+      )}
+      {dialog === "route" && routePins.a && routePins.b && (
+        <RouteSearchDialog
+          files={shown.map((f) => f.summary)}
+          a={routePins.a}
+          b={routePins.b}
+          places={places}
+          onSwap={() => setRoutePins({ a: routePins.b, b: routePins.a })}
+          onOpen={(p) => {
+            setDialog(null);
+            setRoutePins({ a: null, b: null });
+            selectAndZoom(p);
+          }}
+          onClose={() => {
+            setDialog(null);
+            setRoutePins({ a: null, b: null });
           }}
         />
       )}

@@ -30,7 +30,16 @@ async function copyText(text: string) {
 }
 
 /** Haritada sağ tıklanan yerin koordinatlarını kopyalama menüsü. */
-export function MapContextMenu({ map, onInfo }: { map: maplibregl.Map | null; onInfo(msg: string): void }) {
+export function MapContextMenu({
+  map,
+  onInfo,
+  onRoutePoint,
+}: {
+  map: maplibregl.Map | null;
+  onInfo(msg: string): void;
+  /** Güzergâh aramasının başlangıç (A) ya da varış (B) noktası. */
+  onRoutePoint(which: "a" | "b", lonLat: [number, number]): void;
+}) {
   const [spot, setSpot] = useState<Spot | null>(null);
   const menu = useRef<HTMLDivElement>(null);
 
@@ -105,7 +114,7 @@ export function MapContextMenu({ map, onInfo }: { map: maplibregl.Map | null; on
   // Menü harita kenarından taşmasın.
   const box = map?.getContainer().getBoundingClientRect();
   const left = Math.min(spot.x, (box?.width ?? 1e4) - 270);
-  const top = Math.min(spot.y, (box?.height ?? 1e4) - 220);
+  const top = Math.min(spot.y, (box?.height ?? 1e4) - 300);
   return (
     <div ref={menu} className="map-menu" style={{ left: Math.max(0, left), top: Math.max(0, top) }} role="menu">
       <div className="map-menu-title">Koordinatı kopyala</div>
@@ -120,6 +129,25 @@ export function MapContextMenu({ map, onInfo }: { map: maplibregl.Map | null; on
       </button>
       <button role="menuitem" onClick={() => street("yandex")}>
         Yandex Panorama'da aç
+      </button>
+      <div className="map-menu-title">Güzergâh ara</div>
+      <button
+        role="menuitem"
+        onClick={() => {
+          setSpot(null);
+          onRoutePoint("a", [spot.lon, spot.lat]);
+        }}
+      >
+        Buradan (A)…
+      </button>
+      <button
+        role="menuitem"
+        onClick={() => {
+          setSpot(null);
+          onRoutePoint("b", [spot.lon, spot.lat]);
+        }}
+      >
+        Buraya (B)…
       </button>
     </div>
   );
