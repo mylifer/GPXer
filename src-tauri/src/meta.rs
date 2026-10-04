@@ -101,6 +101,36 @@ impl MetaStore {
         Ok(changed)
     }
 
+    /// Yedekten gelen bilgileri birleştirir (dosya bir kez yazılır): etiketler
+    /// eklenir, boş not ve seçilmemiş tür doldurulur; mevcut bilgi silinmez.
+    /// Değişen kayıt sayısını döndürür.
+    pub fn merge_many(&self, items: Vec<(String, FileMeta)>) -> std::io::Result<usize> {
+        let mut map = self.map.lock().unwrap();
+        let mut next = map.clone();
+        let mut changed = 0;
+        for (path, add) in items {
+            let mut m = next.get(&path).cloned().unwrap_or_default();
+            let before = m.clone();
+            m.tags.extend(add.tags);
+            m.tags = clean_tags(m.tags);
+            if m.note.trim().is_empty() {
+                m.note = add.note;
+            }
+            if m.activity.is_none() {
+                m.activity = add.activity;
+            }
+            if m != before && !m.is_empty() {
+                next.insert(path, m);
+                changed += 1;
+            }
+        }
+        if changed > 0 {
+            self.save(&next)?;
+            *map = next;
+        }
+        Ok(changed)
+    }
+
     pub fn get(&self, path: &str) -> FileMeta {
         self.map
             .lock()
@@ -250,5 +280,47 @@ mod tests {
         let again = MetaStore::open(&root);
         assert_eq!(again.get("b").tags, vec!["iş"]);
         assert_eq!(again.get("a").tags, vec!["İş"]);
+    }
+
+    #[test]
+    fn merge_keeps_existing_and_adds_missing() {
+        let root = std::env::temp_dir().join(format!("gpxer-meta-merge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let m = MetaStore::open(&root);
+        m.set(
+            "a",
+            FileMeta {
+                tags: vec!["iş".into()],
+                note: "benim notum".into(),
+                activity: None,
+            },
+        )
+        .unwrap();
+        let n = m
+            .merge_many(vec![
+                (
+                    "a".into(),
+                    FileMeta {
+                        tags: vec!["İŞ".into(), "tatil".into()],
+                        note: "yedekteki not".into(),
+                        activity: Some(Activity::Walk),
+                    },
+                ),
+                (
+                    "b".into(),
+                    FileMeta {
+                        note: "yeni".into(),
+                        ..Default::default()
+                    },
+                ),
+            ])
+            .unwrap();
+        assert_eq!(n, 2);
+        let a = m.get("a");
+        assert_eq!(a.tags, vec!["iş", "tatil"]);
+        assert_eq!(a.note, "benim notum");
+        assert_eq!(a.activity, Some(Activity::Walk));
+        assert_eq!(MetaStore::open(&root).get("b").note, "yeni");
     }
 }

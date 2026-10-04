@@ -26,9 +26,23 @@ interface Props {
   libraryCount: number;
   /** Kütüphanenin tamamını kaldırır (onay ayrıca sorulur). */
   onClearLibrary(): void;
+  /** Kütüphaneyi tek dosyaya yedekler / yedekten geri yükler. */
+  onBackup(): void;
+  onRestore(): void;
 }
 
-export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose, libraryCount, onClearLibrary, places: initialPlaces }: Props) {
+export function SettingsDialog({
+  settings,
+  tzMode,
+  onSave,
+  onPickFolder,
+  onClose,
+  libraryCount,
+  onClearLibrary,
+  onBackup,
+  onRestore,
+  places: initialPlaces,
+}: Props) {
   const [places, setPlaces] = useState(initialPlaces);
   const editPlace = (id: string, patch: Partial<NamedPlace>) =>
     setPlaces((list) => list.map((x) => (x.id === id ? { ...x, ...patch } : x)));
@@ -220,6 +234,23 @@ export function SettingsDialog({ settings, tzMode, onSave, onPickFolder, onClose
               </tbody>
             </table>
           )}
+        </fieldset>
+
+        <fieldset>
+          <legend>Yedekleme</legend>
+          <small>
+            Kayıtlar, etiketler, notlar, türler ve adlandırdığınız yerler tek bir .zip dosyasına yedeklenir; başka bir
+            bilgisayarda (Mac ↔ Windows) geri yüklenebilir. Geri yüklemede kütüphanede zaten olan kayıtlar atlanır, bilgiler
+            mevcut olanlarla birleştirilir. Ayarlar (izlenen klasörler) yedeklenmez.
+          </small>
+          <div className="filter-row">
+            <button className="btn small" onClick={onBackup} disabled={libraryCount === 0}>
+              Yedek al…
+            </button>
+            <button className="btn small" onClick={onRestore}>
+              Yedekten geri yükle…
+            </button>
+          </div>
         </fieldset>
 
         <fieldset className="danger-zone">

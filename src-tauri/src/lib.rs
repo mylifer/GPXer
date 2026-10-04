@@ -1,3 +1,4 @@
+mod backup;
 mod edit;
 mod export;
 mod geo;
@@ -76,7 +77,12 @@ async fn load_files(
     explicit: Option<bool>,
 ) -> Result<Vec<LoadResult>, String> {
     let explicit = explicit.unwrap_or(false);
-    run_blocking(move || {
+    run_blocking(move || load_many(&app, paths, explicit)).await
+}
+
+/// [`load_files`]'ın işi (yedekten geri yükleme de kullanır).
+pub(crate) fn load_many(app: &AppHandle, paths: Vec<String>, explicit: bool) -> Vec<LoadResult> {
+    {
         let library = app.state::<Library>();
         let meta = app.state::<MetaStore>();
         let settings = app.state::<SettingsStore>();
@@ -123,8 +129,7 @@ async fn load_files(
                 },
             })
             .collect()
-    })
-    .await
+    }
 }
 
 /// Özet önbelleğini diske yazar (bir yükleme bittiğinde çağrılır).
@@ -410,6 +415,8 @@ pub fn run() {
             load_files,
             load_detail,
             add_tag,
+            backup::backup_library,
+            backup::restore_library,
             take_pending_paths,
             library_files,
             remove_files,

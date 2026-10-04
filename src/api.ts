@@ -184,6 +184,15 @@ export const exportAs = (src: string, dest: string, format: ExportFormat) =>
 export const getMeta = () => invoke<Record<string, FileMeta>>("get_meta");
 /** Tür değiştiyse yeniden hesaplanan özet döner. */
 export const setMeta = (path: string, value: FileMeta) => invoke<LoadResult | null>("set_meta", { path, value });
+export interface RestoreInfo {
+  results: LoadResult[];
+  metaMerged: number;
+  placesAdded: number;
+}
+/** Kütüphaneyi kaydetme penceresinde seçilen .zip dosyasına yedekler. */
+export const backupLibrary = (dest: string) => invoke<{ records: number; bytes: number }>("backup_library", { dest });
+/** Yedekten geri yükler: kayıtlar açma yolundan geçer (kopyalar atlanır). */
+export const restoreLibrary = (src: string) => invoke<RestoreInfo>("restore_library", { src });
 /** Kayıtlara tek seferde etiket ekler; değişen kayıtların yeni bilgileri döner. */
 export const addTag = (paths: string[], tag: string) => invoke<Record<string, FileMeta>>("add_tag", { paths, tag });
 interface SaveFilter {

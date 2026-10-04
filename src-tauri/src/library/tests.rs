@@ -438,6 +438,13 @@ fn imports_google_takeout_json() {
         .as_deref()
         .unwrap()
         .starts_with("Google konum geçmişi"));
-    assert_eq!(file.stats.point_count + file.removed_points + file.collapsed_points, 60, "{} {} {}", file.stats.point_count, file.removed_points, file.collapsed_points);
+    assert_eq!(
+        file.stats.point_count + file.removed_points + file.collapsed_points,
+        60,
+        "{} {} {}",
+        file.stats.point_count,
+        file.removed_points,
+        file.collapsed_points
+    );
     let _ = std::fs::remove_dir_all(&root);
 }

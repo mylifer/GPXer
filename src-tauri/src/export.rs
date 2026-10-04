@@ -53,7 +53,7 @@ pub(crate) async fn pick_save_path(
 }
 
 /// Hedefin kaydetme penceresinde seçildiğini denetler; izni kullanır.
-fn take_approved(app: &AppHandle, path: &str) -> Result<(), String> {
+pub(crate) fn take_approved(app: &AppHandle, path: &str) -> Result<(), String> {
     let state = app.state::<ApprovedPaths>();
     let mut approved = state.0.lock().unwrap();
     if approved.remove(path) {
@@ -61,7 +61,7 @@ fn take_approved(app: &AppHandle, path: &str) -> Result<(), String> {
     }
     // Pencerede uzantısız bir ad seçildiyse arayüz biçimin uzantısını ekler.
     let p = Path::new(path);
-    let known = ["gpx", "kml", "tcx", "fit", "csv", "png"];
+    let known = ["gpx", "kml", "tcx", "fit", "csv", "png", "zip"];
     let base = p
         .extension()
         .and_then(|e| e.to_str())

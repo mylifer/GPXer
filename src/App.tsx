@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { getMeta } from "./api";
+import { backupLibrary, getMeta, getPlaces, pickSavePath, restoreLibrary } from "./api";
 import type { MapHandle } from "./components/MapView";
 import { Sidebar } from "./components/Sidebar";
 import { UpdateNotice } from "./components/UpdateNotice";
@@ -18,7 +18,7 @@ import { MapToolbar } from "./components/MapToolbar";
 import { MapLegends } from "./components/MapLegends";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
-import { fmtNumber, type TzMode } from "./format";
+import { fmtBytes, fmtNumber, type TzMode } from "./format";
 import { createIdxStore } from "./lib/idxStore";
 import type { Dialog } from "./hooks/dialog";
 import { useBaseLayer, usePrefs } from "./hooks/usePrefs";
@@ -167,6 +167,42 @@ export default function App() {
         .catch(() => {}),
     [setMetaState],
   );
+  const backup = useCallback(async () => {
+    try {
+      const day = new Date().toISOString().slice(0, 10);
+      const dest = await pickSavePath(`GPXer-yedek-${day}.zip`, [{ name: "GPXer yedeği", extensions: ["zip"] }]);
+      if (!dest) return;
+      const path = /\.zip$/i.test(dest) ? dest : `${dest}.zip`;
+      const r = await backupLibrary(path).catch(() => backupLibrary(dest));
+      say(`${fmtNumber(r.records)} kayıt yedeklendi (${fmtBytes(r.bytes)}).`);
+    } catch (e) {
+      fail(String(e));
+    }
+  }, [say, fail]);
+  const restore = useCallback(async () => {
+    try {
+      const src = await open({ multiple: false, filters: [{ name: "GPXer yedeği", extensions: ["zip"] }] });
+      if (typeof src !== "string") return;
+      setDialog(null);
+      say("Yedek geri yükleniyor…");
+      const r = await restoreLibrary(src);
+      const added = addResults(r.results);
+      const dup = r.results.filter((x) => x.status === "duplicate").length;
+      await refreshMeta();
+      getPlaces()
+        .then((p) => Array.isArray(p) && setPlacesState(p))
+        .catch(() => {});
+      say(
+        `Yedekten ${fmtNumber(added.length)} kayıt eklendi` +
+          (dup ? `, ${fmtNumber(dup)} kayıt zaten kütüphanedeydi` : "") +
+          (r.metaMerged ? `; ${fmtNumber(r.metaMerged)} kaydın etiket ve notları aktarıldı` : "") +
+          (r.placesAdded ? `; ${fmtNumber(r.placesAdded)} yer eklendi` : "") +
+          ".",
+      );
+    } catch (e) {
+      fail(String(e));
+    }
+  }, [say, fail, addResults, refreshMeta, setPlacesState]);
   const { trim, split, merge, openMerge } = useTrackEdits({
     selected,
     detail,
@@ -496,6 +532,8 @@ export default function App() {
             setDialog(null);
             closeAll();
           }}
+          onBackup={backup}
+          onRestore={restore}
         />
       )}
       {dialog === "help" && <HelpDialog onClose={() => setDialog(null)} />}
