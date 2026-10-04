@@ -4,6 +4,7 @@ mod edit;
 mod export;
 mod geo;
 mod library;
+mod links;
 mod menu;
 mod meta;
 mod photos;
@@ -377,6 +378,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(PendingPaths::default())
         .manage(export::ApprovedPaths::default())
         .manage(photos::PhotoPaths::default())
@@ -423,6 +425,7 @@ pub fn run() {
             dem::fix_elevation,
             rewrite::undo_rewrite,
             snap::snap_to_roads,
+            links::open_street_view,
             take_pending_paths,
             library_files,
             remove_files,

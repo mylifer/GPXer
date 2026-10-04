@@ -217,6 +217,9 @@ interface SaveFilter {
 export const pickSavePath = (defaultName: string, filters: SaveFilter[]) =>
   invoke<string | null>("pick_save_path", { defaultName, filters });
 export const writeTextFile = (path: string, contents: string) => invoke<void>("write_text_file", { path, contents });
+/** Konumu tarayıcıda sokak görünümüyle açar. */
+export const openStreetView = (service: "google" | "yandex", lat: number, lon: number) =>
+  invoke<void>("open_street_view", { service, lat, lon });
 export const writeBase64File = (path: string, data: string) => invoke<void>("write_base64_file", { path, data });
 export const getSettings = () => invoke<Settings>("get_settings");
 

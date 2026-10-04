@@ -30,7 +30,7 @@ const MOUSE: [string, string][] = [
   ["Grafikte çift tıklama", "Aralık seçimini kaldır"],
   ["Haritada ize tıklama", "Kaydı seç; üst üste binen izlerde hangisinin seçileceği sorulur"],
   ["“⬚ Alan seç” açıkken haritada sürükleme", "Yalnızca o alandan geçen kayıtları listele"],
-  ["Haritada sağ tıklama", "O yerin koordinatlarını kopyala (ondalık, derece-dakika-saniye ya da Google Haritalar bağlantısı)"],
+  ["Haritada sağ tıklama", "O yerin koordinatlarını kopyala (ondalık, derece-dakika-saniye ya da Google Haritalar bağlantısı) ya da tarayıcıda Google Street View / Yandex Panorama ile aç"],
   ["Paneli üst kenarından sürükleme", "Kayıt panelini büyüt / küçült"],
   ["Haritada duraklamaya ya da sık durulan yere tıklama", "“Bu yere ad ver…” (Ev, İş); yarıçap ve ad Ayarlar'da değiştirilir"],
   ["Kayıt panelinde duraklamaya tıklama", "Haritada o duraklamaya git; ✎ ile o yere ad ver"],

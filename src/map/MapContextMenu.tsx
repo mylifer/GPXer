@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type * as maplibregl from "maplibre-gl";
+import { openStreetView } from "../api";
 import { fmtLatLon, fmtLatLonDms } from "../format";
 
 interface Spot {
@@ -93,10 +94,18 @@ export function MapContextMenu({ map, onInfo }: { map: maplibregl.Map | null; on
       onInfo(String(e));
     }
   };
+  const street = async (service: "google" | "yandex") => {
+    setSpot(null);
+    try {
+      await openStreetView(service, spot.lat, spot.lon);
+    } catch (e) {
+      onInfo(String(e));
+    }
+  };
   // Menü harita kenarından taşmasın.
   const box = map?.getContainer().getBoundingClientRect();
   const left = Math.min(spot.x, (box?.width ?? 1e4) - 270);
-  const top = Math.min(spot.y, (box?.height ?? 1e4) - 130);
+  const top = Math.min(spot.y, (box?.height ?? 1e4) - 220);
   return (
     <div ref={menu} className="map-menu" style={{ left: Math.max(0, left), top: Math.max(0, top) }} role="menu">
       <div className="map-menu-title">Koordinatı kopyala</div>
@@ -105,6 +114,13 @@ export function MapContextMenu({ map, onInfo }: { map: maplibregl.Map | null; on
           {label}
         </button>
       ))}
+      <div className="map-menu-title">Sokak görünümü (tarayıcıda)</div>
+      <button role="menuitem" onClick={() => street("google")}>
+        Google Street View'da aç
+      </button>
+      <button role="menuitem" onClick={() => street("yandex")}>
+        Yandex Panorama'da aç
+      </button>
     </div>
   );
 }

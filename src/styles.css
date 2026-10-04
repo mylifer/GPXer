@@ -2230,3 +2230,8 @@ kbd {
 .map-menu button:focus-visible {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
+.map-menu button + .map-menu-title {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
