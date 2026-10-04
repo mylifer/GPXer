@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   backupLibrary,
+  getBookmarks,
+  syncNow,
   fixElevation,
   getMeta,
   getPlaces,
@@ -55,6 +57,7 @@ import { dayBuckets } from "./days";
 import { HoverDetailPanel, HoverMapView } from "./components/HoverViews";
 import { MapToolbar as ClassicMapToolbar } from "./components/MapToolbar";
 import { isModern } from "./ui/mode";
+import { t } from "./i18n";
 import { Rail } from "./ui/Rail";
 import { ModernSidebar } from "./ui/ModernSidebar";
 import { ModernMapToolbar } from "./ui/ModernMapToolbar";
@@ -153,6 +156,7 @@ export default function App() {
     pickFiles,
     pickFolder,
     removePaths,
+    forgetPaths,
     closeAll,
   } = useFileLoader({ prefsRef, persistedSel, up, say, fail, setErrors, setDuplicates, setEmpties, mapRef, setCompare, setMulti, routeInfoRef });
   const { places, setPlacesState, namePrompt, setNamePrompt, updatePlaces, onNamePlace, namePlace } = usePlaces(say, fail);
@@ -528,6 +532,58 @@ export default function App() {
       fail(String(e));
     }
   }, [say, fail, addResults, refreshMeta, setPlacesState]);
+  // ---------- Cihazlar arası eşitleme ----------
+  const syncing = useRef(false);
+  /** Eşitler ve sonucu ekrana uygular. `manual`: değişiklik yoksa da bildirilir. */
+  const runSync = useCallback(
+    async (manual: boolean) => {
+      if (syncing.current) return;
+      syncing.current = true;
+      try {
+        const r = await syncNow();
+        addResults(r.added);
+        for (const u of r.updated) replaceSummary(u);
+        forgetPaths(r.removed);
+        if (r.metaChanged) await refreshMeta();
+        if (r.placesChanged) getPlaces().then((p) => Array.isArray(p) && setPlacesState(p)).catch(() => {});
+        if (r.bookmarksChanged) getBookmarks().then((b) => Array.isArray(b) && bookmarks.setMarks(b)).catch(() => {});
+        const parts = [
+          r.pulled && `${fmtNumber(r.pulled)} kayıt alındı`,
+          r.pushed && `${fmtNumber(r.pushed)} kayıt gönderildi`,
+          r.removedLocal && `${fmtNumber(r.removedLocal)} kayıt öbür cihazda silindiği için çöp kutusuna taşındı`,
+          r.removedRemote && `${fmtNumber(r.removedRemote)} silme öbür cihazlara bildirildi`,
+          (r.metaChanged || r.placesChanged || r.bookmarksChanged) && "etiket, not, yer ya da yer imleri güncellendi",
+          r.waiting && `${fmtNumber(r.waiting)} dosya bulut klasörüne henüz inmedi (sonraki eşitlemede)`,
+        ]
+          .filter((x): x is string => !!x)
+          .map(t);
+        if (r.conflicts.length)
+          fail(`Eşitleme: ${r.conflicts.length} kayıt iki cihazda aynı adla farklı içerikte; dokunulmadı (${r.conflicts.slice(0, 3).join(", ")}${r.conflicts.length > 3 ? "…" : ""}).`);
+        if (parts.length) say(`${t("Eşitleme:")} ${parts.join("; ")}.`);
+        else if (manual) say("Eşitleme: her şey güncel.");
+      } catch (e) {
+        if (manual) fail(String(e));
+        else console.warn("Eşitleme yapılamadı:", e);
+      } finally {
+        syncing.current = false;
+      }
+    },
+    [addResults, replaceSummary, forgetPaths, refreshMeta, setPlacesState, bookmarks.setMarks, say, fail],
+  );
+  // Klasör seçiliyse açılıştan biraz sonra ve 15 dakikada bir kendiliğinden.
+  const syncFolder = settings?.syncFolder ?? null;
+  const runSyncRef = useRef(runSync);
+  runSyncRef.current = runSync;
+  useEffect(() => {
+    if (!syncFolder) return;
+    const first = setTimeout(() => runSyncRef.current(false), 8000);
+    const every = setInterval(() => runSyncRef.current(false), 15 * 60_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, [syncFolder]);
+
   const { trim, split, merge, openMerge } = useTrackEdits({
     selected,
     detail,
@@ -703,6 +759,7 @@ ${pts}
     add("İşlem", "png", "Harita görüntüsünü kaydet (PNG)", exportPng, `${MOD}+Shift+E`);
     add("İşlem", "csv", "Özet tablosunu dışa aktar (CSV)", exportCsv, `${MOD}+E`);
     add("İşlem", "backup", "Yedek al…", backup, undefined, "zip parola");
+    if (syncFolder) add("İşlem", "sync", "Şimdi eşitle", () => void runSync(true), undefined, "drive icloud dropbox onedrive bulut");
     add("İşlem", "restore", "Yedekten geri yükle…", restore);
     add("İşlem", "sidebar", "Kenar çubuğunu aç/kapat", () => up({ sidebarOpen: !prefs.sidebarOpen }), `${MOD}+B`);
     add("İşlem", "help", "Yardım ve kısayollar", () => setDialog("help"), "?");
@@ -770,6 +827,8 @@ ${pts}
     up,
     zoomTo,
     setDialog,
+    syncFolder,
+    runSync,
   ]);
   useKeyboard({
     rows,
@@ -1124,6 +1183,7 @@ ${pts}
           }}
           onBackup={backup}
           onRestore={restore}
+          onSyncNow={() => runSync(true)}
         />
       )}
       {dialog === "help" && <HelpDialog onClose={() => setDialog(null)} />}

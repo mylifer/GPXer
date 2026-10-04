@@ -4,8 +4,8 @@ import { saveUiMode, uiMode, type UiMode } from "../ui/mode";
 import { CustomLayersEditor } from "./CustomLayersEditor";
 import { FUEL_KINDS, type FuelKind, type FuelPrefs } from "../fuel";
 import type { Goals, Prefs } from "../prefs";
-import { clearTileCache, tileCacheInfo, type NamedPlace, type Settings } from "../api";
-import { fmtBytes, fmtNumber, type TzMode } from "../format";
+import { clearTileCache, syncInfo, tileCacheInfo, type NamedPlace, type Settings } from "../api";
+import { fmtBytes, fmtNumber, fmtTimestamp, type TzMode } from "../format";
 import { Modal } from "./Modal";
 
 /** Etkinlik türüne göre hazır eşikler. */
@@ -36,6 +36,8 @@ interface Props {
   /** Kütüphaneyi tek dosyaya yedekler / yedekten geri yükler. */
   onBackup(): void;
   onRestore(): void;
+  /** Kayıtlı eşitleme klasörüyle şimdi eşitler. */
+  onSyncNow(): Promise<void>;
 }
 
 export function SettingsDialog({
@@ -48,6 +50,7 @@ export function SettingsDialog({
   onClearLibrary,
   onBackup,
   onRestore,
+  onSyncNow,
   places: initialPlaces,
 }: Props) {
   const [places, setPlaces] = useState(initialPlaces);
@@ -56,6 +59,14 @@ export function SettingsDialog({
   const [movingKmh, setMovingKmh] = useState(r1(settings.stats.movingSpeedMs * 3.6));
   const [eleM, setEleM] = useState(settings.stats.elevationThresholdM);
   const [folders, setFolders] = useState(settings.watchedFolders);
+  const [syncFolder, setSyncFolder] = useState<string | null>(settings.syncFolder ?? null);
+  const [syncLast, setSyncLast] = useState<number | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+  useEffect(() => {
+    syncInfo()
+      .then((i) => setSyncLast(i?.last ?? null))
+      .catch(() => {});
+  }, []);
   const [tz, setTz] = useState<TzMode>(prefs.tzMode);
   const [fuel, setFuel] = useState<FuelPrefs>(prefs.fuel);
   const [goals, setGoals] = useState<Goals>(prefs.goals);
@@ -83,6 +94,7 @@ export function SettingsDialog({
           collapseStays: stays,
         },
         watchedFolders: folders,
+        syncFolder,
       },
       { tzMode: tz, customLayers: layers, goals: { km: Math.max(0, goals.km || 0), days: Math.max(0, goals.days || 0) }, fuel: { ...fuel, per100: Math.max(0, fuel.per100 || 0), price: Math.max(0, fuel.price || 0) } },
       places
@@ -288,6 +300,54 @@ export function SettingsDialog({
           >
             Klasör ekle…
           </button>
+        </fieldset>
+
+        <fieldset>
+          <legend>Cihazlar arası eşitleme</legend>
+          <small>
+            Google Drive, iCloud Drive, Dropbox ya da OneDrive'daki bir klasör seçin; kayıtlar, etiket ve notlar, adlandırılmış
+            yerler ve yer imleri bu klasör üzerinden öbür bilgisayarlarınızdaki GPXer ile eşitlenir (açılışta ve 15 dakikada
+            bir). Her bilgisayarda aynı klasörü seçin. Bir cihazda silinen kayıt öbürlerinde çöp kutusuna taşınır.
+          </small>
+          {syncFolder ? (
+            <ul className="folder-list">
+              <li>
+                <span title={syncFolder}>{syncFolder}</span>
+                <button className="icon-btn" onClick={() => setSyncFolder(null)} title="Eşitlemeyi kapat">
+                  ×
+                </button>
+              </li>
+            </ul>
+          ) : (
+            <span className="muted small-note">Eşitleme kapalı.</span>
+          )}
+          <div className="form-actions" style={{ justifyContent: "flex-start" }}>
+            <button
+              className="btn small"
+              onClick={async () => {
+                const f = await onPickFolder();
+                if (f) setSyncFolder(f);
+              }}
+            >
+              {syncFolder ? "Klasörü değiştir…" : "Klasör seç…"}
+            </button>
+            <button
+              className="btn small"
+              disabled={!settings.syncFolder || syncFolder !== (settings.syncFolder ?? null) || syncBusy}
+              title={syncFolder !== (settings.syncFolder ?? null) ? "Önce ayarları kaydedin" : undefined}
+              onClick={async () => {
+                setSyncBusy(true);
+                await onSyncNow();
+                setSyncBusy(false);
+                syncInfo()
+                  .then((i) => setSyncLast(i?.last ?? null))
+                  .catch(() => {});
+              }}
+            >
+              {syncBusy ? "Eşitleniyor…" : "Şimdi eşitle"}
+            </button>
+          </div>
+          {syncLast != null && <small>Son eşitleme: {fmtTimestamp(syncLast, undefined)}</small>}
         </fieldset>
 
         <fieldset>

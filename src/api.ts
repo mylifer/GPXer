@@ -160,6 +160,8 @@ export interface PhotoInfo {
 export interface Settings {
   stats: StatsConfig;
   watchedFolders: string[];
+  /** Cihazlar arası eşitleme klasörü (yoksa eşitleme kapalı). */
+  syncFolder?: string | null;
 }
 
 export const expandPaths = (paths: string[]) => invoke<string[]>("expand_paths", { paths });
@@ -306,3 +308,25 @@ export const searchPlacesOffline = (query: string, prefer: string[]) => invoke<P
 /** Çevrimiçi yer/adres araması (OpenStreetMap, Photon); haritanın ortasına yakın sonuçlar önce. */
 export const searchPlacesOnline = (query: string, lat: number | null, lon: number | null) =>
   invoke<PlaceHit[]>("search_places_online", { query, lat, lon });
+/** Eşitleme sonucu. */
+export interface SyncReport {
+  pushed: number;
+  pulled: number;
+  removedLocal: number;
+  removedRemote: number;
+  /** Aynı adla iki cihazda farklı içerik: dokunulmadı. */
+  conflicts: string[];
+  /** Bulut istemcisinin henüz indirmediği dosyalar. */
+  waiting: number;
+  metaChanged: boolean;
+  placesChanged: boolean;
+  bookmarksChanged: boolean;
+  added: LoadResult[];
+  updated: LoadResult[];
+  removed: string[];
+  at: number;
+}
+/** Seçili klasörle şimdi eşitler. */
+export const syncNow = () => invoke<SyncReport>("sync_now");
+/** Eşitleme klasörü ve son eşitleme zamanı. */
+export const syncInfo = () => invoke<{ folder: string | null; last: number | null }>("sync_info");

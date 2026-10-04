@@ -15,6 +15,8 @@ pub struct Settings {
     pub stats: StatsConfig,
     /// Yeni GPX dosyaları kendiliğinden kütüphaneye eklenen klasörler.
     pub watched_folders: Vec<String>,
+    /// Cihazlar arası eşitleme için bulut klasörü (Drive, iCloud, Dropbox…).
+    pub sync_folder: Option<String>,
 }
 
 /// İzlenen klasör: kullanıcının seçtiği yol ve gerçek (kanonik) yolu. macOS

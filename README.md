@@ -148,6 +148,14 @@ ile yazılmıştır.
 - Komut paleti (Ctrl/⌘+K) ve İngilizce arayüz (Ayarlar → Dil).
 - İki görünüm: **Modern** (varsayılan; simge çubuğu, kart yerleşimi, açık/koyu
   tema) ve **Klasik** (ilk tasarım). Ayarlar → Görünüm ve dil → Arayüz.
+- Haritada yer arama (Ctrl/⌘+F): adlandırılmış yerler, yer imleri, çevrimdışı
+  ~145 bin yerleşim ve çevrimiçi adres araması (OpenStreetMap/Photon).
+- Cihazlar arası eşitleme (Ayarlar → Cihazlar arası eşitleme): Drive, iCloud,
+  Dropbox ya da OneDrive klasörü üzerinden kayıtlar, etiket/notlar, yerler ve
+  yer imleri; açılışta ve 15 dakikada bir. Bir kayıt yalnızca öbür cihazda
+  açıkça silindiyse silinir; aynı adla farklı içerik çakışma olarak bildirilir.
+- On binlerce kayıtlık kütüphanede de akıcı: filtre değişince harita verisi
+  yeniden gönderilmez, özet önbelleği yalnızca değişen kayıtları yazar.
 
 **Açma yolları ve klavye**
 - Sürükle-bırak, *Dosya Aç…* (Ctrl/⌘+O), *Klasör Aç…* (Ctrl/⌘+Shift+O),

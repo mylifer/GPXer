@@ -466,6 +466,21 @@ export function useFileLoader({
     [fail, up, patchFiles],
   );
 
+  /** Başka yoldan (eşitleme) kaldırılmış kayıtları listeden çıkarır (çöp kutusuna taşımaz). */
+  const forgetPaths = useCallback(
+    (paths: string[]) => {
+      if (paths.length === 0) return;
+      const set = new Set(paths);
+      filesRef.current = filesRef.current.filter((f) => !set.has(f.summary.path));
+      if (reloadBuf.current) reloadBuf.current = reloadBuf.current.filter((f) => !set.has(f.summary.path));
+      patchFiles((prev) => prev.filter((f) => !set.has(f.summary.path)));
+      setSelected((s) => (s && set.has(s) ? null : s));
+      setCompare((c) => (c && c.some((p) => set.has(p)) ? null : c));
+      setMulti((m) => new Set([...m].filter((p) => !set.has(p))));
+    },
+    [patchFiles],
+  );
+
   useEffect(() => {
     if (!undo) return;
     const t = setTimeout(() => setUndo(null), UNDO_MS);
@@ -531,6 +546,7 @@ export function useFileLoader({
     pickFiles,
     pickFolder,
     removePaths,
+    forgetPaths,
     closeAll,
   };
 }

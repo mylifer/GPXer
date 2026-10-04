@@ -16,6 +16,7 @@ mod search;
 mod settings;
 mod snap;
 mod store;
+mod sync;
 mod tiles;
 mod weather;
 
@@ -459,6 +460,8 @@ pub fn run() {
             weather::weather_at,
             search::search_places_offline,
             search::search_places_online,
+            sync::sync_now,
+            sync::sync_info,
             take_pending_paths,
             library_files,
             remove_files,

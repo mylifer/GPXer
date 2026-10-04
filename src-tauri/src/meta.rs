@@ -131,6 +131,23 @@ impl MetaStore {
         Ok(changed)
     }
 
+    /// Bilgileri olduğu gibi yazar (boş bilgi kaydı siler); dosya bir kez yazılır.
+    pub fn set_many(&self, items: Vec<(String, FileMeta)>) -> std::io::Result<()> {
+        let mut map = self.map.lock().unwrap();
+        let mut next = map.clone();
+        for (path, mut m) in items {
+            m.tags = clean_tags(m.tags);
+            if m.is_empty() {
+                next.remove(&path);
+            } else {
+                next.insert(path, m);
+            }
+        }
+        self.save(&next)?;
+        *map = next;
+        Ok(())
+    }
+
     pub fn get(&self, path: &str) -> FileMeta {
         self.map
             .lock()
