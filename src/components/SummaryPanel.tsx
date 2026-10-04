@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { fmtCo2, fmtFuel, fmtMoney, fuelFor, type FuelPrefs } from "../fuel";
 import type { FileEntry } from "../types";
 import {
   MONTHS,
@@ -70,11 +71,12 @@ interface Props {
   onFlight(f: Flight): void;
   /** Gün anahtarları saat dilimi kipine bağlı: değişince hesaplar yenilenir. */
   tzMode: TzMode;
+  fuel: FuelPrefs;
   /** Yıl kartını kaydet (kaydetme penceresi açılır). */
   onSaveImage(name: string, base64: string): void;
 }
 
-export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage }: Props) {
+export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage, fuel }: Props) {
   const [period, setPeriod] = useState<Period>("month");
   const [measure, setMeasure] = useState<Measure>("distance");
   const [hover, setHover] = useState<number | null>(null);
@@ -156,6 +158,15 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
     const partial = files.filter((f) => rangeShare(f.summary, from, to).partial).length;
     return { distance: t.distanceM, moving: t.movingMs, gain: t.gainM, days: t.days, count: files.length, partial };
   }, [files, from, to, tzMode]);
+
+  const carFuel = useMemo(() => {
+    const km = dedupedTotals(
+      files.filter((f) => f.summary.activity === "car").map((f) => f.summary),
+      from,
+      to,
+    ).distanceM;
+    return km > 0 ? { km, u: fuelFor(km, fuel) } : null;
+  }, [files, from, to, fuel, tzMode]);
 
   const records = useMemo(() => {
     const best = (score: (f: FileEntry) => number | null) => {
@@ -271,6 +282,15 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
             <span>Kayıt başına</span>
             <strong>{fmtDistance(totals.count ? totals.distance / totals.count : 0)}</strong>
           </div>
+          {carFuel && (
+            <div
+              className="tile"
+              title={`Araç kayıtlarında ${fmtDistance(carFuel.km)} · ${fmtFuel(carFuel.u)} · ${fmtCo2(carFuel.u.co2Kg)} (Ayarlar → Yakıt)`}
+            >
+              <span>Yakıt (araç, tahmini)</span>
+              <strong>{fmtMoney(carFuel.u.cost)}</strong>
+            </div>
+          )}
         </div>
         <p className="muted small-note">
           Kenar çubuğundaki filtreye uyan {fmtNumber(files.length)} kayıt.

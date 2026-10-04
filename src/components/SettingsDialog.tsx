@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { FUEL_KINDS, type FuelKind, type FuelPrefs } from "../fuel";
+import type { Prefs } from "../prefs";
 import type { NamedPlace, Settings } from "../api";
 import type { TzMode } from "../format";
 import { Modal } from "./Modal";
@@ -16,8 +18,9 @@ const r1 = (v: number) => Math.round(v * 10) / 10;
 
 interface Props {
   settings: Settings;
-  tzMode: TzMode;
-  onSave(s: Settings, tzMode: TzMode, places: NamedPlace[]): void;
+  /** Arayüz tercihleri (bu pencerede düzenlenenler). */
+  prefs: Prefs;
+  onSave(s: Settings, prefs: Partial<Prefs>, places: NamedPlace[]): void;
   /** Adlandırılmış yerler (ad, yarıçap düzenlenir, silinir). */
   places: NamedPlace[];
   onPickFolder(): Promise<string | null>;
@@ -33,7 +36,7 @@ interface Props {
 
 export function SettingsDialog({
   settings,
-  tzMode,
+  prefs,
   onSave,
   onPickFolder,
   onClose,
@@ -49,7 +52,8 @@ export function SettingsDialog({
   const [movingKmh, setMovingKmh] = useState(r1(settings.stats.movingSpeedMs * 3.6));
   const [eleM, setEleM] = useState(settings.stats.elevationThresholdM);
   const [folders, setFolders] = useState(settings.watchedFolders);
-  const [tz, setTz] = useState<TzMode>(tzMode);
+  const [tz, setTz] = useState<TzMode>(prefs.tzMode);
+  const [fuel, setFuel] = useState<FuelPrefs>(prefs.fuel);
   const [clean, setClean] = useState(settings.stats.cleanSpikes);
   const [perType, setPerType] = useState(settings.stats.perType);
   const [stays, setStays] = useState(settings.stats.collapseStays);
@@ -67,7 +71,7 @@ export function SettingsDialog({
         },
         watchedFolders: folders,
       },
-      tz,
+      { tzMode: tz, fuel: { ...fuel, per100: Math.max(0, fuel.per100 || 0), price: Math.max(0, fuel.price || 0) } },
       places
         .map((x) => ({ ...x, name: x.name.trim(), radiusM: Math.max(10, Math.min(5000, Math.round(x.radiusM) || 150)) }))
         .filter((x) => x.name),
@@ -152,6 +156,43 @@ export function SettingsDialog({
             Kaydın yapıldığı yerin saat dilimine göre göster
           </label>
           <small>Başka bir ülkede kaydedilen loglarda ikinci seçenek yerel saati doğru gösterir.</small>
+        </fieldset>
+
+        <fieldset>
+          <legend>Yakıt (araç kayıtları)</legend>
+          <div className="field-row">
+            <label className="field">
+              <span>Yakıt</span>
+              <select value={fuel.kind} onChange={(e) => setFuel({ ...fuel, kind: e.target.value as FuelKind })}>
+                {FUEL_KINDS.map((k) => (
+                  <option key={k.id} value={k.id}>
+                    {k.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>100 km'de ({FUEL_KINDS.find((k) => k.id === fuel.kind)?.unit})</span>
+              <input
+                type="number"
+                min={0}
+                step={0.1}
+                value={fuel.per100}
+                onChange={(e) => setFuel({ ...fuel, per100: e.target.valueAsNumber })}
+              />
+            </label>
+            <label className="field">
+              <span>Birim fiyat (₺)</span>
+              <input
+                type="number"
+                min={0}
+                step={0.1}
+                value={fuel.price}
+                onChange={(e) => setFuel({ ...fuel, price: e.target.valueAsNumber })}
+              />
+            </label>
+          </div>
+          <small>Araç türündeki kayıtlarda tahmini yakıt, maliyet ve CO₂ salımı gösterilir (kayıt panelinde ve Özet'te).</small>
         </fieldset>
 
         <fieldset>

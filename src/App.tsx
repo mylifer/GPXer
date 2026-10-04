@@ -33,7 +33,7 @@ import { MapToolbar } from "./components/MapToolbar";
 import { MapLegends } from "./components/MapLegends";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
-import { fmtBytes, fmtDistance, fmtElevation, fmtNumber, isoOf, type TzMode } from "./format";
+import { fmtBytes, fmtDistance, fmtElevation, fmtNumber, isoOf } from "./format";
 import { createIdxStore } from "./lib/idxStore";
 import type { Dialog } from "./hooks/dialog";
 import { useBaseLayer, usePrefs } from "./hooks/usePrefs";
@@ -606,6 +606,7 @@ export default function App() {
             places={places}
             onNamePlace={onNamePlace}
             onFocusPoint={(pt) => mapRef.current?.centerOn(pt, 15)}
+            fuel={prefs.fuel}
           />
         )}
       </main>
@@ -613,15 +614,15 @@ export default function App() {
       {dialog === "settings" && settings && (
         <SettingsDialog
           settings={settings}
-          tzMode={prefs.tzMode}
+          prefs={prefs}
           onClose={() => setDialog(null)}
           onPickFolder={async () => {
             const r = await open({ directory: true, multiple: false });
             return typeof r === "string" ? r : null;
           }}
-          onSave={(s, tzMode: TzMode, nextPlaces) => {
+          onSave={(s, patch, nextPlaces) => {
             setDialog(null);
-            up({ tzMode });
+            up(patch);
             applySettings(s);
             if (JSON.stringify(nextPlaces) !== JSON.stringify(places)) updatePlaces(nextPlaces);
           }}
@@ -653,6 +654,7 @@ export default function App() {
           }}
           onClose={() => setDialog(null)}
           onSaveImage={saveImage}
+          fuel={prefs.fuel}
           onPeriod={(from, to) => {
             setDialog(null);
             up({ filters: { ...prefs.filters, from, to } });

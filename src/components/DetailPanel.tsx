@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { fmtCo2, fmtFuel, fmtMoney, fuelFor, type FuelPrefs } from "../fuel";
 import { nightsOf, type Night } from "../nights";
 import type { Detail, FileMeta, FileSummary, NamedPlace, RewriteKind, Stats, Stop } from "../api";
 import { namedPlaceAt } from "../places";
@@ -78,6 +79,7 @@ interface Props {
   places: NamedPlace[];
   onNamePlace(lon: number, lat: number, place: NamedPlace | null): void;
   onFocusPoint(lonLat: [number, number]): void;
+  fuel: FuelPrefs;
 }
 
 const STOPS_PAGE = 100;
@@ -506,6 +508,17 @@ export function DetailPanel(p: Props) {
             />
           )}
           {nights.length > 0 && <NightList nights={nights} tz={tz} onFocusPoint={p.onFocusPoint} />}
+          {s.activity === "car" && st.distanceM > 0 && (() => {
+            const u = fuelFor(st.distanceM, p.fuel);
+            return (
+              <div className="stat" title={`Ayarlardaki tüketime göre tahmin: ${fmtFuel(u)}, ${fmtCo2(u.co2Kg)}`}>
+                <span>Yakıt (tahmini)</span>
+                <strong>
+                  {fmtFuel(u)} · {fmtMoney(u.cost)}
+                </strong>
+              </div>
+            );
+          })()}
         </StatCards>
         <div className="chart-wrap">
           <div className="readout" aria-live="off">

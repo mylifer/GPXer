@@ -3,6 +3,7 @@
  * bozuksa varsayılanlar kullanılır; uygulama bunlar olmadan da çalışır.
  */
 
+import { DEFAULT_FUEL, isFuelPrefs, type FuelPrefs } from "./fuel";
 import type { TzMode } from "./format";
 
 export type SortKey = "date-desc" | "date-asc" | "name" | "distance";
@@ -69,6 +70,8 @@ export interface Prefs {
   photoOffsetH: number;
   /** Haritada gezilen il ve ülkeler. */
   regionsLayer: boolean;
+  /** Araç kayıtları için yakıt tüketimi ve fiyatı. */
+  fuel: FuelPrefs;
 }
 
 const DEFAULT_FILTERS: Filters = {
@@ -117,6 +120,7 @@ const DEFAULTS: Prefs = {
   photosLayer: true,
   photoOffsetH: 0,
   regionsLayer: false,
+  fuel: DEFAULT_FUEL,
 };
 
 export const PREFS_KEY = "gpxer.prefs.v1";
@@ -207,6 +211,7 @@ export function sanitizePrefs(raw: unknown): Prefs {
     photosLayer: pick(s.photosLayer, isBool, D.photosLayer),
     photoOffsetH: pick(s.photoOffsetH, isNum, D.photoOffsetH),
     regionsLayer: pick(s.regionsLayer, isBool, D.regionsLayer),
+    fuel: pick(s.fuel, isFuelPrefs, D.fuel),
   };
 }
 
