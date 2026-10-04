@@ -25,6 +25,7 @@ export function MapToolbar({
   photoTrack,
   downloadArea,
   openBookmarks,
+  openPlan,
 }: {
   prefs: Prefs;
   up(patch: Partial<Prefs>): void;
@@ -42,6 +43,7 @@ export function MapToolbar({
   photoTrack(): void;
   downloadArea(): void;
   openBookmarks(): void;
+  openPlan(): void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Dar pencerede çubuk birkaç satıra iner; bildirimler (`.toasts`) altında
@@ -164,6 +166,7 @@ export function MapToolbar({
       )}
       <LayersMenu
         actions={[
+          { label: "🧭 Rota planla", title: "Haritaya tıklayarak noktalar ekleyin; yollara oturtulmuş rota, mesafe ve süre tahmini", run: openPlan },
           { label: "📌 Yer imleri listesi", title: "İşaretlediğiniz yerler ve gitmek istedikleriniz", run: openBookmarks },
           {
             label: "⤓ Görünen alanı çevrimdışı için indir",

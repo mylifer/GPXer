@@ -223,6 +223,15 @@ export interface Bookmark {
 }
 export const getBookmarks = () => invoke<Bookmark[]>("get_bookmarks");
 export const setBookmarks = (items: Bookmark[]) => invoke<void>("set_bookmarks", { items });
+export interface PlannedRoute {
+  /** [enlem, boylam] */
+  coords: [number, number][];
+  distanceM: number;
+  durationS: number;
+}
+/** Noktalardan geçen rota (OSRM, routing.openstreetmap.de). */
+export const planRoute = (profile: "car" | "bike" | "foot", points: [number, number][]) =>
+  invoke<PlannedRoute>("plan_route", { profile, points });
 /** Çevrimdışı harita: karoları önbelleğe indirir; önbellek boyutu ve temizleme. */
 export const prefetchTiles = (urls: string[]) => invoke<number>("prefetch_tiles", { urls });
 export const tileCacheInfo = () => invoke<{ bytes: number; count: number }>("tile_cache_info");

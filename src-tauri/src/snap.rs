@@ -183,6 +183,87 @@ fn snap_with(app: &AppHandle, base: &str, path: &str) -> Result<RewriteResult, S
     })
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PlannedRoute {
+    /// Yol boyunca noktalar (enlem, boylam).
+    coords: Vec<(f64, f64)>,
+    distance_m: f64,
+    duration_s: f64,
+}
+
+fn parse_route(v: &serde_json::Value) -> Result<PlannedRoute, String> {
+    if v["code"] != "Ok" {
+        return Err("Bu noktalar arasında yol bulunamadı".into());
+    }
+    let r = &v["routes"][0];
+    let coords = r["geometry"]["coordinates"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(lonlat)
+        .collect();
+    Ok(PlannedRoute {
+        coords,
+        distance_m: r["distance"].as_f64().unwrap_or(0.0),
+        duration_s: r["duration"].as_f64().unwrap_or(0.0),
+    })
+}
+
+/// Noktalardan geçen rota (araç, bisiklet ya da yaya).
+pub(crate) fn route_with(
+    base: &str,
+    profile: &str,
+    points: &[(f64, f64)],
+) -> Result<PlannedRoute, String> {
+    let coords: Vec<String> = points
+        .iter()
+        .map(|(la, lo)| format!("{lo:.6},{la:.6}"))
+        .collect();
+    let url = format!("{base}/{profile}/route/v1/driving/{}", coords.join(";"));
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent(concat!("GPXer/", env!("CARGO_PKG_VERSION")))
+        .build();
+    let v: serde_json::Value = match agent
+        .get(&url)
+        .query("overview", "full")
+        .query("geometries", "geojson")
+        .call()
+    {
+        Ok(r) => serde_json::from_reader(r.into_reader())
+            .map_err(|e| format!("Rota yanıtı okunamadı: {e}"))?,
+        Err(ureq::Error::Status(400, r)) => {
+            serde_json::from_reader(r.into_reader()).unwrap_or_default()
+        }
+        Err(ureq::Error::Status(code, _)) => {
+            return Err(format!("Rota servisi hata verdi ({code})"))
+        }
+        Err(ureq::Error::Transport(t)) => {
+            return Err(format!(
+                "Rota servisine ulaşılamadı (internet bağlantısı?): {t}"
+            ))
+        }
+    };
+    parse_route(&v)
+}
+
+#[tauri::command]
+pub(crate) async fn plan_route(
+    profile: String,
+    points: Vec<(f64, f64)>,
+) -> Result<PlannedRoute, String> {
+    if points.len() < 2 || points.len() > 50 {
+        return Err("Rota için 2–50 nokta gerekir".into());
+    }
+    let p = match profile.as_str() {
+        "bike" => "routed-bike",
+        "foot" => "routed-foot",
+        _ => "routed-car",
+    };
+    run_blocking(move || route_with(API, p, &points)).await?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,5 +334,15 @@ mod tests {
             "{line}"
         );
         assert!(line.contains("timestamps=60%3B120"), "{line}");
+    }
+
+    #[test]
+    fn parses_osrm_route_response() {
+        let v = json!({"code": "Ok", "routes": [{"distance": 1234.5, "duration": 90.0,
+            "geometry": {"coordinates": [[29.0, 41.0], [29.01, 41.02]]}}]});
+        let r = parse_route(&v).unwrap();
+        assert_eq!(r.coords, vec![(41.0, 29.0), (41.02, 29.01)]);
+        assert_eq!(r.distance_m, 1234.5);
+        assert!(parse_route(&json!({"code": "NoRoute"})).is_err());
     }
 }

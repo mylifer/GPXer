@@ -325,6 +325,22 @@ export function addOverlayLayers(map: maplibregl.Map) {
       "circle-stroke-width": 3,
     },
   });
+  // Rota planı: yol boyunca kesik çizgi.
+  map.addSource("plan", { type: "geojson", data: EMPTY });
+  map.addLayer({
+    id: "plan-casing",
+    type: "line",
+    source: "plan",
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": "#ffffff", "line-width": 7, "line-opacity": 0.9 },
+  });
+  map.addLayer({
+    id: "plan",
+    type: "line",
+    source: "plan",
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": "#7b3fd0", "line-width": 4, "line-dasharray": [2, 1.5] },
+  });
   // Video kaydı: ilerledikçe çizilen iz ve baş noktası (yalnızca kayıt sırasında).
   for (const id of ["video-trail", "video-head"]) map.addSource(id, { type: "geojson", data: EMPTY });
   map.addLayer({

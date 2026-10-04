@@ -517,3 +517,60 @@ export function useExplorerLayer(r: MapRefs, data: GeoJSON.FeatureCollection | n
     });
   }, [data]);
 }
+
+export interface PlanView {
+  points: [number, number][];
+  /** Yola oturtulmuş rota [boylam, enlem]; hesaplanmadıysa düz çizgi çizilir. */
+  line: [number, number][] | null;
+}
+
+/** Rota planlama: haritaya tıklayınca nokta eklenir; numaralı işaretçiler
+ * sürüklenebilir, sağ tıkla silinir. */
+export function usePlanLayer(
+  r: MapRefs,
+  map: maplibregl.Map | null,
+  plan: PlanView | null,
+  cb: { add(p: [number, number]): void; move(i: number, p: [number, number]): void; remove(i: number): void },
+) {
+  const on = !!plan;
+  useEffect(() => {
+    if (!map || !on) return;
+    map.getCanvas().style.cursor = "crosshair";
+    const click = (e: maplibregl.MapMouseEvent) => cb.add([e.lngLat.lng, e.lngLat.lat]);
+    map.on("click", click);
+    return () => {
+      map.off("click", click);
+      map.getCanvas().style.cursor = "";
+    };
+  }, [map, on]);
+  const key = JSON.stringify(plan?.points ?? null);
+  useEffect(() => {
+    if (!map || !plan) return;
+    const made = plan.points.map((p, i) => {
+      const el = document.createElement("div");
+      el.className = "plan-pin";
+      el.textContent = String(i + 1);
+      el.title = "Sürükleyerek taşıyın, sağ tıklayarak silin";
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        cb.remove(i);
+      });
+      el.addEventListener("click", (e) => e.stopPropagation());
+      const m = new maplibreglNs.Marker({ element: el, draggable: true }).setLngLat(p).addTo(map);
+      m.on("dragend", () => {
+        const ll = m.getLngLat();
+        cb.move(i, [ll.lng, ll.lat]);
+      });
+      return m;
+    });
+    return () => made.forEach((m) => m.remove());
+  }, [map, key]);
+  const lineKey = JSON.stringify(plan?.line ?? plan?.points ?? null);
+  useEffect(() => {
+    runWhenReady(r, (m) => {
+      const coords = plan ? (plan.line ?? plan.points) : [];
+      setData(m, "plan", coords.length >= 2 ? { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } } : EMPTY);
+    });
+  }, [lineKey]);
+}

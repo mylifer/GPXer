@@ -443,6 +443,7 @@ pub fn run() {
             rewrite::delete_points,
             rewrite::move_point,
             snap::snap_to_roads,
+            snap::plan_route,
             links::open_street_view,
             archive::import_archive,
             bookmarks::get_bookmarks,

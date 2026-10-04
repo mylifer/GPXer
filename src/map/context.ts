@@ -65,6 +65,11 @@ export interface MapViewProps {
   onRoutePoint(which: "a" | "b", lonLat: [number, number]): void;
   /** Haritada gösterilen güzergâh arama noktaları. */
   routePins: { a: [number, number] | null; b: [number, number] | null };
+  /** Rota planlama kipi (noktalar ve hesaplanan yol); kapalıysa null. */
+  plan: import("./useMapLayers").PlanView | null;
+  onPlanAdd(p: [number, number]): void;
+  onPlanMove(i: number, p: [number, number]): void;
+  onPlanRemove(i: number): void;
   /** Keşif kareleri; katman kapalıysa null. */
   explorer: GeoJSON.FeatureCollection | null;
   /** Haritadaki yer imleri; katman kapalıysa null. */

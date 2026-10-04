@@ -10,7 +10,7 @@ import { STYLE, addOverlayLayers, type BaseLayer } from "../map/style";
 import { boundsOf, type DateWindow } from "../map/geojson";
 import type { MapRefs, MapViewProps } from "../map/context";
 import { installInteractions } from "../map/interactions";
-import { useAreaSelect, useBaseLayerSwitch, useDetailLayers, useBookmarkMarkers, useCustomLayers, useEditPoint, useExplorerLayer, useRegionLayers, useRoutePins, useTerrain, useTrackLayers } from "../map/useMapLayers";
+import { useAreaSelect, useBaseLayerSwitch, useDetailLayers, useBookmarkMarkers, useCustomLayers, useEditPoint, useExplorerLayer, usePlanLayer, useRegionLayers, useRoutePins, useTerrain, useTrackLayers } from "../map/useMapLayers";
 import { usePhotoMarkers } from "../map/usePhotoMarkers";
 import { MapContextMenu } from "../map/MapContextMenu";
 import { recordTrip, type VideoOptions } from "../map/video";
@@ -218,6 +218,11 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
   useTerrain(refs, props.terrain);
   useCustomLayers(refs, props.customLayers);
   useExplorerLayer(refs, props.explorer);
+  usePlanLayer(refs, mapObj, props.plan, {
+    add: (p) => live.current.onPlanAdd(p),
+    move: (i, p) => live.current.onPlanMove(i, p),
+    remove: (i) => live.current.onPlanRemove(i),
+  });
   useBookmarkMarkers(mapObj, props.bookmarks, (b) => live.current.onBookmark(b));
   useRoutePins(mapObj, props.routePins);
   useEditPoint(

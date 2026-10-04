@@ -16,6 +16,7 @@ import {
   writeBase64File,
   writeTextFile,
   prefetchTiles,
+  planRoute,
   addGpxRecord,
   timeZoneAt,
   photoThumb,
@@ -40,6 +41,7 @@ import { VideoDialog } from "./components/VideoDialog";
 import { RouteSearchDialog } from "./components/RouteSearchDialog";
 import { BookmarkEditor, BookmarkList } from "./components/BookmarkDialogs";
 import { useBookmarks } from "./hooks/useBookmarks";
+import { PlanPanel, type PlanState } from "./components/PlanPanel";
 import { explorerGeoJSON, explorerStats } from "./explorer";
 import { blobToBase64 } from "./lib/blob";
 import { storyHtml, type StoryPhoto } from "./story";
@@ -84,6 +86,8 @@ export default function App() {
   /** İmleç (fare ya da oynatma); App'i her karede yeniden çizmemek için state değil. */
   const [cursor] = useState(createIdxStore);
   const [dialog, setDialog] = useState<Dialog>(null);
+  /** Rota planlama (kapalıyken null). */
+  const [plan, setPlan] = useState<PlanState | null>(null);
   /** Düzenlenen (ya da yeni) yer imi. */
   const [editMark, setEditMark] = useState<{ mark: Bookmark; isNew: boolean } | null>(null);
   /** Güzergâh aramasının A ve B noktaları (haritada sağ tık menüsünden). */
@@ -471,6 +475,54 @@ export default function App() {
     setRange,
     setSeek,
   });
+  // ---------- Rota planlama ----------
+  const planKey = plan ? JSON.stringify([plan.profile, plan.points]) : "";
+  useEffect(() => {
+    if (!plan) return;
+    if (plan.points.length < 2) {
+      setPlan((s) => s && { ...s, route: null, busy: false, error: null });
+      return;
+    }
+    setPlan((s) => s && { ...s, busy: true, error: null });
+    let live = true;
+    const t = setTimeout(() => {
+      planRoute(
+        plan.profile,
+        plan.points.map(([lon, lat]) => [lat, lon]),
+      )
+        .then((route) => live && setPlan((s) => s && { ...s, route, busy: false }))
+        .catch((e) => live && setPlan((s) => s && { ...s, route: null, busy: false, error: String(e) }));
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [planKey]);
+  const savePlan = useCallback(async () => {
+    const r = plan?.route;
+    if (!plan || !r) return;
+    const label = { car: "araç", bike: "bisiklet", foot: "yaya" }[plan.profile];
+    const name = `Plan (${label}) ${fmtDistance(r.distanceM)} · ${isoToTr(isoOf(new Date()))}`;
+    const pts = r.coords.map(([lat, lon]) => `<trkpt lat="${lat.toFixed(6)}" lon="${lon.toFixed(6)}"/>`).join("\n");
+    const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="GPXer" xmlns="http://www.topografix.com/GPX/1/1">
+<metadata><name>${name}</name></metadata>
+${plan.points.map(([lon, lat], i) => `<wpt lat="${lat.toFixed(6)}" lon="${lon.toFixed(6)}"><name>${i + 1}</name></wpt>`).join("\n")}
+<trk><name>${name}</name><type>plan</type><trkseg>
+${pts}
+</trkseg></trk>
+</gpx>`;
+    try {
+      const added = addResults([await addGpxRecord(name, gpx)]);
+      if (added[0]) {
+        say("Plan kütüphaneye eklendi; GPX olarak dışa aktarılabilir ya da gerçek kayıtla karşılaştırılabilir.");
+        setPlan(null);
+        selectAndZoom(added[0].summary.path);
+      }
+    } catch (e) {
+      fail(String(e));
+    }
+  }, [plan, addResults, say, fail, selectAndZoom]);
 
   // ---------- Başlangıç, sürükle-bırak, menü, klavye ----------
 
@@ -636,6 +688,10 @@ export default function App() {
             terrain={prefs.terrain3d}
             customLayers={prefs.customLayers}
             explorer={explorer?.geo ?? null}
+            plan={plan ? { points: plan.points, line: plan.route?.coords.map(([la, lo]) => [lo, la] as [number, number]) ?? null } : null}
+            onPlanAdd={(p) => setPlan((s) => s && { ...s, points: [...s.points, p] })}
+            onPlanMove={(i, p) => setPlan((s) => s && { ...s, points: s.points.map((q, k) => (k === i ? p : q)) })}
+            onPlanRemove={(i) => setPlan((s) => s && { ...s, points: s.points.filter((_, k) => k !== i) })}
             bookmarks={prefs.bookmarksLayer ? bookmarks.marks : null}
             onBookmark={(b) => setEditMark({ mark: b, isNew: false })}
             onBookmarkHere={([lon, lat]) =>
@@ -677,8 +733,19 @@ export default function App() {
             photoTrack={makePhotoTracks}
             downloadArea={downloadArea}
             openBookmarks={() => setDialog("bookmarks")}
+            openPlan={() => setPlan((s) => s ?? { points: [], profile: "car", route: null, busy: false, error: null })}
           />
 
+          {plan && (
+            <PlanPanel
+              plan={plan}
+              onProfile={(profile) => setPlan((s) => s && { ...s, profile })}
+              onUndo={() => setPlan((s) => s && { ...s, points: s.points.slice(0, -1) })}
+              onClear={() => setPlan((s) => s && { ...s, points: [], route: null })}
+              onClose={() => setPlan(null)}
+              onSave={savePlan}
+            />
+          )}
           <MapLegends
             explorer={explorer ? { tiles: explorer.st.tiles.size, square: explorer.st.maxSquare } : null}
             regions={regions}
