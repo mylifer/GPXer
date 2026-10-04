@@ -68,6 +68,9 @@ export interface SidebarProps {
   /** Adlandırılmış yerler: değişince satırlardaki yer adları yeniden yazılır. */
   places: NamedPlace[];
   onGoTo(): void;
+  /** Kopya kayıt grubu sayısı ve kopya penceresi. */
+  duplicateGroups: number;
+  onDuplicates(): void;
   onExportFiltered(): void;
   onExportMulti(): void;
 }
@@ -191,6 +194,15 @@ export const Sidebar = memo(function Sidebar(p: SidebarProps) {
             >
               ⧉ Çakışanlar{p.overlaps.size ? ` (${fmtNumber(p.overlaps.size)})` : ""}
             </button>
+            {p.duplicateGroups > 0 && (
+              <button
+                className="btn small"
+                onClick={p.onDuplicates}
+                title="Aynı yolculuğun farklı adla ya da biraz farklı kesilmiş kopyaları: hangisi tutulsun?"
+              >
+                ⧉ Kopyalar ({fmtNumber(p.duplicateGroups)})
+              </button>
+            )}
             <button
               className="btn small"
               onClick={p.onGoTo}

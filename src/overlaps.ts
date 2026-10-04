@@ -16,7 +16,8 @@ export interface Overlap {
 
 const hourSets = new WeakMap<FileSummary, Set<number> | null>();
 
-function hoursOf(s: FileSummary): Set<number> | null {
+/** Kaydın verisi olan saatler (saatlik dökümü yoksa null). */
+export function hoursOf(s: FileSummary): Set<number> | null {
   let set = hourSets.get(s);
   if (set !== undefined) return set;
   const h = Array.isArray(s.hours) ? s.hours : [];

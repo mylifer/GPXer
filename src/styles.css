@@ -186,6 +186,7 @@ button {
 
 .filter-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
@@ -2123,4 +2124,66 @@ kbd {
 /* Grafikte seçilen aralık (uPlot'un varsayılanı koyu temada görünmüyordu). */
 .chart .u-select {
   background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+/* ---------- Kopya kayıtlar ---------- */
+
+.dup-group {
+  margin: 12px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.dup-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.dup-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 4px 6px;
+}
+
+.dup-table td {
+  padding: 5px 6px;
+  border-top: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.dup-table tr.dropped td {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.dup-table tr.dropped td:first-child,
+.dup-table tr.dropped td:last-child {
+  text-decoration: none;
+}
+
+.dup-table .badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text);
+}
+
+.dup-table .swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
 }

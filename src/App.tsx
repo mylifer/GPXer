@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getMeta } from "./api";
 import type { MapHandle } from "./components/MapView";
@@ -11,6 +11,8 @@ import { RouteModal } from "./components/RouteModal";
 import { CompareView } from "./components/CompareView";
 import { HelpDialog } from "./components/HelpDialog";
 import { GoToDialog } from "./components/GoToDialog";
+import { DuplicatesDialog } from "./components/DuplicatesDialog";
+import { findDuplicates } from "./duplicates";
 import { HoverDetailPanel, HoverMapView } from "./components/HoverViews";
 import { MapToolbar } from "./components/MapToolbar";
 import { MapLegends } from "./components/MapLegends";
@@ -112,6 +114,9 @@ export default function App() {
     libraryFlights,
     selOverlaps,
   } = useFilteredFiles({ files, prefs, meta, places, dark, selected, routeInfoRef });
+  /** Aynı yolculuğun kopyaları (tüm kütüphanede). */
+  const duplicateGroups = useMemo(() => findDuplicates(files.map((f) => f.summary)), [files]);
+  const fileMap = useMemo(() => new Map(files.map((f) => [f.summary.path, f])), [files]);
   const { setPhotoInfo, placedPhotos, mapPhotos, pickPhotos, clearPhotos, addPhotosRef } = usePhotos({
     prefs,
     prefsRef,
@@ -307,6 +312,8 @@ export default function App() {
           overlaps={overlapInfo}
           places={places}
           onGoTo={openGoTo}
+          duplicateGroups={duplicateGroups.length}
+          onDuplicates={() => setDialog("duplicates")}
           onExportFiltered={exportFiltered}
           onExportMulti={exportMulti}
         />
@@ -562,6 +569,21 @@ export default function App() {
             setRouteModal(null);
           }}
           onClose={() => setRouteModal(null)}
+        />
+      )}
+      {dialog === "duplicates" && (
+        <DuplicatesDialog
+          groups={duplicateGroups}
+          files={fileMap}
+          onOpen={(p) => {
+            setDialog(null);
+            selectAndZoom(p);
+          }}
+          onRemove={(paths) => {
+            setDialog(null);
+            removePaths(paths);
+          }}
+          onClose={() => setDialog(null)}
         />
       )}
       {dialog === "merge" && (
