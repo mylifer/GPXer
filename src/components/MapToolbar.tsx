@@ -165,6 +165,13 @@ export function MapToolbar({
             on: prefs.regionsLayer,
             toggle: () => up({ regionsLayer: !prefs.regionsLayer }),
           },
+          {
+            id: "terrain",
+            label: "3B arazi",
+            title: "Haritayı eğik bakışla, dağ ve vadileri üç boyutlu göster (sağ tuşla sürükleyerek döndürülür; internet gerekir)",
+            on: prefs.terrain3d,
+            toggle: () => up({ terrain3d: !prefs.terrain3d }),
+          },
         ]}
       />
       <PhotoControl

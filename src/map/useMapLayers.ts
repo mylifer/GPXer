@@ -343,3 +343,46 @@ export function useRegionLayers(r: MapRefs, regions: RegionData | null) {
     });
   }, [regions]);
 }
+
+/** Arazi yükseklik karoları (AWS açık veri, Terrarium kodlaması; anahtar gerektirmez). */
+const DEM_TILES = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
+
+/** 3B arazi: yükseklik kaynağı, kabartma gölgesi ve eğik bakış. */
+export function useTerrain(r: MapRefs, on: boolean) {
+  useEffect(() => {
+    runWhenReady(r, (map) => {
+      if (on && !map.getSource("dem")) {
+        const dem = {
+          type: "raster-dem" as const,
+          tiles: [DEM_TILES],
+          encoding: "terrarium" as const,
+          tileSize: 256,
+          maxzoom: 15,
+          attribution: "Arazi: Mapzen/AWS Terrain Tiles",
+        };
+        map.addSource("dem", dem);
+        // Gölgeleme ayrı kaynaktan (aynı kaynak hem arazi hem gölge için önerilmiyor).
+        map.addSource("dem-shade", dem);
+        // İzlerin altına, altlığın üstüne.
+        const below = map.getLayer("regions-countries") ? "regions-countries" : undefined;
+        map.addLayer(
+          {
+            id: "hillshade",
+            type: "hillshade",
+            source: "dem-shade",
+            paint: { "hillshade-exaggeration": 0.35, "hillshade-shadow-color": "#3d3d3d" },
+          },
+          below,
+        );
+      }
+      if (map.getLayer("hillshade")) map.setLayoutProperty("hillshade", "visibility", on ? "visible" : "none");
+      if (on) {
+        map.setTerrain({ source: "dem", exaggeration: 1.4 });
+        map.easeTo({ pitch: Math.max(map.getPitch(), 60), duration: 800 });
+      } else if (map.getTerrain()) {
+        map.setTerrain(null);
+        map.easeTo({ pitch: 0, bearing: 0, duration: 600 });
+      }
+    });
+  }, [on]);
+}

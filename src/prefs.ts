@@ -70,6 +70,8 @@ export interface Prefs {
   photoOffsetH: number;
   /** Haritada gezilen il ve ülkeler. */
   regionsLayer: boolean;
+  /** Haritada 3B arazi (eğik görünüm, gölgeli kabartma). */
+  terrain3d: boolean;
   /** Araç kayıtları için yakıt tüketimi ve fiyatı. */
   fuel: FuelPrefs;
 }
@@ -121,6 +123,7 @@ const DEFAULTS: Prefs = {
   photoOffsetH: 0,
   regionsLayer: false,
   fuel: DEFAULT_FUEL,
+  terrain3d: false,
 };
 
 export const PREFS_KEY = "gpxer.prefs.v1";
@@ -212,6 +215,7 @@ export function sanitizePrefs(raw: unknown): Prefs {
     photoOffsetH: pick(s.photoOffsetH, isNum, D.photoOffsetH),
     regionsLayer: pick(s.regionsLayer, isBool, D.regionsLayer),
     fuel: pick(s.fuel, isFuelPrefs, D.fuel),
+    terrain3d: pick(s.terrain3d, isBool, D.terrain3d),
   };
 }
 

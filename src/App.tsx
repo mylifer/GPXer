@@ -486,6 +486,7 @@ export default function App() {
             onNamePlace={onNamePlace}
             flights={mapFlights}
             regions={regions}
+            terrain={prefs.terrain3d}
             onFlight={showFlight}
             photos={mapPhotos}
             summaryOf={summaryOf}

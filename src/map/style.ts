@@ -102,7 +102,8 @@ export async function addVectorBase(map: maplibregl.Map, id: BaseLayer, url: str
     if (!map.getSource(srcPrefix + name)) map.addSource(srcPrefix + name, src);
   }
   if (style.glyphs) map.setGlyphs(style.glyphs);
-  const before = map.getLayer("heat") ? "heat" : undefined;
+  // Altlık; kabartma gölgesinin, gezilen yer dolgularının ve izlerin altına.
+  const before = ["hillshade", "regions-countries", "heat"].find((x) => map.getLayer(x));
   let added = 0;
   for (const layer of style.layers) {
     const l = { ...layer, id: `base-${id}-v-${layer.id}` } as LayerSpecification & {

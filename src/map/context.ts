@@ -57,6 +57,8 @@ export interface MapViewProps {
   /** Fotoğrafın eşleştiği kaydın özeti (ad ve saat dilimi için). */
   summaryOf(path: string): FileSummary | undefined;
   onPhotoRecord(path: string): void;
+  /** 3B arazi görünümü. */
+  terrain: boolean;
   /** Gezilen il ve ülkeler katmanı; kapalıysa null. */
   regions: import("../hooks/useRegions").RegionData | null;
   /** Kısa bilgi iletisi (ör. koordinat kopyalandı). */
