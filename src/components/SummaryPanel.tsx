@@ -27,6 +27,7 @@ import { YearCardSection } from "./YearCardSection";
 import { ProvinceSection } from "./ProvinceSection";
 import { GoalsSection } from "./GoalsSection";
 import { HabitsSection } from "./HabitsSection";
+import { PlaceStatsSection } from "./PlaceStatsSection";
 import type { Goals } from "../prefs";
 
 const FLIGHT_ROWS = 200;
@@ -567,6 +568,8 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
         <ProvinceSection files={files} from={from} to={to} />
 
         <HabitsSection files={files} from={from} to={to} onOpen={onOpen} />
+
+        <PlaceStatsSection files={files} places={places} from={from} to={to} />
 
         <h3 className="chart-title">Yerlerde geçen süre</h3>
         {places.length === 0 ? (

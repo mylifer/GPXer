@@ -93,3 +93,80 @@ export function timeAtPlaces(files: FileEntry[], places: NamedPlace[], from: str
     totals,
   };
 }
+
+export interface PlaceStat {
+  name: string;
+  /** Ülke kodu (şehirlerde). */
+  cc?: string;
+  /** Kaç ayrı günde bulunuldu. */
+  days: number;
+  /** Ziyaret sayısı (adlandırılmış yerlerde duraklama sayısı, şehirlerde ayrı gün dizileri). */
+  visits: number;
+  /** Toplam süre (yalnızca adlandırılmış yerlerde, duraklamalardan). */
+  ms?: number;
+  first: string;
+  last: string;
+}
+
+/** Yer bazlı istatistik: adlandırılmış yerler (duraklamalardan) ve şehirler
+ * (saat saat yer dökümünden), tüm yıllar boyunca. */
+export function placeStats(files: FileEntry[], places: NamedPlace[], from: string, to: string) {
+  const named = new Map<string, { days: Set<string>; visits: number; ms: number }>();
+  for (const f of files) {
+    const zone = tzOf(f.summary);
+    for (const st of f.summary.stops) {
+      const p = places.length ? namedPlaceAt(st.lon, st.lat, places) : null;
+      if (!p) continue;
+      const day = fastDayKey(st.start, zone);
+      if (!dayIn(day, from, to)) continue;
+      const v = named.get(p.id) ?? { days: new Set<string>(), visits: 0, ms: 0 };
+      v.days.add(day);
+      v.visits++;
+      v.ms += st.durationMs;
+      named.set(p.id, v);
+    }
+  }
+  const cities = new Map<string, { cc: string; name: string; days: Set<string> }>();
+  for (const f of files) {
+    const s = f.summary;
+    const zone = tzOf(s);
+    for (const x of hourPlaces(s)) {
+      if (!x.name) continue;
+      for (const [day] of hourDays(x.h, s.stats.startTime, zone)) {
+        if (!dayIn(day, from, to)) continue;
+        const k = `${x.cc}|${x.name}`;
+        const c = cities.get(k) ?? { cc: x.cc.toUpperCase(), name: x.name, days: new Set<string>() };
+        c.days.add(day);
+        cities.set(k, c);
+      }
+    }
+  }
+  const span = (days: Set<string>) => {
+    const d = [...days].sort();
+    return { first: d[0] ?? "", last: d[d.length - 1] ?? "" };
+  };
+  // Ardışık günler tek ziyaret sayılır.
+  const runs = (days: Set<string>) => {
+    const d = [...days].sort();
+    let n = 0;
+    let prev = 0;
+    for (const x of d) {
+      const t = Date.parse(`${x}T00:00:00Z`);
+      if (!n || t - prev > 86_400_000) n++;
+      prev = t;
+    }
+    return n;
+  };
+  return {
+    named: places
+      .filter((p) => named.has(p.id))
+      .map((p): PlaceStat => {
+        const v = named.get(p.id)!;
+        return { name: p.name, days: v.days.size, visits: v.visits, ms: v.ms, ...span(v.days) };
+      })
+      .sort((a, b) => (b.ms ?? 0) - (a.ms ?? 0)),
+    cities: [...cities.values()]
+      .map((c): PlaceStat => ({ name: c.name, cc: c.cc, days: c.days.size, visits: runs(c.days), ...span(c.days) }))
+      .sort((a, b) => b.days - a.days),
+  };
+}
