@@ -9,6 +9,7 @@ import {
   restoreLibrary,
   snapToRoads,
   undoRewrite,
+  writeBase64File,
   type LoadResult,
   type RewriteKind,
 } from "./api";
@@ -230,6 +231,19 @@ export default function App() {
       }
     },
     [rewritten, replaceSummary, say, fail],
+  );
+  const saveImage = useCallback(
+    async (name: string, data: string) => {
+      try {
+        const path = await pickSavePath(name, [{ name: "PNG", extensions: ["png"] }]);
+        if (!path) return;
+        await writeBase64File(path, data);
+        say("Görüntü kaydedildi.");
+      } catch (e) {
+        fail(`Görüntü kaydedilemedi: ${e}`);
+      }
+    },
+    [say, fail],
   );
   const backup = useCallback(async () => {
     try {
@@ -620,6 +634,7 @@ export default function App() {
             up({ filters: { ...prefs.filters, activity } });
           }}
           onClose={() => setDialog(null)}
+          onSaveImage={saveImage}
           onPeriod={(from, to) => {
             setDialog(null);
             up({ filters: { ...prefs.filters, from, to } });

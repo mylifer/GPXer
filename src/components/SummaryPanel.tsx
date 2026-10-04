@@ -22,6 +22,7 @@ import { dayKey, isoToTr, type TzMode } from "../format";
 import { endName, flightsOf, uniqueFlights, type Flight } from "../flights";
 import { countryName, flagOf } from "../visits";
 import { timeAtPlaces, visitedPlaces } from "../summary";
+import { YearCardSection } from "./YearCardSection";
 
 const FLIGHT_ROWS = 200;
 const TOP_CITIES = 8;
@@ -68,9 +69,11 @@ interface Props {
   onFlight(f: Flight): void;
   /** Gün anahtarları saat dilimi kipine bağlı: değişince hesaplar yenilenir. */
   tzMode: TzMode;
+  /** Yıl kartını kaydet (kaydetme penceresi açılır). */
+  onSaveImage(name: string, base64: string): void;
 }
 
-export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRoute, onActivity, onClose, places, onFlight, tzMode }: Props) {
+export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage }: Props) {
   const [period, setPeriod] = useState<Period>("month");
   const [measure, setMeasure] = useState<Measure>("distance");
   const [hover, setHover] = useState<number | null>(null);
@@ -587,6 +590,8 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
             </li>
           ))}
         </ul>
+
+        <YearCardSection files={files} from={from} onSave={onSaveImage} />
       </div>
     </Modal>
   );

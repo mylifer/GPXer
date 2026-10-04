@@ -111,6 +111,9 @@ ile yazılmıştır.
   panelindeki “⛰ Yüksekliği düzelt” ile arazi yüksekliğiyle (Copernicus DEM,
   Open-Meteo; internet gerekir) değiştirilir. Önceki hal saklanır, geri
   alınabilir.
+- Yıl kartı: Özet penceresinin sonunda seçilen yılın toplamları, gidilen
+  ülkeler, en çok bulunulan yerler, en uzun yolculuk ve yılın izleri
+  paylaşılabilir bir görüntü (PNG, 1080 × 1350) olarak kaydedilir.
 - Yola oturtma: seyrek noktalı kayıtlar (Google konum geçmişi, dakikada bir
   nokta alan uygulamalar) “🛣 Yola oturt” ile OpenStreetMap yollarına
   eşleştirilir (OSRM, routing.openstreetmap.de; etkinlik türüne göre araç,
