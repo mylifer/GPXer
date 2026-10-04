@@ -447,3 +447,50 @@ html[data-ui="modern"] .maplibregl-popup-content {
   border-radius: 10px;
   box-shadow: var(--shadow);
 }
+
+/* ---------- Tarih seçici ---------- */
+
+html[data-ui="modern"] .date-field {
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+html[data-ui="modern"] .date-input {
+  min-height: 30px;
+  border-radius: 8px;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+
+html[data-ui="modern"] .date-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* İçteki alan çerçevesiz: çerçeve dış kutuda. */
+html[data-ui="modern"] .date-input input:not([class*="mantine-"]),
+html[data-ui="modern"] .date-input input:not([class*="mantine-"]):focus {
+  min-height: 28px;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+
+html[data-ui="modern"] .date-input .icon-btn.tiny {
+  font-size: 13px;
+}
+
+html[data-ui="modern"] .calendar {
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+html[data-ui="modern"] .cal-day {
+  border-radius: 6px;
+}
+
+html[data-ui="modern"] .cal-day.picked {
+  background: var(--accent);
+  color: var(--accent-text);
+}

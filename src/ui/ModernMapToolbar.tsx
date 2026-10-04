@@ -17,7 +17,7 @@ import type { Prefs } from "../prefs";
 import { fmtNumber } from "../format";
 import { t } from "../i18n";
 import { BASE_LAYERS } from "../map/style";
-import { PhotoControl } from "../components/PhotoControl";
+import { ModernPhotoControl } from "./ModernPhotoControl";
 import type { MapToolbar } from "../components/MapToolbar";
 
 type Props = Parameters<typeof MapToolbar>[0];
@@ -196,7 +196,7 @@ export function ModernMapToolbar(p: Props) {
             </Menu.Item>
           </Menu.Dropdown>
         </Menu>
-        <PhotoControl
+        <ModernPhotoControl
           count={p.placedPhotos.placed.length}
           unplaced={p.placedPhotos.unplaced}
           on={prefs.photosLayer}

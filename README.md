@@ -146,6 +146,8 @@ ile yazılmıştır.
 - Gizlilik bölgeleri (adlandırılmış yer → *Gizli*): dışa aktarma, PNG, video ve
   kartlarda o çevredeki noktalar çıkarılır. Yedekler parolayla şifrelenebilir.
 - Komut paleti (Ctrl/⌘+K) ve İngilizce arayüz (Ayarlar → Dil).
+- İki görünüm: **Modern** (varsayılan; simge çubuğu, kart yerleşimi, açık/koyu
+  tema) ve **Klasik** (ilk tasarım). Ayarlar → Görünüm ve dil → Arayüz.
 
 **Açma yolları ve klavye**
 - Sürükle-bırak, *Dosya Aç…* (Ctrl/⌘+O), *Klasör Aç…* (Ctrl/⌘+Shift+O),
