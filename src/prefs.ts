@@ -71,6 +71,8 @@ export interface Prefs {
   photoOffsetH: number;
   /** Haritada gezilen il ve ülkeler. */
   regionsLayer: boolean;
+  /** Haritada keşif kareleri. */
+  explorerLayer: boolean;
   /** Haritada yer imleri. */
   bookmarksLayer: boolean;
   /** Kullanıcının eklediği harita katmanları. */
@@ -141,6 +143,7 @@ const DEFAULTS: Prefs = {
   goals: { km: 0, days: 0 },
   customLayers: [],
   bookmarksLayer: true,
+  explorerLayer: false,
 };
 
 export const PREFS_KEY = "gpxer.prefs.v1";
@@ -235,6 +238,7 @@ export function sanitizePrefs(raw: unknown): Prefs {
     terrain3d: pick(s.terrain3d, isBool, D.terrain3d),
     customLayers: pick(s.customLayers, isCustomLayers, D.customLayers),
     bookmarksLayer: pick(s.bookmarksLayer, isBool, D.bookmarksLayer),
+    explorerLayer: pick(s.explorerLayer, isBool, D.explorerLayer),
     goals: pick(
       s.goals,
       (v): v is Goals => !!v && typeof v === "object" && isNum((v as Goals).km) && isNum((v as Goals).days),

@@ -188,6 +188,13 @@ export function MapToolbar({
             toggle: () => up({ terrain3d: !prefs.terrain3d }),
           },
           {
+            id: "explorer",
+            label: "Keşif kareleri",
+            title: "Dünyayı ~1,8 km'lik karelere böler; izlerinizin geçtiği kareleri boyar. Kalın çerçeve: tümüyle keşfedilmiş en büyük kare. Henüz gitmediğiniz yakın yerleri bulmak için.",
+            on: prefs.explorerLayer,
+            toggle: () => up({ explorerLayer: !prefs.explorerLayer }),
+          },
+          {
             id: "bookmarks",
             label: "Yer imleri",
             title: "Haritada sağ tıklayıp koyduğunuz yer imleri (📌) ve gitmek istedikleriniz (⭐)",

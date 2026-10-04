@@ -507,3 +507,13 @@ export function useBookmarkMarkers(map: maplibregl.Map | null, marks: Bookmark[]
     return () => made.forEach((m) => m.remove());
   }, [map, key]);
 }
+
+/** Keşif kareleri katmanı (kapalıyken null). */
+export function useExplorerLayer(r: MapRefs, data: GeoJSON.FeatureCollection | null) {
+  useEffect(() => {
+    runWhenReady(r, (map) => {
+      for (const id of ["explorer", "explorer-square"]) map.setLayoutProperty(id, "visibility", data ? "visible" : "none");
+      setData(map, "explorer", data ?? EMPTY);
+    });
+  }, [data]);
+}

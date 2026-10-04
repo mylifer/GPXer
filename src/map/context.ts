@@ -65,6 +65,8 @@ export interface MapViewProps {
   onRoutePoint(which: "a" | "b", lonLat: [number, number]): void;
   /** Haritada gösterilen güzergâh arama noktaları. */
   routePins: { a: [number, number] | null; b: [number, number] | null };
+  /** Keşif kareleri; katman kapalıysa null. */
+  explorer: GeoJSON.FeatureCollection | null;
   /** Haritadaki yer imleri; katman kapalıysa null. */
   bookmarks: import("../api").Bookmark[] | null;
   onBookmark(b: import("../api").Bookmark): void;

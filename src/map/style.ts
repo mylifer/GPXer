@@ -149,6 +149,23 @@ export function addOverlayLayers(map: maplibregl.Map) {
     layout: { visibility: "none" },
     paint: { "fill-color": "#e8743b", "fill-opacity": 0.3 },
   });
+  map.addSource("explorer", { type: "geojson", data: EMPTY, tolerance: 0 });
+  map.addLayer({
+    id: "explorer",
+    type: "fill",
+    source: "explorer",
+    filter: ["==", ["get", "kind"], "tile"],
+    layout: { visibility: "none" },
+    paint: { "fill-color": "#2f9d6a", "fill-opacity": 0.28, "fill-outline-color": "#2f9d6a" },
+  });
+  map.addLayer({
+    id: "explorer-square",
+    type: "line",
+    source: "explorer",
+    filter: ["==", ["get", "kind"], "square"],
+    layout: { visibility: "none" },
+    paint: { "line-color": "#1f6e49", "line-width": 3 },
+  });
   map.addLayer({
     id: "regions-provinces-line",
     type: "line",

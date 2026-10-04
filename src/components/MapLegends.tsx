@@ -15,8 +15,10 @@ export function MapLegends({
   detail,
   trackColorBy,
   regions,
+  explorer,
 }: {
   regions: RegionData | null;
+  explorer: { tiles: number; square: number } | null;
   heatmap: boolean;
   dark: boolean;
   dateLegend: readonly [number, number] | null;
@@ -34,6 +36,21 @@ export function MapLegends({
 
   return (
     <div className="legends">
+      {explorer && (
+        <div className="legend">
+          <span className="legend-title">Keşif kareleri (~1,8 km)</span>
+          <div className="legend-regions">
+            <span>
+              <i className="sw" style={{ background: "rgba(47,157,106,0.45)" }} /> {fmtNumber(explorer.tiles)} kare
+            </span>
+            {explorer.square > 1 && (
+              <span title="Tümüyle keşfedilmiş en büyük kare (kalın çerçeve)">
+                en büyük kare {explorer.square}×{explorer.square}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
       {regions && (
         <div className="legend">
           <span className="legend-title">Gezilen yerler</span>

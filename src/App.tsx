@@ -40,6 +40,7 @@ import { VideoDialog } from "./components/VideoDialog";
 import { RouteSearchDialog } from "./components/RouteSearchDialog";
 import { BookmarkEditor, BookmarkList } from "./components/BookmarkDialogs";
 import { useBookmarks } from "./hooks/useBookmarks";
+import { explorerGeoJSON, explorerStats } from "./explorer";
 import { blobToBase64 } from "./lib/blob";
 import { storyHtml, type StoryPhoto } from "./story";
 import { nightsOf } from "./nights";
@@ -159,6 +160,12 @@ export default function App() {
     selOverlaps,
   } = useFilteredFiles({ files, prefs, meta, places, dark, selected, routeInfoRef });
   const bookmarks = useBookmarks(fail);
+  /** Keşif kareleri (katman açıkken, gösterilen kayıtlardan). */
+  const explorer = useMemo(() => {
+    if (!prefs.explorerLayer) return null;
+    const st = explorerStats(shown.map((f) => f.summary));
+    return { st, geo: explorerGeoJSON(st) };
+  }, [prefs.explorerLayer, shown]);
   const regions = useRegions(shown, prefs.filters.from, prefs.filters.to, prefs.regionsLayer);
   // Gün akışı: kaydı olan günler ve açılış günü (seçili kaydın ilk günü, yoksa son gün).
   const daysWithData = useMemo(
@@ -628,6 +635,7 @@ export default function App() {
             regions={regions}
             terrain={prefs.terrain3d}
             customLayers={prefs.customLayers}
+            explorer={explorer?.geo ?? null}
             bookmarks={prefs.bookmarksLayer ? bookmarks.marks : null}
             onBookmark={(b) => setEditMark({ mark: b, isNew: false })}
             onBookmarkHere={([lon, lat]) =>
@@ -672,6 +680,7 @@ export default function App() {
           />
 
           <MapLegends
+            explorer={explorer ? { tiles: explorer.st.tiles.size, square: explorer.st.maxSquare } : null}
             regions={regions}
             heatmap={prefs.heatmap}
             dark={dark}
