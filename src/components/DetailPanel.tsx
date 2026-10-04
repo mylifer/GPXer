@@ -81,6 +81,7 @@ interface Props {
   onFocusPoint(lonLat: [number, number]): void;
   fuel: FuelPrefs;
   onVideo(): void;
+  onStory(): void;
 }
 
 const STOPS_PAGE = 100;
@@ -460,6 +461,9 @@ export function DetailPanel(p: Props) {
             title="Yolculuğu haritada çizerek video olarak kaydet"
           >
             🎥 Video
+          </button>
+          <button className="btn small" onClick={p.onStory} title="Harita, istatistikler, gün gün döküm, yükseklik ve fotoğraflarla tek sayfalık gezi hikâyesi (HTML)">
+            📖 Hikâye
           </button>
           <select value={p.playSpeed} onChange={(e) => p.onPlaySpeed(Number(e.target.value))} title="Oynatma hızı">
             {PLAY_SPEEDS.map((v) => (
