@@ -2,7 +2,9 @@ import { useMemo } from "react";
 import type { Detail } from "../api";
 import { METRICS, SEQ_DARK, SEQ_LIGHT } from "../types";
 import type { TrackColorBy } from "../prefs";
-import { fmtDate, fmtUnit } from "../format";
+import { fmtDate, fmtNumber, fmtUnit } from "../format";
+import type { RegionData } from "../hooks/useRegions";
+import { PROVINCE_COUNT } from "../regions";
 import { metricDomain } from "../map/geojson";
 
 /** Haritanın altındaki renk açıklamaları (ısı haritası, tarih, seçili izin ölçüsü). */
@@ -12,7 +14,9 @@ export function MapLegends({
   dateLegend,
   detail,
   trackColorBy,
+  regions,
 }: {
+  regions: RegionData | null;
   heatmap: boolean;
   dark: boolean;
   dateLegend: readonly [number, number] | null;
@@ -30,6 +34,19 @@ export function MapLegends({
 
   return (
     <div className="legends">
+      {regions && (
+        <div className="legend">
+          <span className="legend-title">Gezilen yerler</span>
+          <div className="legend-regions">
+            <span>
+              <i className="sw" style={{ background: "rgba(232,116,59,0.45)" }} /> {fmtNumber(regions.provinceVisits.length)} / {PROVINCE_COUNT} il
+            </span>
+            <span>
+              <i className="sw" style={{ background: "rgba(60,120,216,0.3)" }} /> {fmtNumber(regions.countryCodes.length)} ülke
+            </span>
+          </div>
+        </div>
+      )}
       {heatmap && (
         <div className="legend">
           <span className="legend-title">Geçiş yoğunluğu</span>

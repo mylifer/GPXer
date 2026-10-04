@@ -23,6 +23,7 @@ import { endName, flightsOf, uniqueFlights, type Flight } from "../flights";
 import { countryName, flagOf } from "../visits";
 import { timeAtPlaces, visitedPlaces } from "../summary";
 import { YearCardSection } from "./YearCardSection";
+import { ProvinceSection } from "./ProvinceSection";
 
 const FLIGHT_ROWS = 200;
 const TOP_CITIES = 8;
@@ -537,6 +538,8 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
             </table>
           </div>
         )}
+
+        <ProvinceSection files={files} from={from} to={to} />
 
         <h3 className="chart-title">Yerlerde geçen süre</h3>
         {places.length === 0 ? (

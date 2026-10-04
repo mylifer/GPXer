@@ -25,6 +25,7 @@ import { HelpDialog } from "./components/HelpDialog";
 import { GoToDialog } from "./components/GoToDialog";
 import { DuplicatesDialog } from "./components/DuplicatesDialog";
 import { findDuplicates } from "./duplicates";
+import { useRegions } from "./hooks/useRegions";
 import { HoverDetailPanel, HoverMapView } from "./components/HoverViews";
 import { MapToolbar } from "./components/MapToolbar";
 import { MapLegends } from "./components/MapLegends";
@@ -130,6 +131,7 @@ export default function App() {
     libraryFlights,
     selOverlaps,
   } = useFilteredFiles({ files, prefs, meta, places, dark, selected, routeInfoRef });
+  const regions = useRegions(shown, prefs.filters.from, prefs.filters.to, prefs.regionsLayer);
   /** Aynı yolculuğun kopyaları (tüm kütüphanede). */
   const duplicateGroups = useMemo(() => findDuplicates(files.map((f) => f.summary)), [files]);
   const fileMap = useMemo(() => new Map(files.map((f) => [f.summary.path, f])), [files]);
@@ -468,6 +470,7 @@ export default function App() {
             places={places}
             onNamePlace={onNamePlace}
             flights={mapFlights}
+            regions={regions}
             onFlight={showFlight}
             photos={mapPhotos}
             summaryOf={summaryOf}
@@ -490,6 +493,7 @@ export default function App() {
           />
 
           <MapLegends
+            regions={regions}
             heatmap={prefs.heatmap}
             dark={dark}
             dateLegend={dateLegend}

@@ -132,6 +132,30 @@ export async function addVectorBase(map: maplibregl.Map, id: BaseLayer, url: str
 /** İzlerin, imlecin ve diğer katmanların kaynaklarını ve katmanlarını ekler
  * (stil yüklenince bir kez). */
 export function addOverlayLayers(map: maplibregl.Map) {
+  // Gezilen ülke ve iller: izlerin altında yarı saydam dolgu.
+  for (const id of ["regions-countries", "regions-provinces"]) map.addSource(id, { type: "geojson", data: EMPTY, tolerance: 0.6 });
+  map.addLayer({
+    id: "regions-countries",
+    type: "fill",
+    source: "regions-countries",
+    layout: { visibility: "none" },
+    paint: { "fill-color": "#3c78d8", "fill-opacity": 0.16 },
+  });
+  map.addLayer({
+    id: "regions-provinces",
+    type: "fill",
+    source: "regions-provinces",
+    filter: ["==", ["get", "visited"], 1],
+    layout: { visibility: "none" },
+    paint: { "fill-color": "#e8743b", "fill-opacity": 0.3 },
+  });
+  map.addLayer({
+    id: "regions-provinces-line",
+    type: "line",
+    source: "regions-provinces",
+    layout: { visibility: "none" },
+    paint: { "line-color": "#7a7f85", "line-width": 0.6, "line-opacity": 0.6 },
+  });
   for (const id of ["tracks", "gaps", "waypoints", "cursor", "heat", "colored", "range", "stops", "hotspots", "area", "flights"]) {
     map.addSource(id, { type: "geojson", data: EMPTY, tolerance: id === "tracks" ? 0.2 : 0.375 });
   }

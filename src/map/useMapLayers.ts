@@ -9,6 +9,7 @@ import type { TrackColorBy } from "../prefs";
 import type { BBox } from "../geo";
 import type { Flight } from "../flights";
 import { runWhenReady, setData, type MapRefs } from "./context";
+import type { RegionData } from "../hooks/useRegions";
 import { dayIn } from "../days";
 import { fastDayKey } from "../format";
 import {
@@ -328,4 +329,17 @@ export function useBaseLayerSwitch(
         });
     });
   }, [baseLayer]);
+}
+
+/** Gezilen il ve ülke dolguları (kapalıyken null). */
+export function useRegionLayers(r: MapRefs, regions: RegionData | null) {
+  useEffect(() => {
+    runWhenReady(r, (map) => {
+      const on = !!regions;
+      for (const id of ["regions-countries", "regions-provinces", "regions-provinces-line"])
+        map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+      setData(map, "regions-countries", regions?.countries ?? EMPTY);
+      setData(map, "regions-provinces", regions?.provinces ?? EMPTY);
+    });
+  }, [regions]);
 }

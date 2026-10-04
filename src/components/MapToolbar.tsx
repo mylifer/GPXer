@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
+import { LayersMenu } from "./LayersMenu";
 import type { Settings } from "../api";
 import type { Prefs } from "../prefs";
 import type { FileEntry } from "../types";
@@ -155,6 +156,17 @@ export function MapToolbar({
           </button>
         </>
       )}
+      <LayersMenu
+        items={[
+          {
+            id: "regions",
+            label: "Gezilen il ve ülkeler",
+            title: "Gösterilen kayıtlarda geçilen Türkiye illerini ve ülkeleri boya (tarih filtresine uyar)",
+            on: prefs.regionsLayer,
+            toggle: () => up({ regionsLayer: !prefs.regionsLayer }),
+          },
+        ]}
+      />
       <PhotoControl
         count={placedPhotos.placed.length}
         unplaced={placedPhotos.unplaced}

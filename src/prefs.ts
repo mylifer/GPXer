@@ -67,6 +67,8 @@ export interface Prefs {
   photosLayer: boolean;
   /** Fotoğraf makinesinin saat hatası düzeltmesi (saat). */
   photoOffsetH: number;
+  /** Haritada gezilen il ve ülkeler. */
+  regionsLayer: boolean;
 }
 
 const DEFAULT_FILTERS: Filters = {
@@ -114,6 +116,7 @@ const DEFAULTS: Prefs = {
   photos: [],
   photosLayer: true,
   photoOffsetH: 0,
+  regionsLayer: false,
 };
 
 export const PREFS_KEY = "gpxer.prefs.v1";
@@ -203,6 +206,7 @@ export function sanitizePrefs(raw: unknown): Prefs {
     photos: strings(s.photos) ?? D.photos,
     photosLayer: pick(s.photosLayer, isBool, D.photosLayer),
     photoOffsetH: pick(s.photoOffsetH, isNum, D.photoOffsetH),
+    regionsLayer: pick(s.regionsLayer, isBool, D.regionsLayer),
   };
 }
 
