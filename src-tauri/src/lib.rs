@@ -1,3 +1,4 @@
+mod archive;
 mod backup;
 mod dem;
 mod edit;
@@ -429,6 +430,7 @@ pub fn run() {
             rewrite::move_point,
             snap::snap_to_roads,
             links::open_street_view,
+            archive::import_archive,
             weather::weather_at,
             take_pending_paths,
             library_files,

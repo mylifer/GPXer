@@ -3,6 +3,7 @@ import { ask, open } from "@tauri-apps/plugin-dialog";
 import {
   expandPaths,
   flushCache,
+  importArchive,
   libraryFiles,
   loadFiles,
   removeFiles,
@@ -43,7 +44,7 @@ export interface OpenOptions {
  * kaldırdı): yükleme bitince eski seçim geri getirilmez. */
 const KEEP_SELECTION = Symbol("keep");
 
-export const OPEN_EXTS = ["gpx", "GPX", "fit", "FIT", "tcx", "TCX", "kml", "KML", "json", "JSON"];
+export const OPEN_EXTS = ["gpx", "GPX", "fit", "FIT", "tcx", "TCX", "kml", "KML", "json", "JSON", "zip", "ZIP"];
 
 interface Deps {
   prefsRef: RefObject<Prefs>;
@@ -253,7 +254,11 @@ export function useFileLoader({
   );
 
   const openPaths = useCallback(
-    function openPaths(paths: string[], opts: OpenOptions = {}): Promise<void> {
+    function openPaths(all: string[], opts: OpenOptions = {}): Promise<void> {
+      // Hesap arşivleri (Strava, Garmin, Takeout zip) ayrıca açılır.
+      const zips = all.filter((p) => /\.zip$/i.test(p));
+      const paths = all.filter((p) => !/\.zip$/i.test(p));
+      if (zips.length) void enqueue(() => importRef.current(zips));
       if (paths.length === 0) return loadQueue.current;
       return enqueue(async () => {
         // Yeniden yüklemeyle kesilirse, o bittikten sonra baştan denenir
@@ -324,10 +329,43 @@ export function useFileLoader({
     [entryFor, fail, say, patchFiles],
   );
 
+  /** Hesap arşivlerini (zip) içe aktarır: eklenenler listeye girer, özet tek iletiyle. */
+  const importRef = useRef<(zips: string[]) => Promise<void>>(async () => {});
+  importRef.current = async (zips: string[]) => {
+    for (const z of zips) {
+      try {
+        say(`${baseName(z)} açılıyor…`);
+        const r = await importArchive(z);
+        const ok = r.results.flatMap((x) => (x.status === "ok" ? [entryFor(x.file)] : []));
+        const known = new Set(filesRef.current.map((f) => f.summary.path));
+        const fresh = ok.filter((f) => !known.has(f.summary.path));
+        if (fresh.length) patchFiles((prev) => [...prev, ...fresh]);
+        const dup = r.results.filter((x) => x.status === "duplicate").length;
+        const errs = r.results.filter((x) => x.status === "error");
+        for (const e of errs.slice(0, 5)) if (e.status === "error") fail(e.message, e.path);
+        say(
+          `${r.source || "Arşiv"}: ${fmtNumber(fresh.length)} kayıt eklendi` +
+            (dup ? `, ${fmtNumber(dup)} kayıt zaten kütüphanedeydi` : "") +
+            (errs.length ? `, ${fmtNumber(errs.length)} dosya okunamadı` : "") +
+            (r.typed ? `; ${fmtNumber(r.typed)} kaydın etkinlik türü arşivden alındı` : "") +
+            ".",
+        );
+        flushCache().catch(() => {});
+      } catch (e) {
+        fail(String(e), z);
+      }
+    }
+  };
+
   const pickFiles = useCallback(async () => {
     const res = await open({
       multiple: true,
-      filters: [{ name: "İz dosyaları (GPX, FIT, TCX, KML, Google konum geçmişi JSON)", extensions: OPEN_EXTS }],
+      filters: [
+        {
+          name: "İz dosyaları (GPX, FIT, TCX, KML, Google konum geçmişi JSON, Strava/Garmin/Takeout arşivi ZIP)",
+          extensions: OPEN_EXTS,
+        },
+      ],
     });
     if (res) openPaths(Array.isArray(res) ? res : [res], { explicit: true });
   }, [openPaths]);

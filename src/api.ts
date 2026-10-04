@@ -211,6 +211,9 @@ export const deletePoints = (path: string, start: number, end: number) =>
 export const movePoint = (path: string, index: number, lat: number, lon: number) =>
   invoke<RewriteResult>("move_point", { path, index, lat, lon });
 export const undoRewrite = (path: string, previous: string) => invoke<LoadResult>("undo_rewrite", { path, previous });
+/** Hesap dışa aktarma arşivini (Strava, Garmin Connect, Google Takeout zip) içe aktarır. */
+export const importArchive = (src: string) =>
+  invoke<{ results: LoadResult[]; source: string; typed: number }>("import_archive", { src });
 /** Kayıtlara tek seferde etiket ekler; değişen kayıtların yeni bilgileri döner. */
 export const addTag = (paths: string[], tag: string) => invoke<Record<string, FileMeta>>("add_tag", { paths, tag });
 interface SaveFilter {

@@ -1641,6 +1641,7 @@ name = "gpxer"
 version = "0.9.16"
 dependencies = [
  "base64 0.22.1",
+ "flate2",
  "gpx-core",
  "kamadak-exif",
  "notify-debouncer-mini",
