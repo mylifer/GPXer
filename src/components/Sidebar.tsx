@@ -68,6 +68,7 @@ export interface SidebarProps {
   /** Adlandırılmış yerler: değişince satırlardaki yer adları yeniden yazılır. */
   places: NamedPlace[];
   onGoTo(): void;
+  onDay(): void;
   /** Kopya kayıt grubu sayısı ve kopya penceresi. */
   duplicateGroups: number;
   onDuplicates(): void;
@@ -209,6 +210,9 @@ export const Sidebar = memo(function Sidebar(p: SidebarProps) {
               title="Ne zaman neredeydim? Bir tarih ve saat girin; o anı kapsayan kayda gidilir (G)"
             >
               🕑 Tarihe git
+            </button>
+            <button className="btn small" onClick={p.onDay} title="Bir günün akışı: nerede durulmuş, nereden nereye gidilmiş">
+              📅 Gün akışı
             </button>
           </div>
           {(p.filters.area || p.filters.route) && (

@@ -26,12 +26,14 @@ import { GoToDialog } from "./components/GoToDialog";
 import { DuplicatesDialog } from "./components/DuplicatesDialog";
 import { findDuplicates } from "./duplicates";
 import { useRegions } from "./hooks/useRegions";
+import { DayDialog } from "./components/DayDialog";
+import { dayBuckets } from "./days";
 import { HoverDetailPanel, HoverMapView } from "./components/HoverViews";
 import { MapToolbar } from "./components/MapToolbar";
 import { MapLegends } from "./components/MapLegends";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
-import { fmtBytes, fmtDistance, fmtElevation, fmtNumber, type TzMode } from "./format";
+import { fmtBytes, fmtDistance, fmtElevation, fmtNumber, isoOf, type TzMode } from "./format";
 import { createIdxStore } from "./lib/idxStore";
 import type { Dialog } from "./hooks/dialog";
 import { useBaseLayer, usePrefs } from "./hooks/usePrefs";
@@ -132,6 +134,16 @@ export default function App() {
     selOverlaps,
   } = useFilteredFiles({ files, prefs, meta, places, dark, selected, routeInfoRef });
   const regions = useRegions(shown, prefs.filters.from, prefs.filters.to, prefs.regionsLayer);
+  // Gün akışı: kaydı olan günler ve açılış günü (seçili kaydın ilk günü, yoksa son gün).
+  const daysWithData = useMemo(
+    () => (dialog === "day" ? [...new Set(shown.flatMap((f) => dayBuckets(f.summary).map((d) => d.day)))].sort() : []),
+    [dialog, shown],
+  );
+  const initialDay = useMemo(() => {
+    const sel = selectedEntry?.summary;
+    const first = sel ? dayBuckets(sel)[0]?.day : undefined;
+    return first ?? daysWithData[daysWithData.length - 1] ?? isoOf(new Date());
+  }, [selectedEntry, daysWithData]);
   /** Aynı yolculuğun kopyaları (tüm kütüphanede). */
   const duplicateGroups = useMemo(() => findDuplicates(files.map((f) => f.summary)), [files]);
   const fileMap = useMemo(() => new Map(files.map((f) => [f.summary.path, f])), [files]);
@@ -428,6 +440,7 @@ export default function App() {
           overlaps={overlapInfo}
           places={places}
           onGoTo={openGoTo}
+          onDay={() => setDialog("day")}
           duplicateGroups={duplicateGroups.length}
           onDuplicates={() => setDialog("duplicates")}
           onExportFiltered={exportFiltered}
@@ -650,6 +663,27 @@ export default function App() {
           }}
           places={places}
           onFlight={showFlight}
+        />
+      )}
+      {dialog === "day" && (
+        <DayDialog
+          files={shown.map((f) => f.summary)}
+          places={places}
+          initialDay={initialDay}
+          daysWithData={daysWithData}
+          onFocus={(pt) => {
+            setDialog(null);
+            mapRef.current?.centerOn(pt, 15);
+          }}
+          onShowDay={(day) => {
+            setDialog(null);
+            up({ filters: { ...prefs.filters, from: day, to: day } });
+          }}
+          onOpen={(p) => {
+            setDialog(null);
+            selectAndZoom(p);
+          }}
+          onClose={() => setDialog(null)}
         />
       )}
       {dialog === "goto" && (

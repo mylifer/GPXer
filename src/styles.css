@@ -2269,3 +2269,46 @@ kbd {
   height: 100%;
   background: #e8743b;
 }
+
+.day-nav .date-input {
+  width: 110px;
+}
+.day-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 3px solid var(--border);
+}
+.day-timeline li {
+  position: relative;
+  padding: 6px 0 6px 14px;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.day-timeline .day-time {
+  position: absolute;
+  left: -114px;
+  width: 92px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.day-timeline .day-stop::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 11px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 2.5px solid var(--text);
+}
+.day-timeline .day-none {
+  opacity: 0.7;
+}
+.day-timeline {
+  margin-left: 104px;
+}
