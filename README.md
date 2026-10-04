@@ -107,6 +107,10 @@ ile yazılmıştır.
 - Kütüphaneyi boşaltma Ayarlar'dadır ve onay ister.
 
 **Dışa aktarma ve ayarlar**
+- Yükseklik düzeltme: telefon GPS'inin gürültülü yüksekliği, ayrıntı
+  panelindeki “⛰ Yüksekliği düzelt” ile arazi yüksekliğiyle (Copernicus DEM,
+  Open-Meteo; internet gerekir) değiştirilir. Önceki hal saklanır, geri
+  alınabilir.
 - Seçili ya da filtrelenmiş kayıtlar tek dosyada birleştirilerek GPX, KML,
   TCX ya da FIT olarak dışa aktarılabilir.
 - Özet tablosu CSV olarak (Türkçe Excel'in doğrudan açacağı biçimde), seçili

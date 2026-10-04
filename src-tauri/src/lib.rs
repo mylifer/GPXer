@@ -1,4 +1,5 @@
 mod backup;
+mod dem;
 mod edit;
 mod export;
 mod geo;
@@ -417,6 +418,8 @@ pub fn run() {
             add_tag,
             backup::backup_library,
             backup::restore_library,
+            dem::fix_elevation,
+            dem::undo_fix_elevation,
             take_pending_paths,
             library_files,
             remove_files,

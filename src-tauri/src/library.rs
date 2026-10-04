@@ -414,6 +414,30 @@ impl Library {
         self.write_unique(&safe_stem(&stem), &bytes)
     }
 
+    /// Dosyanın şimdiki halini çöp kutusuna kopyalar (yerinde değiştirmeden
+    /// önce; geri almak için). Kopyanın yolunu döner.
+    pub fn keep_previous(&self, path: &str) -> Result<String, String> {
+        self.check(path)?;
+        let p = Path::new(path);
+        let name = p.file_name().unwrap_or_default().to_string_lossy();
+        let target = self.trash_dir.join(trash_name(now_ms(), &name));
+        std::fs::copy(p, &target).map_err(|e| format!("Önceki hali saklanamadı: {e}"))?;
+        Ok(target.to_string_lossy().into_owned())
+    }
+
+    /// [`keep_previous`] ile saklanan hali geri koyar ve saklanan kopyayı siler.
+    pub fn put_back(&self, path: &str, previous: &str) -> Result<(), String> {
+        self.check(path)?;
+        let prev = Path::new(previous);
+        if prev.parent() != Some(self.trash_dir.as_path()) || !prev.is_file() {
+            return Err("Önceki hali artık yok".into());
+        }
+        let bytes = std::fs::read(prev).map_err(|e| e.to_string())?;
+        crate::store::write_atomic(Path::new(path), &bytes).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(prev);
+        Ok(())
+    }
+
     /// Yeni oluşturulan (kırpılan, birleştirilen…) bir kaydı kütüphaneye yazar.
     pub fn write_new(&self, name: &str, text: &str) -> std::io::Result<PathBuf> {
         self.write_unique(&safe_stem(name), text.as_bytes())

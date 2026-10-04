@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { loadDetail, rangeStats, type Detail, type FileSummary, type Stats } from "../api";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
+import {
+  loadDetail,
+  rangeStats,
+  type Detail,
+  type FileSummary,
+  type Stats,
+} from "../api";
 import type { MapHandle } from "../components/MapView";
 import type { Cursor } from "../components/CompareView";
 import type { Prefs } from "../prefs";
@@ -22,6 +34,7 @@ export function useSelectedDetail({
   prefsRef,
   oneDay,
   selSummary,
+  rev = 0,
 }: {
   selected: string | null;
   cursor: IdxStore;
@@ -29,14 +42,23 @@ export function useSelectedDetail({
   prefsRef: RefObject<Prefs>;
   oneDay: string;
   selSummary: FileSummary | null;
+  /** Kayıt yerinde değişince (yükseklik düzeltme) ayrıntı yeniden yüklensin. */
+  rev?: number;
 }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [range, setRange] = useState<[number, number] | null>(null);
   /** Aralık istatistiği, hesaplandığı aralık ve ayrıntıyla birlikte: başka bir
    * aralığa aitse gösterilmez (efektte sıfırlamaya gerek kalmaz). */
-  const [rangeRes, setRangeRes] = useState<{ range: [number, number]; detail: Detail; st: Stats } | null>(null);
-  const rangeSt = rangeRes && rangeRes.range === range && rangeRes.detail === detail ? rangeRes.st : null;
+  const [rangeRes, setRangeRes] = useState<{
+    range: [number, number];
+    detail: Detail;
+    st: Stats;
+  } | null>(null);
+  const rangeSt =
+    rangeRes && rangeRes.range === range && rangeRes.detail === detail
+      ? rangeRes.st
+      : null;
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(playing);
   playingRef.current = playing;
@@ -71,7 +93,7 @@ export function useSelectedDetail({
     return () => {
       cancelled = true;
     };
-  }, [selected, cursor]);
+  }, [selected, cursor, rev]);
 
   // "Tarihe git": ayrıntı gelince o ana en yakın örneğe imleç konur ve harita ortalanır.
   useEffect(() => {
@@ -120,13 +142,18 @@ export function useSelectedDetail({
       return;
     }
     const times = detail.time;
-    const timed = times.every((t, i) => t != null && (i === 0 || t >= times[i - 1]!));
+    const timed = times.every(
+      (t, i) => t != null && (i === 0 || t >= times[i - 1]!),
+    );
     // Oynatma zaman çizelgesi (ms): uzun boşluklar kısaltılır ki imleç
     // duraklamalarda donup kalmasın. Zamansız kayıtlarda 15 km/sa varsayılır.
     const clock = new Float64Array(n);
     for (let i = 1; i < n; i++) {
-      const d = timed ? times[i]! - times[i - 1]! : ((detail.dist[i] - detail.dist[i - 1]) / 4.17) * 1000;
-      clock[i] = clock[i - 1] + (d > PLAY_MAX_GAP_MS ? PLAY_GAP_AS_MS : Math.max(0, d));
+      const d = timed
+        ? times[i]! - times[i - 1]!
+        : ((detail.dist[i] - detail.dist[i - 1]) / 4.17) * 1000;
+      clock[i] =
+        clock[i - 1] + (d > PLAY_MAX_GAP_MS ? PLAY_GAP_AS_MS : Math.max(0, d));
     }
     const h = cursor.get();
     let i0 = h != null && h < n - 1 ? h : 0;
@@ -136,7 +163,8 @@ export function useSelectedDetail({
     let last: number | null = null;
     const step = (now: number) => {
       // Hız her karede okunur: oynatma sırasında değiştirilebilir.
-      if (last != null) v += Math.min(now - last, 250) * prefsRef.current.playSpeed;
+      if (last != null)
+        v += Math.min(now - last, 250) * prefsRef.current.playSpeed;
       last = now;
       while (i0 < n - 1 && clock[i0 + 1] <= v) i0++;
       cursor.set(i0);
@@ -161,7 +189,8 @@ export function useSelectedDetail({
   const zoomRange = useCallback(() => {
     if (!detail || !range) return;
     const pts: [number, number][] = [];
-    for (let i = range[0]; i <= range[1]; i++) pts.push([detail.lon[i], detail.lat[i]]);
+    for (let i = range[0]; i <= range[1]; i++)
+      pts.push([detail.lon[i], detail.lat[i]]);
     mapRef.current?.fitPoints(pts);
   }, [detail, range]);
 
@@ -171,7 +200,8 @@ export function useSelectedDetail({
       setRange(r);
       if (!detail || !r) return;
       const pts: [number, number][] = [];
-      for (let i = r[0]; i <= r[1]; i++) pts.push([detail.lon[i], detail.lat[i]]);
+      for (let i = r[0]; i <= r[1]; i++)
+        pts.push([detail.lon[i], detail.lat[i]]);
       mapRef.current?.fitPoints(pts);
     },
     [detail],
@@ -203,8 +233,13 @@ export function useSelectedDetail({
 }
 
 /** Karşılaştırılan iki kaydın grafik verisi ve grafikteki imleçleri. */
-export function useCompareDetails(compare: [string, string] | null, fail: (message: string) => void) {
-  const [compareDetails, setCompareDetails] = useState<[Detail | null, Detail | null]>([null, null]);
+export function useCompareDetails(
+  compare: [string, string] | null,
+  fail: (message: string) => void,
+) {
+  const [compareDetails, setCompareDetails] = useState<
+    [Detail | null, Detail | null]
+  >([null, null]);
   const [cursors, setCursors] = useState<Cursor[]>([]);
   // Karşılaştırılan iki kaydın grafik verisi.
   useEffect(() => {

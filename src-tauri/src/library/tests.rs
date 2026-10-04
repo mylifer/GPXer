@@ -448,3 +448,21 @@ fn imports_google_takeout_json() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn keeps_and_puts_back_previous_version() {
+    let root = temp_root("prev");
+    let lib = Library::open(&root).unwrap();
+    let p = lib.write_new("a", &track("41.0")).unwrap();
+    let path = p.to_string_lossy().into_owned();
+    let prev = lib.keep_previous(&path).unwrap();
+    std::fs::write(&p, track("42.0")).unwrap();
+    lib.put_back(&path, &prev).unwrap();
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), track("41.0"));
+    assert!(!Path::new(&prev).exists());
+    // Çöp kutusu dışından geri koyma reddedilir.
+    assert!(lib
+        .put_back(&path, &root.join("x.gpx").to_string_lossy())
+        .is_err());
+    let _ = std::fs::remove_dir_all(&root);
+}

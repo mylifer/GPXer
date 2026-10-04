@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { backupLibrary, getMeta, getPlaces, pickSavePath, restoreLibrary } from "./api";
+import {
+  backupLibrary,
+  fixElevation,
+  getMeta,
+  getPlaces,
+  pickSavePath,
+  restoreLibrary,
+  undoFixElevation,
+  type LoadResult,
+} from "./api";
 import type { MapHandle } from "./components/MapView";
 import { Sidebar } from "./components/Sidebar";
 import { UpdateNotice } from "./components/UpdateNotice";
@@ -18,7 +27,7 @@ import { MapToolbar } from "./components/MapToolbar";
 import { MapLegends } from "./components/MapLegends";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
-import { fmtBytes, fmtNumber, type TzMode } from "./format";
+import { fmtBytes, fmtElevation, fmtNumber, type TzMode } from "./format";
 import { createIdxStore } from "./lib/idxStore";
 import type { Dialog } from "./hooks/dialog";
 import { useBaseLayer, usePrefs } from "./hooks/usePrefs";
@@ -28,7 +37,10 @@ import { usePlaces } from "./hooks/usePlaces";
 import { EMPTY_META, useMeta } from "./hooks/useMeta";
 import { useFilteredFiles } from "./hooks/useFilteredFiles";
 import { usePhotos } from "./hooks/usePhotos";
-import { useCompareDetails, useSelectedDetail } from "./hooks/useSelectedDetail";
+import {
+  useCompareDetails,
+  useSelectedDetail,
+} from "./hooks/useSelectedDetail";
 import { useExports } from "./hooks/useExports";
 import { useTrackEdits } from "./hooks/useTrackEdits";
 import { useNavigation } from "./hooks/useNavigation";
@@ -45,17 +57,34 @@ import { useKeyboard } from "./hooks/useKeyboard";
 export default function App() {
   const { prefs, prefsRef, persistedSel, up } = usePrefs();
   const [baseLayer, setBaseLayer] = useBaseLayer();
-  const { errors, setErrors, duplicates, setDuplicates, empties, setEmpties, info, setInfo, say, fail } = useNotices();
+  const {
+    errors,
+    setErrors,
+    duplicates,
+    setDuplicates,
+    empties,
+    setEmpties,
+    info,
+    setInfo,
+    say,
+    fail,
+  } = useNotices();
 
   const [multi, setMulti] = useState<Set<string>>(new Set());
   /** İmleç (fare ya da oynatma); App'i her karede yeniden çizmemek için state değil. */
   const [cursor] = useState(createIdxStore);
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [detailRev, setDetailRev] = useState(0);
+  const [elevPrev, setElevPrev] = useState<Record<string, string>>({});
+  const [fixingElev, setFixingElev] = useState<string | null>(null);
   const [areaMode, setAreaMode] = useState(false);
   const [compare, setCompare] = useState<[string, string] | null>(null);
   const [routeModal, setRouteModal] = useState<Route | null>(null);
   const mapRef = useRef<MapHandle>(null);
-  const routeInfoRef = useRef<{ routes: Route[]; byPath: Map<string, Route> } | null>(null);
+  const routeInfoRef = useRef<{
+    routes: Route[];
+    byPath: Map<string, Route>;
+  } | null>(null);
 
   // ---------- Kütüphane ve yükleme ----------
 
@@ -84,9 +113,36 @@ export default function App() {
     pickFolder,
     removePaths,
     closeAll,
-  } = useFileLoader({ prefsRef, persistedSel, up, say, fail, setErrors, setDuplicates, setEmpties, mapRef, setCompare, setMulti, routeInfoRef });
-  const { places, setPlacesState, namePrompt, setNamePrompt, updatePlaces, onNamePlace, namePlace } = usePlaces(say, fail);
-  const { meta, setMetaState, allTags, updateMeta, tagMany } = useMeta({ fail, say, patchFiles, multi, setDialog });
+  } = useFileLoader({
+    prefsRef,
+    persistedSel,
+    up,
+    say,
+    fail,
+    setErrors,
+    setDuplicates,
+    setEmpties,
+    mapRef,
+    setCompare,
+    setMulti,
+    routeInfoRef,
+  });
+  const {
+    places,
+    setPlacesState,
+    namePrompt,
+    setNamePrompt,
+    updatePlaces,
+    onNamePlace,
+    namePlace,
+  } = usePlaces(say, fail);
+  const { meta, setMetaState, allTags, updateMeta, tagMany } = useMeta({
+    fail,
+    say,
+    patchFiles,
+    multi,
+    setDialog,
+  });
 
   // ---------- Türetilen veriler ----------
 
@@ -113,11 +169,32 @@ export default function App() {
     summaryOf,
     libraryFlights,
     selOverlaps,
-  } = useFilteredFiles({ files, prefs, meta, places, dark, selected, routeInfoRef });
+  } = useFilteredFiles({
+    files,
+    prefs,
+    meta,
+    places,
+    dark,
+    selected,
+    routeInfoRef,
+  });
   /** Aynı yolculuğun kopyaları (tüm kütüphanede). */
-  const duplicateGroups = useMemo(() => findDuplicates(files.map((f) => f.summary)), [files]);
-  const fileMap = useMemo(() => new Map(files.map((f) => [f.summary.path, f])), [files]);
-  const { setPhotoInfo, placedPhotos, mapPhotos, pickPhotos, clearPhotos, addPhotosRef } = usePhotos({
+  const duplicateGroups = useMemo(
+    () => findDuplicates(files.map((f) => f.summary)),
+    [files],
+  );
+  const fileMap = useMemo(
+    () => new Map(files.map((f) => [f.summary.path, f])),
+    [files],
+  );
+  const {
+    setPhotoInfo,
+    placedPhotos,
+    mapPhotos,
+    pickPhotos,
+    clearPhotos,
+    addPhotosRef,
+  } = usePhotos({
     prefs,
     prefsRef,
     up,
@@ -130,27 +207,60 @@ export default function App() {
   // Dosya listesi değişince artık var olmayan kayıtlara bağlı durumu temizle
   // (açılış ve yeniden yükleme sürerken liste henüz eksik olabilir; beklenir).
   useEffect(() => {
-    if (initialLoad.current || restoreSel.current !== undefined || loading) return;
+    if (initialLoad.current || restoreSel.current !== undefined || loading)
+      return;
     const has = (p: string) => files.some((f) => f.summary.path === p);
     if (selected && !has(selected)) setSelected(null);
     if (compare && !compare.every(has)) setCompare(null);
     // Güzergâh filtresi hiçbir güzergâha uymuyorsa sessizce boş liste göstermek yerine kaldır.
     const fr = prefs.filters.route;
-    if (fr && !routeInfo.byPath.has(fr)) up({ filters: { ...prefsRef.current.filters, route: null } });
+    if (fr && !routeInfo.byPath.has(fr))
+      up({ filters: { ...prefsRef.current.filters, route: null } });
   }, [files, selected, compare, routeInfo, prefs.filters.route, loading, up]);
 
   // ---------- Seçili kayıt ----------
 
   // Tarih filtresi tek güne ayarlıysa (ör. takvimde güne tıklama) çok günlü
   // kaydın o günü kendiliğinden seçilir.
-  const oneDay = prefs.filters.from && prefs.filters.from === prefs.filters.to ? prefs.filters.from : "";
-  const { detail, detailError, range, setRange, rangeSt, playing, setPlaying, setSeek, onHoverIdx, zoomRange, pickDay } =
-    useSelectedDetail({ selected, cursor, mapRef, prefsRef, oneDay, selSummary: selectedEntry?.summary ?? null });
-  const { compareDetails, cursors, setCursors } = useCompareDetails(compare, fail);
+  const oneDay =
+    prefs.filters.from && prefs.filters.from === prefs.filters.to
+      ? prefs.filters.from
+      : "";
+  const {
+    detail,
+    detailError,
+    range,
+    setRange,
+    rangeSt,
+    playing,
+    setPlaying,
+    setSeek,
+    onHoverIdx,
+    zoomRange,
+    pickDay,
+  } = useSelectedDetail({
+    selected,
+    cursor,
+    mapRef,
+    prefsRef,
+    oneDay,
+    selSummary: selectedEntry?.summary ?? null,
+    rev: detailRev,
+  });
+  const { compareDetails, cursors, setCursors } = useCompareDetails(
+    compare,
+    fail,
+  );
 
   // ---------- Dışa aktarma, düzenleme, gezinme ----------
 
-  const { exportCsv, exportPng, exportSelectedGpx, exportFiltered, exportMulti } = useExports({
+  const {
+    exportCsv,
+    exportPng,
+    exportSelectedGpx,
+    exportFiltered,
+    exportMulti,
+  } = useExports({
     multi,
     shown,
     meta,
@@ -167,10 +277,65 @@ export default function App() {
         .catch(() => {}),
     [setMetaState],
   );
+  // ---------- Yükseklik düzeltme (arazi yüksekliği) ----------
+  const replaceSummary = useCallback(
+    (r: LoadResult) => {
+      if (r.status === "ok")
+        patchFiles((prev) =>
+          prev.map((f) =>
+            f.summary.path === r.file.path ? { ...f, summary: r.file } : f,
+          ),
+        );
+      else if (r.status === "error") fail(r.message, r.path);
+    },
+    [patchFiles, fail],
+  );
+  const fixElev = useCallback(
+    async (path: string) => {
+      setFixingElev(path);
+      try {
+        const r = await fixElevation(path);
+        replaceSummary(r.result);
+        setElevPrev((m) => ({ ...m, [path]: r.previous }));
+        setDetailRev((x) => x + 1);
+        const after =
+          r.result.status === "ok" ? r.result.file.stats.elevationGainM : null;
+        say(
+          `Yükseklikler arazi verisiyle düzeltildi: toplam tırmanış ${fmtElevation(r.gainBefore)} → ${fmtElevation(after)}.`,
+        );
+      } catch (e) {
+        fail(String(e));
+      } finally {
+        setFixingElev(null);
+      }
+    },
+    [replaceSummary, say, fail],
+  );
+  const undoElev = useCallback(
+    async (path: string) => {
+      const prev = elevPrev[path];
+      if (!prev) return;
+      try {
+        replaceSummary(await undoFixElevation(path, prev));
+        setElevPrev((m) => {
+          const n = { ...m };
+          delete n[path];
+          return n;
+        });
+        setDetailRev((x) => x + 1);
+        say("Önceki (GPS) yüksekliklere dönüldü.");
+      } catch (e) {
+        fail(String(e));
+      }
+    },
+    [elevPrev, replaceSummary, say, fail],
+  );
   const backup = useCallback(async () => {
     try {
       const day = new Date().toISOString().slice(0, 10);
-      const dest = await pickSavePath(`GPXer-yedek-${day}.zip`, [{ name: "GPXer yedeği", extensions: ["zip"] }]);
+      const dest = await pickSavePath(`GPXer-yedek-${day}.zip`, [
+        { name: "GPXer yedeği", extensions: ["zip"] },
+      ]);
       if (!dest) return;
       const path = /\.zip$/i.test(dest) ? dest : `${dest}.zip`;
       const r = await backupLibrary(path).catch(() => backupLibrary(dest));
@@ -181,7 +346,10 @@ export default function App() {
   }, [say, fail]);
   const restore = useCallback(async () => {
     try {
-      const src = await open({ multiple: false, filters: [{ name: "GPXer yedeği", extensions: ["zip"] }] });
+      const src = await open({
+        multiple: false,
+        filters: [{ name: "GPXer yedeği", extensions: ["zip"] }],
+      });
       if (typeof src !== "string") return;
       setDialog(null);
       say("Yedek geri yükleniyor…");
@@ -195,7 +363,9 @@ export default function App() {
       say(
         `Yedekten ${fmtNumber(added.length)} kayıt eklendi` +
           (dup ? `, ${fmtNumber(dup)} kayıt zaten kütüphanedeydi` : "") +
-          (r.metaMerged ? `; ${fmtNumber(r.metaMerged)} kaydın etiket ve notları aktarıldı` : "") +
+          (r.metaMerged
+            ? `; ${fmtNumber(r.metaMerged)} kaydın etiket ve notları aktarıldı`
+            : "") +
           (r.placesAdded ? `; ${fmtNumber(r.placesAdded)} yer eklendi` : "") +
           ".",
       );
@@ -216,7 +386,16 @@ export default function App() {
     fail,
     refreshMeta,
   });
-  const { fitAll, showFlight, findAt, goTo, compareWith, zoomTo, selectAndZoom, startCompare } = useNavigation({
+  const {
+    fitAll,
+    showFlight,
+    findAt,
+    goTo,
+    compareWith,
+    zoomTo,
+    selectAndZoom,
+    startCompare,
+  } = useNavigation({
     filesRef,
     onMapRef,
     prefsRef,
@@ -280,7 +459,18 @@ export default function App() {
     openSummary,
     openTag,
     clearMulti,
-  } = useListActions({ rows, selected, pick, setMulti, patchFiles, up, prefsRef, filesRef, shownRef, setDialog });
+  } = useListActions({
+    rows,
+    selected,
+    pick,
+    setMulti,
+    patchFiles,
+    up,
+    prefsRef,
+    filesRef,
+    shownRef,
+    setDialog,
+  });
 
   useKeyboard({
     rows,
@@ -423,7 +613,9 @@ export default function App() {
               <span className="spinner" aria-hidden />
               <span>
                 Kayıtlar yeniden hesaplanıyor…
-                {loading && loading.total > 0 && ` ${fmtNumber(loading.done)} / ${fmtNumber(loading.total)}`}
+                {loading &&
+                  loading.total > 0 &&
+                  ` ${fmtNumber(loading.done)} / ${fmtNumber(loading.total)}`}
               </span>
             </div>
           )}
@@ -434,7 +626,11 @@ export default function App() {
             watchOffer={watchOffer}
             onWatch={() => {
               const s = settingsRef.current;
-              if (s && watchOffer) applySettings({ ...s, watchedFolders: [...s.watchedFolders, ...watchOffer] });
+              if (s && watchOffer)
+                applySettings({
+                  ...s,
+                  watchedFolders: [...s.watchedFolders, ...watchOffer],
+                });
               setWatchOffer(null);
             }}
             onDismissWatch={() => setWatchOffer(null)}
@@ -448,23 +644,24 @@ export default function App() {
             onClearErrors={() => setErrors([])}
           />
         </div>
-        {compare && (() => {
-          const a = colored.find((f) => f.summary.path === compare[0]);
-          const b = colored.find((f) => f.summary.path === compare[1]);
-          return a && b ? (
-            <CompareView
-              a={a}
-              b={b}
-              detailA={compareDetails[0]}
-              detailB={compareDetails[1]}
-              height={prefs.panelHeight}
-              playSpeed={prefs.playSpeed}
-              onPlaySpeed={(playSpeed) => up({ playSpeed })}
-              onCursors={setCursors}
-              onClose={() => setCompare(null)}
-            />
-          ) : null;
-        })()}
+        {compare &&
+          (() => {
+            const a = colored.find((f) => f.summary.path === compare[0]);
+            const b = colored.find((f) => f.summary.path === compare[1]);
+            return a && b ? (
+              <CompareView
+                a={a}
+                b={b}
+                detailA={compareDetails[0]}
+                detailB={compareDetails[1]}
+                height={prefs.panelHeight}
+                playSpeed={prefs.playSpeed}
+                onPlaySpeed={(playSpeed) => up({ playSpeed })}
+                onCursors={setCursors}
+                onClose={() => setCompare(null)}
+              />
+            ) : null;
+          })()}
         {selectedEntry && !compare && (
           <HoverDetailPanel
             entry={selectedEntry}
@@ -497,11 +694,25 @@ export default function App() {
             onClose={() => pick(null)}
             onZoom={() => zoomTo(selectedEntry.summary.path)}
             onExportGpx={exportSelectedGpx}
+            onFixElevation={() => fixElev(selectedEntry.summary.path)}
+            onUndoElevation={
+              elevPrev[selectedEntry.summary.path]
+                ? () => undoElev(selectedEntry.summary.path)
+                : undefined
+            }
+            fixingElevation={fixingElev === selectedEntry.summary.path}
             meta={meta[selectedEntry.summary.path] ?? EMPTY_META}
             allTags={allTags}
             onMeta={(m) => updateMeta(selectedEntry.summary.path, m)}
-            routeCount={routeInfo.byPath.get(selectedEntry.summary.path)?.paths.length ?? 0}
-            onOpenRoute={() => setRouteModal(routeInfo.byPath.get(selectedEntry.summary.path) ?? null)}
+            routeCount={
+              routeInfo.byPath.get(selectedEntry.summary.path)?.paths.length ??
+              0
+            }
+            onOpenRoute={() =>
+              setRouteModal(
+                routeInfo.byPath.get(selectedEntry.summary.path) ?? null,
+              )
+            }
             overlaps={selOverlaps}
             onCompareWith={(p) => compareWith(selectedEntry.summary.path, p)}
             places={places}
@@ -524,7 +735,8 @@ export default function App() {
             setDialog(null);
             up({ tzMode });
             applySettings(s);
-            if (JSON.stringify(nextPlaces) !== JSON.stringify(places)) updatePlaces(nextPlaces);
+            if (JSON.stringify(nextPlaces) !== JSON.stringify(places))
+              updatePlaces(nextPlaces);
           }}
           places={places}
           libraryCount={files.length}
@@ -636,7 +848,10 @@ export default function App() {
       )}
       {dragging && (
         <div className="drop-overlay">
-          <div>GPX, FIT, TCX, KML, Google konum geçmişi (JSON) dosyalarını, klasörleri ya da fotoğrafları bırakın</div>
+          <div>
+            GPX, FIT, TCX, KML, Google konum geçmişi (JSON) dosyalarını,
+            klasörleri ya da fotoğrafları bırakın
+          </div>
         </div>
       )}
     </div>

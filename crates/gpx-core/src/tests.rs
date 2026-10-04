@@ -1594,3 +1594,42 @@ fn reads_google_location_history_formats() {
     assert!(is_google_file_name("location-history.json"));
     assert!(!is_google_file_name("package.json"));
 }
+
+#[test]
+fn dem_replaces_and_interpolates_elevation() {
+    // 1 km düz yol, GPS yüksekliği gürültülü; arazi 100 m'den 200 m'ye çıkıyor.
+    let seg: Vec<Point> = (0..=100)
+        .map(|k| Point {
+            ele: Some(if k % 2 == 0 { 50.0 } else { 300.0 }),
+            ..pt(41.0, 29.0 + k as f64 * 0.000119, k)
+        })
+        .collect();
+    let mut gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let mut asked = 0;
+    let n = dem::apply_dem::<()>(&mut gpx, |coords| {
+        asked += coords.len();
+        Ok(coords
+            .iter()
+            .map(|&(_, lon)| Some(100.0 + (lon - 29.0) / 0.0119 * 100.0))
+            .collect())
+    })
+    .unwrap();
+    assert_eq!(n, 101);
+    assert!(asked < 30, "{asked}");
+    let pts = &gpx.tracks[0].segments[0];
+    assert!((pts[0].ele.unwrap() - 100.0).abs() < 0.5);
+    assert!((pts[100].ele.unwrap() - 200.0).abs() < 0.5);
+    assert!((pts[50].ele.unwrap() - 150.0).abs() < 2.0);
+    let s = track_stats(&[pts], &StatsConfig::default());
+    assert!(
+        (s.elevation_gain_m.unwrap() - 100.0).abs() < 5.0,
+        "{:?}",
+        s.elevation_gain_m
+    );
+}

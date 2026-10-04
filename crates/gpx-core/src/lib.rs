@@ -7,6 +7,7 @@
 //! dosya yeniden okunarak üretilir.
 
 pub mod analysis;
+pub mod dem;
 mod detail;
 pub mod formats;
 pub mod google;
