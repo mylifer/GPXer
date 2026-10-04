@@ -111,6 +111,11 @@ ile yazılmıştır.
   panelindeki “⛰ Yüksekliği düzelt” ile arazi yüksekliğiyle (Copernicus DEM,
   Open-Meteo; internet gerekir) değiştirilir. Önceki hal saklanır, geri
   alınabilir.
+- Yola oturtma: seyrek noktalı kayıtlar (Google konum geçmişi, dakikada bir
+  nokta alan uygulamalar) “🛣 Yola oturt” ile OpenStreetMap yollarına
+  eşleştirilir (OSRM, routing.openstreetmap.de; etkinlik türüne göre araç,
+  bisiklet ya da yaya). Noktalar arası düz çizgiler izlenen yol olur; geri
+  alınabilir.
 - Seçili ya da filtrelenmiş kayıtlar tek dosyada birleştirilerek GPX, KML,
   TCX ya da FIT olarak dışa aktarılabilir.
 - Özet tablosu CSV olarak (Türkçe Excel'in doğrudan açacağı biçimde), seçili

@@ -160,60 +160,54 @@ export interface Settings {
   watchedFolders: string[];
 }
 
-export const expandPaths = (paths: string[]) =>
-  invoke<string[]>("expand_paths", { paths });
+export const expandPaths = (paths: string[]) => invoke<string[]>("expand_paths", { paths });
 /** `explicit`: kullanıcı dosyaları kendisi açtı (Dosya Aç, Klasör Aç, sürükle-bırak,
  * çift tıklama, "Birlikte aç"); kütüphaneden çıkarılmış kayıtlar da yeniden eklenir.
  * Açılıştaki kütüphane, izlenen klasörler ve yeniden yüklemede verilmez. */
 export const loadFiles = (paths: string[], explicit = false) =>
   invoke<LoadResult[]>("load_files", { paths, explicit });
 export const flushCache = () => invoke<void>("flush_cache");
-export const loadDetail = (path: string) =>
-  invoke<Detail>("load_detail", { path });
+export const loadDetail = (path: string) => invoke<Detail>("load_detail", { path });
 export const libraryFiles = () => invoke<string[]>("library_files");
-export const removeFiles = (paths: string[]) =>
-  invoke<TrashItem[]>("remove_files", { paths });
-export const restoreFiles = (items: TrashItem[]) =>
-  invoke<string[]>("restore_files", { items });
+export const removeFiles = (paths: string[]) => invoke<TrashItem[]>("remove_files", { paths });
+export const restoreFiles = (items: TrashItem[]) => invoke<string[]>("restore_files", { items });
 export const takePendingPaths = () => invoke<string[]>("take_pending_paths");
 export const rangeStats = (path: string, start: number, end: number) =>
   invoke<Stats>("range_stats", { path, start, end });
 export const trimFile = (path: string, start: number, end: number) =>
   invoke<LoadResult>("trim_file", { path, start, end });
-export const splitFile = (path: string, at: number) =>
-  invoke<LoadResult[]>("split_file", { path, at });
-export const mergeFiles = (paths: string[], name: string) =>
-  invoke<LoadResult>("merge_files", { paths, name });
+export const splitFile = (path: string, at: number) => invoke<LoadResult[]>("split_file", { path, at });
+export const mergeFiles = (paths: string[], name: string) => invoke<LoadResult>("merge_files", { paths, name });
 export type ExportFormat = "gpx" | "kml" | "tcx" | "fit";
 export const exportAs = (src: string, dest: string, format: ExportFormat) =>
   invoke<void>("export_as", { src, dest, format });
 export const getMeta = () => invoke<Record<string, FileMeta>>("get_meta");
 /** Tür değiştiyse yeniden hesaplanan özet döner. */
-export const setMeta = (path: string, value: FileMeta) =>
-  invoke<LoadResult | null>("set_meta", { path, value });
+export const setMeta = (path: string, value: FileMeta) => invoke<LoadResult | null>("set_meta", { path, value });
 export interface RestoreInfo {
   results: LoadResult[];
   metaMerged: number;
   placesAdded: number;
 }
 /** Kütüphaneyi kaydetme penceresinde seçilen .zip dosyasına yedekler. */
-export const backupLibrary = (dest: string) =>
-  invoke<{ records: number; bytes: number }>("backup_library", { dest });
+export const backupLibrary = (dest: string) => invoke<{ records: number; bytes: number }>("backup_library", { dest });
 /** Yedekten geri yükler: kayıtlar açma yolundan geçer (kopyalar atlanır). */
-export const restoreLibrary = (src: string) =>
-  invoke<RestoreInfo>("restore_library", { src });
-/** Kaydın yüksekliklerini arazi yüksekliğiyle (çevrimiçi servis) değiştirir;
- * önceki hal geri almak için saklanır. */
-export const fixElevation = (path: string) =>
-  invoke<{ result: LoadResult; previous: string; gainBefore: number | null }>(
-    "fix_elevation",
-    { path },
-  );
-export const undoFixElevation = (path: string, previous: string) =>
-  invoke<LoadResult>("undo_fix_elevation", { path, previous });
+export const restoreLibrary = (src: string) => invoke<RestoreInfo>("restore_library", { src });
+/** Kaydı yerinde değiştiren işlemlerin sonucu: yeni özet, geri almak için
+ * saklanan önceki hal ve önceki istatistikler. */
+export type RewriteKind = "elevation" | "snap";
+export interface RewriteResult {
+  result: LoadResult;
+  previous: string;
+  before: Stats | null;
+}
+/** Yükseklikleri arazi yüksekliğiyle (çevrimiçi servis) değiştirir. */
+export const fixElevation = (path: string) => invoke<RewriteResult>("fix_elevation", { path });
+/** Seyrek kaydı yola oturtur (çevrimiçi harita eşleştirme). */
+export const snapToRoads = (path: string) => invoke<RewriteResult>("snap_to_roads", { path });
+export const undoRewrite = (path: string, previous: string) => invoke<LoadResult>("undo_rewrite", { path, previous });
 /** Kayıtlara tek seferde etiket ekler; değişen kayıtların yeni bilgileri döner. */
-export const addTag = (paths: string[], tag: string) =>
-  invoke<Record<string, FileMeta>>("add_tag", { paths, tag });
+export const addTag = (paths: string[], tag: string) => invoke<Record<string, FileMeta>>("add_tag", { paths, tag });
 interface SaveFilter {
   name: string;
   extensions: string[];
@@ -222,17 +216,13 @@ interface SaveFilter {
  * yazar (write_text_file, write_base64_file, export_as); vazgeçilirse `null`. */
 export const pickSavePath = (defaultName: string, filters: SaveFilter[]) =>
   invoke<string | null>("pick_save_path", { defaultName, filters });
-export const writeTextFile = (path: string, contents: string) =>
-  invoke<void>("write_text_file", { path, contents });
-export const writeBase64File = (path: string, data: string) =>
-  invoke<void>("write_base64_file", { path, data });
+export const writeTextFile = (path: string, contents: string) => invoke<void>("write_text_file", { path, contents });
+export const writeBase64File = (path: string, data: string) => invoke<void>("write_base64_file", { path, data });
 export const getSettings = () => invoke<Settings>("get_settings");
 
 /** Tüm listeyi yazan kayıtlar arka uçta ayrı iş parçacıklarında sırasız
  * çalışabilir; eski liste en son yazılmasın diye her kayıt öncekini bekler. */
-export function inOrder<A extends unknown[], R>(
-  fn: (...args: A) => Promise<R>,
-): (...args: A) => Promise<R> {
+export function inOrder<A extends unknown[], R>(fn: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
   let last: Promise<unknown> = Promise.resolve();
   return (...args) => {
     const next = last.then(
@@ -245,22 +235,13 @@ export function inOrder<A extends unknown[], R>(
 }
 
 /** Kaydeder; izlenemeyen klasörler için hata mesajları döner. */
-export const setSettings = inOrder((settings: Settings) =>
-  invoke<string[]>("set_settings", { settings }),
-);
+export const setSettings = inOrder((settings: Settings) => invoke<string[]>("set_settings", { settings }));
 export const getPlaces = () => invoke<NamedPlace[] | null>("get_places");
-export const setPlaces = inOrder((places: NamedPlace[]) =>
-  invoke<void>("set_places", { places }),
-);
+export const setPlaces = inOrder((places: NamedPlace[]) => invoke<void>("set_places", { places }));
 /** Dosya ya da klasör yolları; klasörlerdeki fotoğraflar arka uçta bulunur. */
-export const readPhotos = (paths: string[]) =>
-  invoke<PhotoInfo[] | null>("read_photos", { paths });
+export const readPhotos = (paths: string[]) => invoke<PhotoInfo[] | null>("read_photos", { paths });
 /** Fotoğrafın küçük resmi (data: adresi); okunamazsa null. */
-export const photoThumb = (path: string) =>
-  invoke<string | null>("photo_thumb", { path });
+export const photoThumb = (path: string) => invoke<string | null>("photo_thumb", { path });
 /** Kayıtları tek dosyada dışa aktarır; `dest` pickSavePath'ten gelmeli. */
-export const exportMany = (
-  paths: string[],
-  dest: string,
-  format: ExportFormat,
-) => invoke<void>("export_many", { paths, dest, format });
+export const exportMany = (paths: string[], dest: string, format: ExportFormat) =>
+  invoke<void>("export_many", { paths, dest, format });

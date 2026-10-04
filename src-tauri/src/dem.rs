@@ -4,12 +4,9 @@
 //! (anahtar gerektirmez); düzeltme kütüphanedeki kopyaya yazılır, önceki hali
 //! çöp kutusunda saklanır ve geri alınabilir.
 
-use crate::library::{Library, LoadResult};
-use crate::meta::MetaStore;
+use crate::rewrite::{rewrite_record, RewriteResult};
 use crate::run_blocking;
-use crate::settings::SettingsStore;
-use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const API: &str = "https://api.open-meteo.com/v1/elevation";
 /// Servisin bir istekte kabul ettiği en çok konum.
@@ -51,64 +48,17 @@ pub(crate) fn fetch(base: &str, coords: &[(f64, f64)]) -> Result<Vec<Option<f64>
     Ok(out)
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct FixResult {
-    result: LoadResult,
-    /// Geri almak için saklanan önceki hal.
-    previous: String,
-    gain_before: Option<f64>,
-}
-
 /// Kaydın yüksekliklerini arazi yüksekliğiyle değiştirir.
 #[tauri::command]
-pub(crate) async fn fix_elevation(app: AppHandle, path: String) -> Result<FixResult, String> {
+pub(crate) async fn fix_elevation(app: AppHandle, path: String) -> Result<RewriteResult, String> {
     run_blocking(move || {
-        let library = app.state::<Library>();
-        library.check(&path)?;
-        let cfg = app.state::<SettingsStore>().stats();
-        let chosen = app.state::<MetaStore>().activity(&path);
-        let gain_before = library
-            .summarize(&path, &cfg, chosen)
-            .ok()
-            .and_then(|(s, _)| s.stats.elevation_gain_m);
-        let (mut gpx, _) = gpx_core::read_gpx_file(path.as_ref()).map_err(|e| e.to_string())?;
-        let n = gpx_core::dem::apply_dem(&mut gpx, |c| fetch(API, c))?;
-        if n == 0 {
-            return Err("Bu kaydın konumları için arazi yüksekliği bulunamadı".into());
-        }
-        let previous = library.keep_previous(&path)?;
-        let text = gpx_core::write::write_gpx(&gpx);
-        if let Err(e) = crate::store::write_atomic(path.as_ref(), text.as_bytes()) {
-            let _ = std::fs::remove_file(&previous);
-            return Err(format!("Kayıt yazılamadı: {e}"));
-        }
-        let result = library.load(path, &cfg, chosen);
-        let _ = library.flush_cache();
-        Ok(FixResult {
-            result,
-            previous,
-            gain_before,
+        rewrite_record(&app, &path, |gpx| {
+            let n = gpx_core::dem::apply_dem(gpx, |c| fetch(API, c))?;
+            if n == 0 {
+                return Err("Bu kaydın konumları için arazi yüksekliği bulunamadı".into());
+            }
+            Ok(())
         })
-    })
-    .await?
-}
-
-/// [`fix_elevation`]'ı geri alır.
-#[tauri::command]
-pub(crate) async fn undo_fix_elevation(
-    app: AppHandle,
-    path: String,
-    previous: String,
-) -> Result<LoadResult, String> {
-    run_blocking(move || {
-        let library = app.state::<Library>();
-        library.put_back(&path, &previous)?;
-        let cfg = app.state::<SettingsStore>().stats();
-        let chosen = app.state::<MetaStore>().activity(&path);
-        let result = library.load(path, &cfg, chosen);
-        let _ = library.flush_cache();
-        Ok(result)
     })
     .await?
 }

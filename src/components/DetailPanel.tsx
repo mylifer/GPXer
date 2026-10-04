@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import type { Detail, FileMeta, NamedPlace, Stats, Stop } from "../api";
+import type { Detail, FileMeta, FileSummary, NamedPlace, RewriteKind, Stats, Stop } from "../api";
 import { namedPlaceAt } from "../places";
 import { METRICS, PALETTE, placeLabel, type FileEntry } from "../types";
 import { MetaEditor } from "./MetaEditor";
@@ -22,12 +22,7 @@ import {
   tzOf,
 } from "../format";
 import { detailDays } from "../days";
-import {
-  ProfileChart,
-  canUseTime,
-  hasMetric,
-  metricValues,
-} from "./ProfileChart";
+import { ProfileChart, canUseTime, hasMetric, metricValues } from "./ProfileChart";
 
 const ALL_METRICS: Metric[] = ["ele", "speed", "hr", "cad", "power", "temp"];
 /** Hiçbir ölçü seçili değilse yükseklik gösterilir (sabit dizi: grafik boşuna yeniden kurulmasın). */
@@ -65,10 +60,10 @@ interface Props {
   onColor(c: string): void;
   onClose(): void;
   onZoom(): void;
-  /** Yükseklikleri arazi yüksekliğiyle düzelt; geri alınabiliyorsa geri al. */
-  onFixElevation(): void;
-  onUndoElevation?: () => void;
-  fixingElevation: boolean;
+  /** Kaydı yerinde düzelt (arazi yüksekliği / yola oturtma); geri alınabiliyorsa geri al. */
+  onRewrite(kind: RewriteKind): void;
+  onUndoRewrite?: () => void;
+  rewriting: RewriteKind | null;
   onExportGpx(): void;
   meta: FileMeta;
   allTags: string[];
@@ -107,12 +102,7 @@ function StopList({
   const total = stops.reduce((a, x) => a + x.durationMs, 0);
   return (
     <div className="stop-list">
-      <button
-        className="stat stat-btn"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        title="Duraklamaları listele"
-      >
+      <button className="stat stat-btn" onClick={() => setOpen((v) => !v)} aria-expanded={open} title="Duraklamaları listele">
         <span>
           Duraklama ({fmtNumber(stops.length)}) {open ? "▾" : "▸"}
         </span>
@@ -124,11 +114,7 @@ function StopList({
             const place = namedPlaceAt(st.lon, st.lat, places);
             return (
               <li key={st.start}>
-                <button
-                  className="link"
-                  onClick={() => onFocusPoint([st.lon, st.lat])}
-                  title="Haritada göster"
-                >
+                <button className="link" onClick={() => onFocusPoint([st.lon, st.lat])} title="Haritada göster">
                   <span className="stop-time">
                     {multiDay && `${fmtDate(st.start, tz).slice(0, 5)} `}
                     {fmtTime(st.start, tz).slice(0, 5)}
@@ -139,11 +125,7 @@ function StopList({
                 <button
                   className="icon-btn tiny"
                   onClick={() => onNamePlace(st.lon, st.lat, place)}
-                  title={
-                    place
-                      ? `“${place.name}” adını değiştir…`
-                      : "Bu yere ad ver…"
-                  }
+                  title={place ? `“${place.name}” adını değiştir…` : "Bu yere ad ver…"}
                   aria-label={place ? "Adı değiştir" : "Bu yere ad ver"}
                 >
                   ✎
@@ -153,10 +135,7 @@ function StopList({
           })}
           {stops.length > limit && (
             <li>
-              <button
-                className="link muted"
-                onClick={() => setLimit((l) => l + STOPS_PAGE)}
-              >
+              <button className="link muted" onClick={() => setLimit((l) => l + STOPS_PAGE)}>
                 … {fmtNumber(stops.length - limit)} duraklama daha
               </button>
             </li>
@@ -167,13 +146,7 @@ function StopList({
   );
 }
 
-function StatCards({
-  st,
-  children,
-}: {
-  st: Stats;
-  children?: React.ReactNode;
-}) {
+function StatCards({ st, children }: { st: Stats; children?: React.ReactNode }) {
   const cards: [string, string][] = [
     ["Mesafe", fmtDistance(st.distanceM)],
     ["Toplam süre", fmtDuration(st.durationMs)],
@@ -186,20 +159,10 @@ function StatCards({
     ["En düşük", fmtElevation(st.minEleM)],
     ["En yüksek", fmtElevation(st.maxEleM)],
   ];
-  if (st.avgHr != null)
-    cards.push(
-      ["Ort. nabız", fmtUnit(st.avgHr, "atım/dk")],
-      ["Maks. nabız", fmtUnit(st.maxHr, "atım/dk")],
-    );
-  if (st.avgCad != null)
-    cards.push(["Ort. kadans", fmtUnit(st.avgCad, "dev/dk")]);
-  if (st.avgPower != null)
-    cards.push(
-      ["Ort. güç", fmtUnit(st.avgPower, "W")],
-      ["Maks. güç", fmtUnit(st.maxPower, "W")],
-    );
-  if (st.avgTemp != null)
-    cards.push(["Ort. sıcaklık", fmtUnit(st.avgTemp, "°C", 1)]);
+  if (st.avgHr != null) cards.push(["Ort. nabız", fmtUnit(st.avgHr, "atım/dk")], ["Maks. nabız", fmtUnit(st.maxHr, "atım/dk")]);
+  if (st.avgCad != null) cards.push(["Ort. kadans", fmtUnit(st.avgCad, "dev/dk")]);
+  if (st.avgPower != null) cards.push(["Ort. güç", fmtUnit(st.avgPower, "W")], ["Maks. güç", fmtUnit(st.maxPower, "W")]);
+  if (st.avgTemp != null) cards.push(["Ort. sıcaklık", fmtUnit(st.avgTemp, "°C", 1)]);
   return (
     <div className="stat-grid">
       {cards.map(([k, v]) => (
@@ -213,13 +176,7 @@ function StatCards({
   );
 }
 
-function ColorPicker({
-  color,
-  onColor,
-}: {
-  color: string;
-  onColor(c: string): void;
-}) {
+function ColorPicker({ color, onColor }: { color: string; onColor(c: string): void }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="color-picker">
@@ -244,16 +201,18 @@ function ColorPicker({
               aria-label={c}
             />
           ))}
-          <input
-            type="color"
-            value={color}
-            onChange={(e) => onColor(e.target.value)}
-            title="Özel renk"
-          />
+          <input type="color" value={color} onChange={(e) => onColor(e.target.value)} title="Özel renk" />
         </div>
       )}
     </div>
   );
+}
+
+/** Noktaları seyrek kayıt (ortalama 40 m'den uzun adım): yola oturtma
+ * önerilir. Sık kayıtlar zaten yolu izliyor. */
+function isSparse(s: FileSummary): boolean {
+  const n = s.stats.pointCount;
+  return n >= 2 && s.stats.distanceM / (n - 1) > 40;
 }
 
 export function DetailPanel(p: Props) {
@@ -263,15 +222,11 @@ export function DetailPanel(p: Props) {
   const collapsed = s.collapsedPoints ?? 0;
   const tz = tzOf(s);
   const dragStart = useRef<{ y: number; h: number } | null>(null);
-  const available = useMemo(
-    () => (p.detail ? ALL_METRICS.filter((m) => hasMetric(p.detail!, m)) : []),
-    [p.detail],
-  );
+  const available = useMemo(() => (p.detail ? ALL_METRICS.filter((m) => hasMetric(p.detail!, m)) : []), [p.detail]);
   const timeOk = p.detail ? canUseTime(p.detail) : false;
   // Mesafesi olmayan kayıtta (koşu bandı, sabit nabız kaydı) mesafe ekseninde
   // tüm örnekler 0 km'ye yığılır: zaman ekseni kullanılır.
-  const distOk =
-    !p.detail || (p.detail.dist[p.detail.dist.length - 1] ?? 0) > 0 || !timeOk;
+  const distOk = !p.detail || (p.detail.dist[p.detail.dist.length - 1] ?? 0) > 0 || !timeOk;
   const axis = !timeOk ? "dist" : !distOk ? "time" : p.xAxis;
   const d = p.detail;
   const i = p.hoverIdx;
@@ -286,18 +241,14 @@ export function DetailPanel(p: Props) {
 
   // Birden çok güne yayılan kayıtta gün gün gezinme.
   const days = useMemo(() => (d ? detailDays(s, d) : []), [s, d]);
-  const dayIdx = p.range
-    ? days.findIndex((x) => x.start === p.range![0] && x.end === p.range![1])
-    : -1;
+  const dayIdx = p.range ? days.findIndex((x) => x.start === p.range![0] && x.end === p.range![1]) : -1;
   const goDay = (i: number) => {
     const x = days[i];
     p.onPickDay(x ? [x.start, x.end] : null);
   };
 
   const toggleMetric = (m: Metric) => {
-    const next = p.metrics.includes(m)
-      ? p.metrics.filter((x) => x !== m)
-      : [...p.metrics, m];
+    const next = p.metrics.includes(m) ? p.metrics.filter((x) => x !== m) : [...p.metrics, m];
     p.onMetrics(ALL_METRICS.filter((x) => next.includes(x)));
   };
 
@@ -308,12 +259,7 @@ export function DetailPanel(p: Props) {
   const onResizeMove = (e: React.PointerEvent) => {
     if (!dragStart.current) return;
     const max = Math.round(window.innerHeight * 0.75);
-    p.onResize(
-      Math.max(
-        200,
-        Math.min(max, dragStart.current.h + dragStart.current.y - e.clientY),
-      ),
-    );
+    p.onResize(Math.max(200, Math.min(max, dragStart.current.h + dragStart.current.y - e.clientY)));
   };
 
   return (
@@ -331,18 +277,13 @@ export function DetailPanel(p: Props) {
           <h2>{s.name || s.fileName}</h2>
           <div className="muted">
             {fmtDateTime(st.startTime, tz)}
-            {tz && ` (${tz})`} · {s.fileName} · {fmtBytes(s.fileSize)} ·{" "}
-            {fmtNumber(st.pointCount)} nokta
+            {tz && ` (${tz})`} · {s.fileName} · {fmtBytes(s.fileSize)} · {fmtNumber(st.pointCount)} nokta
             {st.segmentCount > 1 && ` · ${st.segmentCount} parça`}
             {s.waypoints.length > 0 && ` · ${s.waypoints.length} işaret`}
-            {s.removedPoints > 0 &&
-              ` · ${fmtNumber(s.removedPoints)} GPS sıçraması ayıklandı`}
-            {collapsed > 0 &&
-              ` · duraklamalarda ${fmtNumber(collapsed)} nokta sadeleştirildi`}
+            {s.removedPoints > 0 && ` · ${fmtNumber(s.removedPoints)} GPS sıçraması ayıklandı`}
+            {collapsed > 0 && ` · duraklamalarda ${fmtNumber(collapsed)} nokta sadeleştirildi`}
           </div>
-          {placeLabel(s) && (
-            <div className="muted place-line">{placeLabel(s)}</div>
-          )}
+          {placeLabel(s) && <div className="muted place-line">{placeLabel(s)}</div>}
           {p.overlaps.length > 0 && (
             <div className="overlap-line">
               <span>Bu kayıtla çakışan:</span>
@@ -350,86 +291,62 @@ export function DetailPanel(p: Props) {
                 <span key={o.path} className="overlap-item">
                   <span className="swatch" style={{ background: o.color }} />
                   {o.name} ({fmtDuration(o.ms)})
-                  <button
-                    className="btn tiny"
-                    onClick={() => p.onCompareWith(o.path)}
-                    title="İki kaydı karşılaştır"
-                  >
+                  <button className="btn tiny" onClick={() => p.onCompareWith(o.path)} title="İki kaydı karşılaştır">
                     Karşılaştır
                   </button>
                 </span>
               ))}
-              {p.overlaps.length > 3 && (
-                <span className="muted">+{p.overlaps.length - 3}</span>
-              )}
+              {p.overlaps.length > 3 && <span className="muted">+{p.overlaps.length - 3}</span>}
             </div>
           )}
         </div>
         {p.routeCount > 1 && (
-          <button
-            className="btn small"
-            onClick={p.onOpenRoute}
-            title="Aynı güzergâhtaki kayıtları karşılaştır"
-          >
+          <button className="btn small" onClick={p.onOpenRoute} title="Aynı güzergâhtaki kayıtları karşılaştır">
             ↻ Bu güzergâh: {p.routeCount} kez
           </button>
         )}
         <button className="btn small" onClick={p.onZoom}>
           Yakınlaştır
         </button>
-        {p.onUndoElevation ? (
-          <button
-            className="btn small"
-            onClick={p.onUndoElevation}
-            title="Kaydın önceki (GPS) yüksekliklerine dön"
-          >
-            ↶ Yüksekliği geri al
+        {p.onUndoRewrite ? (
+          <button className="btn small" onClick={p.onUndoRewrite} title="Kaydın düzeltmeden önceki haline dön">
+            ↶ Düzeltmeyi geri al
           </button>
         ) : (
-          <button
-            className="btn small"
-            onClick={p.onFixElevation}
-            disabled={p.fixingElevation}
-            title="Telefon GPS'inin gürültülü yüksekliğini arazi yüksekliğiyle (Copernicus DEM, 90 m) değiştirir; tırmanış gerçekçi olur. İnternet gerekir (Open-Meteo). Orijinal dosyanız değişmez; geri alınabilir."
-          >
-            {p.fixingElevation
-              ? "Yükseklikler alınıyor…"
-              : "⛰ Yüksekliği düzelt"}
-          </button>
+          <>
+            <button
+              className="btn small"
+              onClick={() => p.onRewrite("elevation")}
+              disabled={p.rewriting != null}
+              title="Telefon GPS'inin gürültülü yüksekliğini arazi yüksekliğiyle (Copernicus DEM, 90 m) değiştirir; tırmanış gerçekçi olur. İnternet gerekir (Open-Meteo). Orijinal dosyanız değişmez; geri alınabilir."
+            >
+              {p.rewriting === "elevation" ? "Yükseklikler alınıyor…" : "⛰ Yüksekliği düzelt"}
+            </button>
+            {isSparse(s) && (
+              <button
+                className="btn small"
+                onClick={() => p.onRewrite("snap")}
+                disabled={p.rewriting != null}
+                title="Seyrek noktalı kaydı (ör. Google konum geçmişi) yollara oturtur: noktalar arası düz çizgiler izlenen yol olur. İnternet gerekir (OpenStreetMap yönlendirme servisi). Orijinal dosyanız değişmez; geri alınabilir."
+              >
+                {p.rewriting === "snap" ? "Yola oturtuluyor…" : "🛣 Yola oturt"}
+              </button>
+            )}
+          </>
         )}
-        <button
-          className="btn small"
-          onClick={p.onExportGpx}
-          title="Farklı kaydet (GPX, KML, TCX, FIT) (Ctrl/⌘+S)"
-        >
+        <button className="btn small" onClick={p.onExportGpx} title="Farklı kaydet (GPX, KML, TCX, FIT) (Ctrl/⌘+S)">
           Farklı kaydet…
         </button>
         <button className="icon-btn" onClick={p.onClose} title="Kapat (Esc)">
           ×
         </button>
       </header>
-      <MetaEditor
-        summary={s}
-        meta={p.meta}
-        allTags={p.allTags}
-        onChange={p.onMeta}
-      />
+      <MetaEditor summary={s} meta={p.meta} allTags={p.allTags} onChange={p.onMeta} />
       <div className="detail-toolbar">
-        <div
-          className="chips"
-          role="group"
-          aria-label="Grafikte gösterilecekler"
-        >
+        <div className="chips" role="group" aria-label="Grafikte gösterilecekler">
           {ALL_METRICS.filter((m) => available.includes(m)).map((m) => (
-            <label
-              key={m}
-              className={`chip${p.metrics.includes(m) ? " on" : ""}`}
-            >
-              <input
-                type="checkbox"
-                checked={p.metrics.includes(m)}
-                onChange={() => toggleMetric(m)}
-              />
+            <label key={m} className={`chip${p.metrics.includes(m) ? " on" : ""}`}>
+              <input type="checkbox" checked={p.metrics.includes(m)} onChange={() => toggleMetric(m)} />
               {METRICS[m].label}
             </label>
           ))}
@@ -447,9 +364,7 @@ export function DetailPanel(p: Props) {
             </button>
             <select
               value={dayIdx < 0 ? "" : String(dayIdx)}
-              onChange={(e) =>
-                goDay(e.target.value === "" ? -1 : Number(e.target.value))
-              }
+              onChange={(e) => goDay(e.target.value === "" ? -1 : Number(e.target.value))}
               title="Kaydın bir gününü seç (grafikte ve haritada o gün seçilir)"
             >
               <option value="">Tüm kayıt · {fmtNumber(days.length)} gün</option>
@@ -471,30 +386,21 @@ export function DetailPanel(p: Props) {
           </div>
         )}
         <div className="segmented small" role="group" aria-label="Yatay eksen">
-          <button
-            className={axis === "dist" ? "active" : ""}
-            disabled={!distOk}
-            onClick={() => p.onXAxis("dist")}
-          >
+          <button className={axis === "dist" ? "active" : ""} disabled={!distOk} onClick={() => p.onXAxis("dist")}>
             Mesafe
           </button>
           <button
             className={axis === "time" ? "active" : ""}
             disabled={!timeOk}
             onClick={() => p.onXAxis("time")}
-            title={
-              timeOk ? undefined : "Bu kayıtta her noktada zaman bilgisi yok"
-            }
+            title={timeOk ? undefined : "Bu kayıtta her noktada zaman bilgisi yok"}
           >
             Zaman
           </button>
         </div>
         <label className="inline-select">
           İzi renklendir
-          <select
-            value={p.trackColorBy}
-            onChange={(e) => p.onTrackColorBy(e.target.value as TrackColorBy)}
-          >
+          <select value={p.trackColorBy} onChange={(e) => p.onTrackColorBy(e.target.value as TrackColorBy)}>
             <option value="none">Düz renk</option>
             {available.map((m) => (
               <option key={m} value={m}>
@@ -508,19 +414,11 @@ export function DetailPanel(p: Props) {
             className="btn small primary"
             onClick={p.onPlay}
             disabled={!d || d.lat.length < 2}
-            title={
-              d && d.lat.length < 2
-                ? "Oynatmak için en az iki nokta gerekir"
-                : "Oynat / duraklat (Boşluk)"
-            }
+            title={d && d.lat.length < 2 ? "Oynatmak için en az iki nokta gerekir" : "Oynat / duraklat (Boşluk)"}
           >
             {p.playing ? "❚❚ Duraklat" : "▶ Oynat"}
           </button>
-          <select
-            value={p.playSpeed}
-            onChange={(e) => p.onPlaySpeed(Number(e.target.value))}
-            title="Oynatma hızı"
-          >
+          <select value={p.playSpeed} onChange={(e) => p.onPlaySpeed(Number(e.target.value))} title="Oynatma hızı">
             {PLAY_SPEEDS.map((v) => (
               <option key={v} value={v}>
                 {v}×
@@ -528,11 +426,7 @@ export function DetailPanel(p: Props) {
             ))}
           </select>
           <label className="check">
-            <input
-              type="checkbox"
-              checked={p.follow}
-              onChange={(e) => p.onFollow(e.target.checked)}
-            />
+            <input type="checkbox" checked={p.follow} onChange={(e) => p.onFollow(e.target.checked)} />
             Takip et
           </label>
         </div>
@@ -540,18 +434,13 @@ export function DetailPanel(p: Props) {
 
       {p.range && (
         <div className="range-bar">
-          <strong>
-            {dayIdx >= 0 ? isoToTr(days[dayIdx].day) : "Seçili aralık"}
-          </strong>
+          <strong>{dayIdx >= 0 ? isoToTr(days[dayIdx].day) : "Seçili aralık"}</strong>
           {p.rangeStats ? (
             <span className="range-stats">
-              {fmtDistance(p.rangeStats.distanceM)} ·{" "}
-              {fmtDuration(p.rangeStats.durationMs)} ·{" "}
-              {fmtSpeed(p.rangeStats.avgMovingSpeedMs)} · ↗{" "}
-              {fmtElevation(p.rangeStats.elevationGainM)} · ↘{" "}
+              {fmtDistance(p.rangeStats.distanceM)} · {fmtDuration(p.rangeStats.durationMs)} ·{" "}
+              {fmtSpeed(p.rangeStats.avgMovingSpeedMs)} · ↗ {fmtElevation(p.rangeStats.elevationGainM)} · ↘{" "}
               {fmtElevation(p.rangeStats.elevationLossM)}
-              {p.rangeStats.avgHr != null &&
-                ` · ♥ ${fmtUnit(p.rangeStats.avgHr, "atım/dk")}`}
+              {p.rangeStats.avgHr != null && ` · ♥ ${fmtUnit(p.rangeStats.avgHr, "atım/dk")}`}
             </span>
           ) : (
             <span className="muted">hesaplanıyor…</span>
@@ -560,25 +449,13 @@ export function DetailPanel(p: Props) {
           <button className="btn small" onClick={p.onZoomRange}>
             Haritada göster
           </button>
-          <button
-            className="btn small"
-            onClick={p.onTrim}
-            title="Aralığı yeni kayıt olarak kaydet"
-          >
+          <button className="btn small" onClick={p.onTrim} title="Aralığı yeni kayıt olarak kaydet">
             Kırp
           </button>
-          <button
-            className="btn small"
-            onClick={p.onSplit}
-            title="Kaydı aralığın başından ikiye böl"
-          >
+          <button className="btn small" onClick={p.onSplit} title="Kaydı aralığın başından ikiye böl">
             Buradan böl
           </button>
-          <button
-            className="icon-btn"
-            onClick={() => p.onRange(null)}
-            title="Seçimi kaldır (çift tıklama)"
-          >
+          <button className="icon-btn" onClick={() => p.onRange(null)} title="Seçimi kaldır (çift tıklama)">
             ×
           </button>
         </div>
@@ -609,19 +486,14 @@ export function DetailPanel(p: Props) {
                   return (
                     <span key={m}>
                       {meta.label}:{" "}
-                      <strong>
-                        {m === "speed"
-                          ? fmtKmh(v)
-                          : fmtUnit(v, meta.unit, meta.digits)}
-                      </strong>
+                      <strong>{m === "speed" ? fmtKmh(v) : fmtUnit(v, meta.unit, meta.digits)}</strong>
                     </span>
                   );
                 })}
               </>
             ) : (
               <span className="muted">
-                Grafikte ya da haritada iz üzerinde gezinin. Aralık seçmek için
-                grafikte sürükleyin.
+                Grafikte ya da haritada iz üzerinde gezinin. Aralık seçmek için grafikte sürükleyin.
               </span>
             )}
           </div>

@@ -8,7 +8,9 @@ mod menu;
 mod meta;
 mod photos;
 mod places;
+mod rewrite;
 mod settings;
+mod snap;
 mod store;
 
 use gpx_core::{Detail, Stats};
@@ -419,7 +421,8 @@ pub fn run() {
             backup::backup_library,
             backup::restore_library,
             dem::fix_elevation,
-            dem::undo_fix_elevation,
+            rewrite::undo_rewrite,
+            snap::snap_to_roads,
             take_pending_paths,
             library_files,
             remove_files,

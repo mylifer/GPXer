@@ -15,6 +15,7 @@ pub mod ops;
 pub mod parse;
 mod segments;
 pub mod simplify;
+pub mod snap;
 pub mod stats;
 mod types;
 pub mod write;

@@ -1633,3 +1633,56 @@ fn dem_replaces_and_interpolates_elevation() {
         s.elevation_gain_m
     );
 }
+
+#[test]
+fn snap_fills_road_between_sparse_points() {
+    // 250 seyrek nokta (her biri 1 dk arayla); "servis" her noktayı 0.0001°
+    // kuzeye kaydırır ve aradaki yola iki ara nokta koyar.
+    let seg: Vec<Point> = (0..250)
+        .map(|k| Point {
+            ele: Some(k as f32),
+            ..pt(41.0, 29.0 + k as f64 * 0.01, k * 60)
+        })
+        .collect();
+    let mut gpx = parse::Gpx {
+        tracks: vec![parse::Track {
+            name: None,
+            segments: vec![seg],
+        }],
+        ..Default::default()
+    };
+    let mut calls = Vec::new();
+    let n = snap::snap_to_roads::<()>(&mut gpx, |input| {
+        calls.push(input.len());
+        let snapped: Vec<_> = input
+            .iter()
+            .map(|&(la, lo, _)| Some((la + 0.0001, lo)))
+            .collect();
+        let legs = input
+            .windows(2)
+            .map(|w| {
+                let (a, b) = (w[0], w[1]);
+                Some(vec![
+                    (a.0 + 0.0001, a.1),
+                    (a.0 + 0.0011, a.1 + (b.1 - a.1) / 3.0),
+                    (a.0 + 0.0011, a.1 + 2.0 * (b.1 - a.1) / 3.0),
+                    (b.0 + 0.0001, b.1),
+                ])
+            })
+            .collect();
+        Ok(snap::Matched { snapped, legs })
+    })
+    .unwrap();
+    assert_eq!(calls, vec![100, 100, 52]);
+    assert_eq!(n, 250);
+    let pts = &gpx.tracks[0].segments[0];
+    // 250 asıl nokta + 249 arada iki nokta.
+    assert_eq!(pts.len(), 250 + 249 * 2);
+    assert!(pts.windows(2).all(|w| w[0].time < w[1].time));
+    assert!((pts[0].lat - 41.0001).abs() < 1e-9);
+    // İlk ara noktanın zamanı ve yüksekliği yol boyunca dağıtıldı.
+    let t = pts[1].time.unwrap();
+    assert!(t > 0 && t < 60_000, "{t}");
+    assert!(pts[1].ele.unwrap() > 0.0 && pts[1].ele.unwrap() < 1.0);
+    assert!(snap::median_step_m(&gpx).unwrap() < 400.0);
+}
