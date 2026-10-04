@@ -131,6 +131,22 @@ ile yazılmıştır.
   değişince kayıtlar yeniden hesaplanırken eski liste görünür kalır ve
   ilerleme haritada gösterilir.
 
+**Planlama, analiz ve paylaşım**
+- Gezilen iller/ülkeler (Katmanlar), keşif kareleri, konaklama yerleri, günlük
+  zaman çizelgesi (*📅 Gün akışı*), hava durumu geçmişi (ayrıntı paneli).
+- Rota planlama (*Katmanlar → 🧭 Rota planla*), plan-gerçek karşılaştırma (plan
+  ile kayıt karşılaştırıldığında), A→B güzergâh arama (sağ tık → *Buradan (A)* /
+  *Buraya (B)*).
+- Özet penceresinde yıllık hedefler, sürüş alışkanlıkları, yer bazlı
+  istatistik, yılları karşılaştırma; yakıt ve maliyet (Ayarlar'dan tüketim/fiyat).
+- Haritada nokta düzenleme (taşı, aralık sil, geri al), yer imleri, özel
+  harita katmanları (XYZ adresi), 3B arazi, çevrimdışı harita önbelleği.
+- Yolculuk videosu, HTML gezi hikâyesi, fotoğraflardan iz oluşturma,
+  Strava/Garmin/Takeout zip içe aktarma, izlenen klasör bildirimi.
+- Gizlilik bölgeleri (adlandırılmış yer → *Gizli*): dışa aktarma, PNG, video ve
+  kartlarda o çevredeki noktalar çıkarılır. Yedekler parolayla şifrelenebilir.
+- Komut paleti (Ctrl/⌘+K) ve İngilizce arayüz (Ayarlar → Dil).
+
 **Açma yolları ve klavye**
 - Sürükle-bırak, *Dosya Aç…* (Ctrl/⌘+O), *Klasör Aç…* (Ctrl/⌘+Shift+O),
   `.gpx`, `.fit`, `.tcx`, `.kml` dosyalarına çift tıklama.
