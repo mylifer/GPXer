@@ -13,6 +13,8 @@ export function PhotoControl(p: {
   onOffset(h: number): void;
   onAdd(folder: boolean): void;
   onClear(): void;
+  /** GPS'li fotoğraflardan iz (yeni kayıt) oluşturur. */
+  onTrack(): void;
 }) {
   const [menu, setMenu] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -77,6 +79,18 @@ export function PhotoControl(p: {
           >
             Klasör…
           </button>
+          {has && (
+            <button
+              role="menuitem"
+              title="Konum bilgisi olan fotoğrafları çekim sırasıyla birleştirip yolculuk kaydı oluştur (24 saatten uzun aralarda ayrı kayıt)"
+              onClick={() => {
+                setMenu(false);
+                p.onTrack();
+              }}
+            >
+              Fotoğraflardan iz oluştur
+            </button>
+          )}
           {has && (
             <button
               role="menuitem"

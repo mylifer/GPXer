@@ -22,6 +22,7 @@ export function MapToolbar({
   placedPhotos,
   pickPhotos,
   clearPhotos,
+  photoTrack,
 }: {
   prefs: Prefs;
   up(patch: Partial<Prefs>): void;
@@ -36,6 +37,7 @@ export function MapToolbar({
   placedPhotos: { placed: unknown[]; unplaced: number };
   pickPhotos(folder: boolean): void;
   clearPhotos(): void;
+  photoTrack(): void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Dar pencerede çubuk birkaç satıra iner; bildirimler (`.toasts`) altında
@@ -183,6 +185,7 @@ export function MapToolbar({
         onOffset={(photoOffsetH) => up({ photoOffsetH })}
         onAdd={pickPhotos}
         onClear={clearPhotos}
+        onTrack={photoTrack}
       />
     </div>
   );

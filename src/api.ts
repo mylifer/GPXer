@@ -211,6 +211,10 @@ export const deletePoints = (path: string, start: number, end: number) =>
 export const movePoint = (path: string, index: number, lat: number, lon: number) =>
   invoke<RewriteResult>("move_point", { path, index, lat, lon });
 export const undoRewrite = (path: string, previous: string) => invoke<LoadResult>("undo_rewrite", { path, previous });
+/** Arayüzde oluşturulan GPX metnini yeni kayıt olarak ekler. */
+export const addGpxRecord = (name: string, gpx: string) => invoke<LoadResult>("add_gpx_record", { name, gpx });
+/** Konumun IANA saat dilimi. */
+export const timeZoneAt = (lon: number, lat: number) => invoke<string | null>("time_zone_at", { lon, lat });
 /** Hesap dışa aktarma arşivini (Strava, Garmin Connect, Google Takeout zip) içe aktarır. */
 export const importArchive = (src: string) =>
   invoke<{ results: LoadResult[]; source: string; typed: number }>("import_archive", { src });

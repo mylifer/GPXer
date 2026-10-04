@@ -14,6 +14,8 @@ import {
   type RewriteResult,
   writeBase64File,
   writeTextFile,
+  addGpxRecord,
+  timeZoneAt,
   photoThumb,
   type LoadResult,
   type RewriteKind,
@@ -43,7 +45,8 @@ import { MapToolbar } from "./components/MapToolbar";
 import { MapLegends } from "./components/MapLegends";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
-import { fmtBytes, fmtDistance, fmtElevation, fmtNumber, isoOf, tzOf } from "./format";
+import { fmtBytes, fmtDistance, fmtElevation, fmtNumber, isoOf, isoToTr, tzOf } from "./format";
+import { photoTrips, tripGpx } from "./photos";
 import { createIdxStore } from "./lib/idxStore";
 import type { Dialog } from "./hooks/dialog";
 import { useBaseLayer, usePrefs } from "./hooks/usePrefs";
@@ -163,7 +166,7 @@ export default function App() {
   /** Aynı yolculuğun kopyaları (tüm kütüphanede). */
   const duplicateGroups = useMemo(() => findDuplicates(files.map((f) => f.summary)), [files]);
   const fileMap = useMemo(() => new Map(files.map((f) => [f.summary.path, f])), [files]);
-  const { setPhotoInfo, placedPhotos, mapPhotos, pickPhotos, clearPhotos, addPhotosRef } = usePhotos({
+  const { photoInfo, setPhotoInfo, placedPhotos, mapPhotos, pickPhotos, clearPhotos, addPhotosRef } = usePhotos({
     prefs,
     prefsRef,
     up,
@@ -301,6 +304,36 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [editMode, editIdx, detail, selected, editPoints]);
+  // ---------- Fotoğraflardan iz ----------
+  const makePhotoTracks = useCallback(async () => {
+    try {
+      // Dilimsiz EXIF saatleri için konumların saat dilimi (yaklaşık 50 km'lik hücrelerde bir kez).
+      const zones = new Map<string, string | null>();
+      const cell = (lat: number, lon: number) => `${Math.round(lat * 2)}:${Math.round(lon * 2)}`;
+      for (const p of photoInfo) {
+        if (!p.timeIsLocal || p.lat == null || p.lon == null) continue;
+        const k = cell(p.lat, p.lon);
+        if (!zones.has(k)) zones.set(k, await timeZoneAt(p.lon, p.lat).catch(() => null));
+      }
+      const trips = photoTrips(photoInfo, (lat, lon) => zones.get(cell(lat, lon)) ?? null, prefs.photoOffsetH);
+      if (!trips.length) {
+        say("Konumu ve çekim zamanı olan en az iki fotoğraf gerekli.");
+        return;
+      }
+      const results = [];
+      for (const t of trips) {
+        const d0 = isoOf(new Date(t[0].t));
+        const d1 = isoOf(new Date(t[t.length - 1].t));
+        const name = `Fotoğraflardan iz ${d0 === d1 ? isoToTr(d0) : `${isoToTr(d0)} – ${isoToTr(d1)}`}`;
+        results.push(await addGpxRecord(name, tripGpx(t, name)));
+      }
+      const added = addResults(results);
+      say(`Fotoğraflardan ${fmtNumber(added.length)} yolculuk kaydı oluşturuldu.`);
+      if (added.length) mapRef.current?.fitFiles(added);
+    } catch (e) {
+      fail(`Fotoğraflardan iz oluşturulamadı: ${e}`);
+    }
+  }, [photoInfo, prefs.photoOffsetH, addResults, say, fail]);
   // ---------- Gezi hikâyesi (tek sayfalık HTML) ----------
   const makeStory = useCallback(async () => {
     const entry = selectedEntry;
@@ -602,6 +635,7 @@ export default function App() {
             placedPhotos={placedPhotos}
             pickPhotos={pickPhotos}
             clearPhotos={clearPhotos}
+            photoTrack={makePhotoTracks}
           />
 
           <MapLegends

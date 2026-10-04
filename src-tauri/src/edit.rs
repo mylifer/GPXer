@@ -117,3 +117,23 @@ pub(crate) async fn merge_files(
     })
     .await?
 }
+
+/// Arayüzün oluşturduğu GPX metnini (ör. fotoğraflardan iz) yeni kayıt olarak ekler.
+#[tauri::command]
+pub(crate) async fn add_gpx_record(
+    app: AppHandle,
+    name: String,
+    gpx: String,
+) -> Result<LoadResult, String> {
+    run_blocking(move || {
+        let parsed = gpx_core::parse::parse_gpx(gpx.as_bytes()).map_err(|e| e.to_string())?;
+        Ok(store_new(&app, &parsed, &name, &FileMeta::default()))
+    })
+    .await?
+}
+
+/// Konumun saat dilimi (IANA adı); EXIF'teki dilimsiz saatleri çevirmek için.
+#[tauri::command]
+pub(crate) fn time_zone_at(lon: f64, lat: f64) -> Option<String> {
+    crate::geo::time_zone_at(lon, lat)
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PhotoInfo } from "./api";
-import { placePhotos } from "./photos";
+import { photoTrips, placePhotos, tripGpx } from "./photos";
 import { straightLine, summary } from "./testing";
 
 const H = 3_600_000;
@@ -55,5 +55,33 @@ describe("placePhotos", () => {
     const { placed, unplaced } = placePhotos([gps, late, none], [record], 0);
     expect(placed).toEqual([{ ...gps, lat: 40, lon: 28, at: START, record: "/k/ist.gpx", fromTrack: false }]);
     expect(unplaced).toBe(2);
+  });
+});
+
+describe("photoTrips", () => {
+  it("orders photos, converts local times and splits trips", () => {
+    const H = 3_600_000;
+    const ph = (name: string, t: number, local = false, lat: number | null = 41) =>
+      ({ path: name, name, time: t, timeIsLocal: local, lat, lon: 29, thumb: null }) as PhotoInfo;
+    const t0 = Date.UTC(2023, 4, 1, 9);
+    const trips = photoTrips(
+      [
+        ph("b", t0 + H),
+        // Yerel 12:00 (İstanbul, UTC+3) = 09:00 UTC → ilk sırada.
+        ph("a", Date.UTC(2023, 4, 1, 12) - 60_000, true),
+        ph("konumsuz", t0, false, null),
+        ph("c", t0 + 3 * 24 * H),
+        ph("d", t0 + 3 * 24 * H + H),
+      ],
+      () => "Europe/Istanbul",
+    );
+    expect(trips.map((t) => t.map((p) => p.name))).toEqual([
+      ["a", "b"],
+      ["c", "d"],
+    ]);
+    expect(trips[0][0].t).toBe(t0 - 60_000);
+    const gpx = tripGpx(trips[0], "Deneme & iz");
+    expect(gpx).toContain("<trkpt");
+    expect(gpx).toContain("Deneme &#38; iz");
   });
 });

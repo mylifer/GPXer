@@ -432,6 +432,8 @@ pub fn run() {
             snap::snap_to_roads,
             links::open_street_view,
             archive::import_archive,
+            edit::add_gpx_record,
+            edit::time_zone_at,
             weather::weather_at,
             take_pending_paths,
             library_files,

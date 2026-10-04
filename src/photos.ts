@@ -153,3 +153,45 @@ export function placePhotos(
   }
   return { placed, unplaced };
 }
+
+/** Fotoğraflardan iz: GPS konumu ve zamanı olan fotoğraflar zamana göre
+ * dizilir; 24 saatten uzun aralarda ayrı yolculuklara bölünür (en az iki
+ * fotoğraflı olanlar). `tzAt` dilimsiz EXIF saatlerini çevirmek için. */
+export function photoTrips(
+  photos: PhotoInfo[],
+  tzAt: (lat: number, lon: number) => string | null,
+  offsetH = 0,
+): { lat: number; lon: number; t: number; name: string }[][] {
+  const pts = photos
+    .filter((p) => p.lat != null && p.lon != null && p.time != null)
+    .map((p) => ({
+      lat: p.lat!,
+      lon: p.lon!,
+      name: p.name,
+      t: (p.timeIsLocal ? wallToUtc(p.time!, tzAt(p.lat!, p.lon!)) : p.time!) - offsetH * 3_600_000,
+    }))
+    .sort((a, b) => a.t - b.t);
+  const trips: (typeof pts)[] = [];
+  for (const p of pts) {
+    const cur = trips[trips.length - 1];
+    if (cur && p.t - cur[cur.length - 1].t <= 24 * 3_600_000) cur.push(p);
+    else trips.push([p]);
+  }
+  return trips.filter((t) => t.length >= 2);
+}
+
+const xmlEsc = (s: string) => s.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+/** Yolculuğu GPX metnine çevirir (iz + her fotoğraf için işaret noktası). */
+export function tripGpx(trip: { lat: number; lon: number; t: number; name: string }[], name: string): string {
+  const iso = (t: number) => new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const pt = (p: (typeof trip)[number]) => `lat="${p.lat.toFixed(7)}" lon="${p.lon.toFixed(7)}"`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="GPXer" xmlns="http://www.topografix.com/GPX/1/1">
+<metadata><name>${xmlEsc(name)}</name></metadata>
+${trip.map((p) => `<wpt ${pt(p)}><time>${iso(p.t)}</time><name>${xmlEsc(p.name)}</name></wpt>`).join("\n")}
+<trk><name>${xmlEsc(name)}</name><trkseg>
+${trip.map((p) => `<trkpt ${pt(p)}><time>${iso(p.t)}</time></trkpt>`).join("\n")}
+</trkseg></trk>
+</gpx>`;
+}
