@@ -57,6 +57,8 @@ export interface MapViewProps {
   /** Fotoğrafın eşleştiği kaydın özeti (ad ve saat dilimi için). */
   summaryOf(path: string): FileSummary | undefined;
   onPhotoRecord(path: string): void;
+  /** Kısa bilgi iletisi (ör. koordinat kopyalandı). */
+  onInfo(msg: string): void;
 }
 
 /** MapView'in harita, bilgi kutusu ve fare durumu için paylaştığı ref'ler;

@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 // MapLibre worker'ı kendi yanında arar; bu Vite paketinde ve tauri:// adresinde
@@ -12,6 +12,7 @@ import type { MapRefs, MapViewProps } from "../map/context";
 import { installInteractions } from "../map/interactions";
 import { useAreaSelect, useBaseLayerSwitch, useDetailLayers, useTrackLayers } from "../map/useMapLayers";
 import { usePhotoMarkers } from "../map/usePhotoMarkers";
+import { MapContextMenu } from "../map/MapContextMenu";
 
 export { BASE_LAYERS, type BaseLayer } from "../map/style";
 export { metricDomain } from "../map/geojson";
@@ -30,6 +31,7 @@ export interface MapHandle {
 export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(props, ref) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const [mapObj, setMapObj] = useState<maplibregl.Map | null>(null);
   const readyRef = useRef(false);
   /** Harita yüklenmeden önce gelen güncellemeler. */
   const pendingRef = useRef<((map: maplibregl.Map) => void)[]>([]);
@@ -149,6 +151,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
       attributionControl: { compact: true },
     });
     mapRef.current = map;
+    setMapObj(map);
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-right");
     map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
     map.on("moveend", () => {
@@ -177,6 +180,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
       moveEvent.current = null;
       map.remove();
       mapRef.current = null;
+      setMapObj(null);
       readyRef.current = false;
       pendingRef.current = [];
     };
@@ -197,6 +201,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
     <>
       <div ref={container} className="map" />
       <div ref={box} className="area-box" />
+      <MapContextMenu map={mapObj} onInfo={(m) => live.current.onInfo(m)} />
     </>
   );
 });

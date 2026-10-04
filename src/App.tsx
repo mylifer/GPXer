@@ -436,6 +436,7 @@ export default function App() {
         <div className="map-wrap">
           <HoverMapView
             ref={mapRef}
+            onInfo={say}
             files={onMap}
             selected={selected}
             detail={detail}

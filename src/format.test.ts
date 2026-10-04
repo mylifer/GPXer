@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayKey, fastDayKey, fmtDistance, fmtPace, parseTrWall, searchKey, wallToUtc } from "./format";
+import { dayKey, fastDayKey, fmtDistance, fmtLatLon, fmtLatLonDms, fmtPace, parseTrWall, searchKey, wallToUtc } from "./format";
 
 const wall = (y: number, mo: number, d: number, h = 0, mi = 0) => Date.UTC(y, mo - 1, d, h, mi);
 const H = 3_600_000;
@@ -91,5 +91,14 @@ describe("dayRangeTr", () => {
     expect(dayRangeTr("2023-12-10", "2023-12-14")).toBe("10–14.12");
     expect(dayRangeTr("2023-11-28", "2023-12-03")).toBe("28.11–3.12");
     expect(dayRangeTr("2023-12-30", "2024-01-02")).toBe("30.12.23–2.01.24");
+  });
+});
+
+describe("fmtLatLon", () => {
+  it("formats decimal and DMS coordinates", () => {
+    expect(fmtLatLon(41.0123456, 28.9765432)).toBe("41.012346, 28.976543");
+    expect(fmtLatLonDms(41.0123456, 28.9765432)).toBe(`41°00'44.4"N 28°58'35.6"E`);
+    expect(fmtLatLonDms(-33.8688, -151.2093)).toBe(`33°52'07.7"S 151°12'33.5"W`);
+    expect(fmtLatLonDms(10.99999999, 0)).toBe(`11°00'00.0"N 0°00'00.0"E`);
   });
 });

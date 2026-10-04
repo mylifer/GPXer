@@ -277,3 +277,22 @@ export function parseTrWall(date: string, time: string): number | null {
   const [y, mo, d] = iso.split("-").map(Number);
   return Date.UTC(y, mo - 1, d, h, mi);
 }
+
+/** Koordinat, ondalık derece "41.012345, 28.976543" (Google Haritalar ve
+ * çoğu uygulama bu biçimi doğrudan arar). */
+export function fmtLatLon(lat: number, lon: number): string {
+  return `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+}
+
+/** Koordinat, derece-dakika-saniye: 41°00'44.4"N 28°58'35.6"E. */
+export function fmtLatLonDms(lat: number, lon: number): string {
+  const part = (v: number, pos: string, neg: string) => {
+    // Saniye 60,0'a yuvarlanmasın: önce onda bir saniyeye yuvarlanır.
+    const tenths = Math.round(Math.abs(v) * 36000);
+    const d = Math.floor(tenths / 36000);
+    const m = Math.floor((tenths % 36000) / 600);
+    const s = (tenths % 600) / 10;
+    return `${d}°${String(m).padStart(2, "0")}'${s.toFixed(1).padStart(4, "0")}"${v < 0 ? neg : pos}`;
+  };
+  return `${part(lat, "N", "S")} ${part(lon, "E", "W")}`;
+}
