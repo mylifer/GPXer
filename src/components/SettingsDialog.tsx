@@ -332,7 +332,8 @@ export function SettingsDialog({
         <fieldset>
           <legend>Yedekleme</legend>
           <small>
-            Kayıtlar, etiketler, notlar, türler ve adlandırdığınız yerler tek bir .zip dosyasına yedeklenir; başka bir
+            Kayıtlar, etiketler, notlar, türler, adlandırdığınız yerler ve yer imleri tek bir .zip dosyasına (isteğe bağlı
+            parolayla, AES-256) yedeklenir; başka bir
             bilgisayarda (Mac ↔ Windows) geri yüklenebilir. Geri yüklemede kütüphanede zaten olan kayıtlar atlanır, bilgiler
             mevcut olanlarla birleştirilir. Ayarlar (izlenen klasörler) yedeklenmez.
           </small>

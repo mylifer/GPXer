@@ -12,6 +12,7 @@ import {
   deletePoints,
   movePoint,
   type RewriteResult,
+  NEED_PASSWORD,
   type Bookmark,
   writeBase64File,
   writeTextFile,
@@ -42,6 +43,7 @@ import { RouteSearchDialog } from "./components/RouteSearchDialog";
 import { BookmarkEditor, BookmarkList } from "./components/BookmarkDialogs";
 import { useBookmarks } from "./hooks/useBookmarks";
 import { PlanPanel, type PlanState } from "./components/PlanPanel";
+import { PasswordModal, type PasswordAsk } from "./components/PasswordModal";
 import { explorerGeoJSON, explorerStats } from "./explorer";
 import { inZone, privacyZones } from "./privacy";
 import { blobToBase64 } from "./lib/blob";
@@ -415,25 +417,52 @@ export default function App() {
     },
     [say, fail],
   );
+  const [pwAsk, setPwAsk] = useState<PasswordAsk | null>(null);
+  const askPassword = useCallback(
+    (a: Omit<PasswordAsk, "resolve">) => new Promise<string | null>((resolve) => setPwAsk({ ...a, resolve })),
+    [],
+  );
   const backup = useCallback(async () => {
     try {
+      const pw = await askPassword({
+        title: "Yedek parolası",
+        message:
+          "İsterseniz yedeği parolayla şifreleyin (AES-256): parolasız açılamaz. Parolayı unutursanız yedek kurtarılamaz. Şifresiz yedek için boş bırakın.",
+        create: true,
+      });
+      if (pw == null) return;
       const day = new Date().toISOString().slice(0, 10);
       const dest = await pickSavePath(`GPXer-yedek-${day}.zip`, [{ name: "GPXer yedeği", extensions: ["zip"] }]);
       if (!dest) return;
       const path = /\.zip$/i.test(dest) ? dest : `${dest}.zip`;
-      const r = await backupLibrary(path).catch(() => backupLibrary(dest));
-      say(`${fmtNumber(r.records)} kayıt yedeklendi (${fmtBytes(r.bytes)}).`);
+      const r = await backupLibrary(path, pw || null).catch(() => backupLibrary(dest, pw || null));
+      say(`${fmtNumber(r.records)} kayıt ${pw ? "parolayla şifrelenerek " : ""}yedeklendi (${fmtBytes(r.bytes)}).`);
     } catch (e) {
       fail(String(e));
     }
-  }, [say, fail]);
+  }, [say, fail, askPassword]);
   const restore = useCallback(async () => {
     try {
       const src = await open({ multiple: false, filters: [{ name: "GPXer yedeği", extensions: ["zip"] }] });
       if (typeof src !== "string") return;
       setDialog(null);
       say("Yedek geri yükleniyor…");
-      const r = await restoreLibrary(src);
+      // Şifreli yedekte parola sorulur; yanlışsa yeniden.
+      let r: Awaited<ReturnType<typeof restoreLibrary>> | null = null;
+      let pw: string | null = null;
+      let error: string | undefined;
+      for (;;) {
+        try {
+          r = await restoreLibrary(src, pw);
+          break;
+        } catch (e) {
+          const msg = String(e);
+          if (msg !== NEED_PASSWORD && msg !== "Parola yanlış") throw e;
+          if (msg === "Parola yanlış") error = "Parola yanlış; yeniden deneyin.";
+          pw = await askPassword({ title: "Yedek parolası", message: "Bu yedek parolayla şifrelenmiş.", create: false, error });
+          if (pw == null) return;
+        }
+      }
       const added = addResults(r.results);
       const dup = r.results.filter((x) => x.status === "duplicate").length;
       await refreshMeta();
@@ -968,6 +997,7 @@ ${pts}
           }}
         />
       )}
+      {pwAsk && <PasswordModal ask={pwAsk} onDone={() => setPwAsk(null)} />}
       {editMark && (
         <BookmarkEditor
           mark={editMark.mark}

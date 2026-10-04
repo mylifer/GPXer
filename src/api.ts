@@ -192,9 +192,13 @@ export interface RestoreInfo {
   placesAdded: number;
 }
 /** Kütüphaneyi kaydetme penceresinde seçilen .zip dosyasına yedekler. */
-export const backupLibrary = (dest: string) => invoke<{ records: number; bytes: number }>("backup_library", { dest });
+export const backupLibrary = (dest: string, password: string | null = null) =>
+  invoke<{ records: number; bytes: number }>("backup_library", { dest, password });
 /** Yedekten geri yükler: kayıtlar açma yolundan geçer (kopyalar atlanır). */
-export const restoreLibrary = (src: string) => invoke<RestoreInfo>("restore_library", { src });
+export const restoreLibrary = (src: string, password: string | null = null) =>
+  invoke<RestoreInfo>("restore_library", { src, password });
+/** Şifreli yedek parolasız açılmaya çalışıldı. */
+export const NEED_PASSWORD = "PAROLA_GEREKLI";
 /** Kaydı yerinde değiştiren işlemlerin sonucu: yeni özet, geri almak için
  * saklanan önceki hal ve önceki istatistikler. */
 export type RewriteKind = "elevation" | "snap";

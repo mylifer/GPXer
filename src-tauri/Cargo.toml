@@ -29,6 +29,6 @@ reverse_geocoder = "4"
 notify-debouncer-mini = "0.7"
 base64 = "0.22"
 kamadak-exif = "0.6"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "2", default-features = false, features = ["deflate", "aes-crypto"] }
 flate2 = "1"
 ureq = { version = "2", default-features = false, features = ["tls"] }

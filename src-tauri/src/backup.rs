@@ -26,7 +26,13 @@ struct Manifest {
     version: String,
     created: i64,
     records: usize,
+    /// İçerik parolayla (AES-256) şifreli; bildirim dosyası açık kalır.
+    #[serde(default)]
+    encrypted: bool,
 }
+
+/// Arayüzün parola sorması için ayırt edici hata.
+pub(crate) const NEED_PASSWORD: &str = "PAROLA_GEREKLI";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,7 +57,11 @@ fn now_ms() -> i64 {
 
 /// Kütüphaneyi kaydetme penceresinde seçilen zip dosyasına yedekler.
 #[tauri::command]
-pub(crate) async fn backup_library(app: AppHandle, dest: String) -> Result<BackupInfo, String> {
+pub(crate) async fn backup_library(
+    app: AppHandle,
+    dest: String,
+    password: Option<String>,
+) -> Result<BackupInfo, String> {
     run_blocking(move || {
         export::take_approved(&app, &dest)?;
         write_backup(
@@ -60,6 +70,7 @@ pub(crate) async fn backup_library(app: AppHandle, dest: String) -> Result<Backu
             &app.state::<MetaStore>().all(),
             &app.state::<PlacesStore>().all(),
             &app.state::<BookmarkStore>().all(),
+            password.as_deref().filter(|p| !p.is_empty()),
         )
         .map_err(|e| format!("Yedek yazılamadı: {e}"))
     })
@@ -72,14 +83,19 @@ fn write_backup(
     meta: &HashMap<String, FileMeta>,
     places: &[NamedPlace],
     bookmarks: &[Bookmark],
+    password: Option<&str>,
 ) -> std::io::Result<BackupInfo> {
     use zip::write::SimpleFileOptions;
     // Yarım yedek kalmasın: geçici dosyaya yazılıp yerine taşınır.
     let tmp = dest.with_extension("zip.tmp");
     let res = (|| {
         let mut zip = zip::ZipWriter::new(std::fs::File::create(&tmp)?);
-        let opts =
+        let plain =
             SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let opts = match password {
+            Some(pw) => plain.with_aes_encryption(zip::AesMode::Aes256, pw),
+            None => plain,
+        };
         let mut by_name: HashMap<String, &FileMeta> = HashMap::new();
         for f in files {
             let p = Path::new(f);
@@ -103,8 +119,9 @@ fn write_backup(
             version: env!("CARGO_PKG_VERSION").into(),
             created: now_ms(),
             records: files.len(),
+            encrypted: password.is_some(),
         };
-        zip.start_file(MANIFEST_FILE, opts)?;
+        zip.start_file(MANIFEST_FILE, plain)?;
         zip.write_all(&serde_json::to_vec_pretty(&manifest).map_err(std::io::Error::other)?)?;
         zip.finish()?.sync_all()
     })();
@@ -122,11 +139,15 @@ fn write_backup(
 /// Yedekten geri yükler. Kayıtlar kütüphaneye eklenir (zaten olanlar kopya
 /// sayılır), bilgiler ve yerler mevcut olanlarla birleştirilir.
 #[tauri::command]
-pub(crate) async fn restore_library(app: AppHandle, src: String) -> Result<RestoreInfo, String> {
+pub(crate) async fn restore_library(
+    app: AppHandle,
+    src: String,
+    password: Option<String>,
+) -> Result<RestoreInfo, String> {
     run_blocking(move || {
         let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let tmp = root.join(format!("geri-yukleme-{}", now_ms()));
-        let res = restore_into(&app, Path::new(&src), &tmp);
+        let res = restore_into(&app, Path::new(&src), &tmp, password.as_deref());
         let _ = std::fs::remove_dir_all(&tmp);
         res
     })
@@ -141,21 +162,50 @@ struct Extracted {
 }
 
 /// Yedeği `tmp` klasörüne açar; (geçici yol, yedekteki ad) çiftleri döner.
-fn extract(src: &Path, tmp: &Path) -> Result<Extracted, String> {
+fn extract(src: &Path, tmp: &Path, password: Option<&str>) -> Result<Extracted, String> {
     let file = std::fs::File::open(src).map_err(|e| format!("Yedek açılamadı: {e}"))?;
     let mut zip =
         zip::ZipArchive::new(file).map_err(|_| "Bu dosya bir GPXer yedeği değil".to_string())?;
+    let manifest: Manifest = {
+        let mut b = Vec::new();
+        zip.by_name(MANIFEST_FILE)
+            .ok()
+            .and_then(|mut f| f.read_to_end(&mut b).ok())
+            .and_then(|_| serde_json::from_slice(&b).ok())
+            .filter(|m: &Manifest| m.app == "GPXer")
+            .ok_or("Bu dosya bir GPXer yedeği değil")?
+    };
+    let pw = if manifest.encrypted {
+        Some(
+            password
+                .filter(|p| !p.is_empty())
+                .ok_or(NEED_PASSWORD)?
+                .as_bytes(),
+        )
+    } else {
+        None
+    };
+    // Parolanın doğruluğu ilk şifreli dosyada denenir.
+    if let Some(pw) = pw {
+        if let Some(i) = (0..zip.len()).find(|&i| zip.name_for_index(i) != Some(MANIFEST_FILE)) {
+            let mut f = zip.by_index_decrypt(i, pw).map_err(|e| match e {
+                zip::result::ZipError::InvalidPassword => "Parola yanlış".to_string(),
+                e => e.to_string(),
+            })?;
+            let mut sink = Vec::new();
+            f.read_to_end(&mut sink)
+                .map_err(|_| "Parola yanlış".to_string())?;
+        }
+    }
     let read = |zip: &mut zip::ZipArchive<std::fs::File>, name: &str| -> Option<Vec<u8>> {
-        let mut f = zip.by_name(name).ok()?;
+        let mut f = match pw {
+            Some(pw) => zip.by_name_decrypt(name, pw).ok()?,
+            None => zip.by_name(name).ok()?,
+        };
         let mut b = Vec::new();
         f.read_to_end(&mut b).ok()?;
         Some(b)
     };
-    let manifest: Manifest = read(&mut zip, MANIFEST_FILE)
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .filter(|m: &Manifest| m.app == "GPXer")
-        .ok_or("Bu dosya bir GPXer yedeği değil")?;
-    let _ = manifest;
     let meta: HashMap<String, FileMeta> = read(&mut zip, META_FILE)
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default();
@@ -168,10 +218,18 @@ fn extract(src: &Path, tmp: &Path) -> Result<Extracted, String> {
     std::fs::create_dir_all(tmp).map_err(|e| e.to_string())?;
     let mut paths = Vec::new();
     for i in 0..zip.len() {
-        let mut f = zip.by_index(i).map_err(|e| e.to_string())?;
-        let Some(name) = f.name().strip_prefix(RECORDS_DIR).map(str::to_owned) else {
+        let Some(name) = zip
+            .name_for_index(i)
+            .and_then(|n| n.strip_prefix(RECORDS_DIR))
+            .map(str::to_owned)
+        else {
             continue;
         };
+        let mut f = match pw {
+            Some(pw) => zip.by_index_decrypt(i, pw),
+            None => zip.by_index(i),
+        }
+        .map_err(|e| e.to_string())?;
         // Yalnızca düz dosya adı (yedekteki yol klasör dışına çıkamaz).
         let Some(base) = Path::new(&name)
             .file_name()
@@ -195,8 +253,13 @@ fn extract(src: &Path, tmp: &Path) -> Result<Extracted, String> {
     })
 }
 
-fn restore_into(app: &AppHandle, src: &Path, tmp: &Path) -> Result<RestoreInfo, String> {
-    let x = extract(src, tmp)?;
+fn restore_into(
+    app: &AppHandle,
+    src: &Path,
+    tmp: &Path,
+    password: Option<&str>,
+) -> Result<RestoreInfo, String> {
+    let x = extract(src, tmp, password)?;
     let results = load_many(app, x.paths.iter().map(|(p, _)| p.clone()).collect(), true);
     // Bilgiler yedekteki dosya adına göre (sonuçlar girişle aynı sırada): yeni
     // eklenen kayda ya da zaten kütüphanede olan aynı içeriğe taşınır.
@@ -285,11 +348,12 @@ mod tests {
             &meta,
             &places,
             &[],
+            None,
         )
         .unwrap();
         assert_eq!(info.records, 1);
         assert!(!root.join("yedek.zip.tmp").exists());
-        let x = extract(&dest, &root.join("ac")).unwrap();
+        let x = extract(&dest, &root.join("ac"), None).unwrap();
         assert_eq!(x.paths.len(), 1);
         assert_eq!(x.paths[0].1, "a.gpx");
         assert_eq!(
@@ -304,7 +368,35 @@ mod tests {
         z.start_file("x.txt", zip::write::SimpleFileOptions::default())
             .unwrap();
         z.finish().unwrap();
-        assert!(extract(&other, &root.join("ac2")).is_err());
+        assert!(extract(&other, &root.join("ac2"), None).is_err());
+        // Parolalı yedek: parolasız açılmaz, yanlış parolayla açılmaz, doğruyla açılır.
+        let locked = root.join("sifreli.zip");
+        write_backup(
+            &locked,
+            &[a.to_string_lossy().into_owned()],
+            &meta,
+            &places,
+            &[],
+            Some("gizli123"),
+        )
+        .unwrap();
+        assert_eq!(
+            extract(&locked, &root.join("ac3"), None).err().as_deref(),
+            Some(NEED_PASSWORD)
+        );
+        assert_eq!(
+            extract(&locked, &root.join("ac4"), Some("yanlis"))
+                .err()
+                .as_deref(),
+            Some("Parola yanlış")
+        );
+        let x = extract(&locked, &root.join("ac5"), Some("gizli123")).unwrap();
+        assert_eq!(x.paths.len(), 1);
+        assert_eq!(x.meta["a.gpx"].tags, vec!["iş"]);
+        assert_eq!(
+            std::fs::read(&x.paths[0].0).unwrap(),
+            std::fs::read(&a).unwrap()
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }
