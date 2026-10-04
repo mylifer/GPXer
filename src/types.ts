@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { FileSummary } from "./api";
 import { namedPlaceAt } from "./places";
 
@@ -57,12 +58,12 @@ export function rampColor(ramp: string[], t: number): string {
 }
 
 export const METRICS: Record<string, { label: string; unit: string; digits: number }> = {
-  ele: { label: "Yükseklik", unit: "m", digits: 0 },
-  speed: { label: "Hız", unit: "km/sa", digits: 1 },
-  hr: { label: "Nabız", unit: "atım/dk", digits: 0 },
-  cad: { label: "Kadans", unit: "dev/dk", digits: 0 },
-  power: { label: "Güç", unit: "W", digits: 0 },
-  temp: { label: "Sıcaklık", unit: "°C", digits: 1 },
+  ele: { label: t("Yükseklik"), unit: "m", digits: 0 },
+  speed: { label: t("Hız"), unit: t("km/sa"), digits: 1 },
+  hr: { label: t("Nabız"), unit: t("atım/dk"), digits: 0 },
+  cad: { label: t("Kadans"), unit: t("dev/dk"), digits: 0 },
+  power: { label: t("Güç"), unit: "W", digits: 0 },
+  temp: { label: t("Sıcaklık"), unit: "°C", digits: 1 },
 };
 
 export const ACTIVITIES: { id: import("./api").Activity; label: string; icon: string }[] = [

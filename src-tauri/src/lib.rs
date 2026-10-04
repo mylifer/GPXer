@@ -446,6 +446,7 @@ pub fn run() {
             snap::plan_route,
             links::open_street_view,
             archive::import_archive,
+            menu::set_menu_language,
             bookmarks::get_bookmarks,
             bookmarks::set_bookmarks,
             tiles::tile,

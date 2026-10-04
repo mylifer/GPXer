@@ -337,7 +337,7 @@ export const Sidebar = memo(function Sidebar(p: SidebarProps) {
             disabled={p.shown.length === 0}
             title="Listede görünen (filtreye uyan) tüm kayıtları tek dosyada dışa aktar (GPX, KML, TCX, FIT)"
           >
-            {filtered ? "Filtrelenenleri" : "Tümünü"} dışa aktar…
+            {filtered ? "Filtrelenenleri dışa aktar…" : "Tümünü dışa aktar…"}
           </button>
         </div>
       )}

@@ -4,7 +4,7 @@ import "uplot/dist/uPlot.min.css";
 import type { Detail } from "../api";
 import { METRICS, type FileEntry } from "../types";
 import type { Metric } from "../prefs";
-import { fmtDate, fmtDistance, fmtDuration, fmtNumber, fmtSpeed, fmtUnit, tzOf } from "../format";
+import { LOCALE, fmtDate, fmtDistance, fmtDuration, fmtNumber, fmtSpeed, fmtUnit, tzOf } from "../format";
 import { deviation, type Deviation } from "../deviation";
 import { hasMetric, metricValues } from "./ProfileChart";
 import { PLAY_SPEEDS } from "./DetailPanel";
@@ -170,7 +170,7 @@ export function CompareView({ a, b, detailA, detailB, height, playSpeed, onPlayS
               grid: { stroke: grid },
               ticks: { show: false },
               size: last ? 28 : 6,
-              values: last ? (_u, s) => s.map((v) => `${v.toLocaleString("tr-TR", { maximumFractionDigits: 1 })} km`) : () => [],
+              values: last ? (_u, s) => s.map((v) => `${v.toLocaleString(LOCALE, { maximumFractionDigits: 1 })} km`) : () => [],
             },
             { stroke: axisColor, grid: { stroke: grid }, ticks: { show: false }, size: 56 },
           ],

@@ -1,4 +1,5 @@
 import { useCallback, type RefObject } from "react";
+import { t } from "../i18n";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { exportAs, exportMany, pickSavePath, writeBase64File, writeTextFile, type FileMeta } from "../api";
 import type { MapHandle } from "../components/MapView";
@@ -108,8 +109,8 @@ export function useExports({
       if (paths.length === 0) return;
       if (paths.length > EXPORT_CONFIRM) {
         const ok = await ask(
-          `${fmtNumber(paths.length)} kayıt tek bir dosyada dışa aktarılsın mı? Dosya çok büyük olabilir ve biraz sürebilir.`,
-          { title: "Toplu dışa aktarma", kind: "warning", okLabel: "Dışa aktar", cancelLabel: "Vazgeç" },
+          t(`${fmtNumber(paths.length)} kayıt tek bir dosyada dışa aktarılsın mı? Dosya çok büyük olabilir ve biraz sürebilir.`),
+          { title: t("Toplu dışa aktarma"), kind: "warning", okLabel: t("Dışa aktar"), cancelLabel: t("Vazgeç") },
         );
         if (!ok) return;
       }

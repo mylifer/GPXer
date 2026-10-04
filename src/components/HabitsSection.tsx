@@ -1,9 +1,10 @@
 import { useMemo } from "react";
+import { t } from "../i18n";
 import { drivingHabits } from "../habits";
 import { fmtDate, fmtDistance, fmtDuration, fmtNumber, tzOf } from "../format";
 import type { FileEntry } from "../types";
 
-const DAYS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
+const DAYS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"].map(t);
 
 function Bars({ values, labels, title, tip }: { values: number[]; labels: string[]; title: string; tip(i: number): string }) {
   const max = Math.max(1, ...values);

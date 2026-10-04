@@ -1,4 +1,5 @@
 import type { Detail, FileSummary } from "./api";
+import { lang, t } from "./i18n";
 import { dayBuckets } from "./days";
 import {
   dayKey,
@@ -56,9 +57,9 @@ function profileSvg(d: Detail): string {
   // Çizgi 20..H-24 arasında; alt ve üst yazılar çizginin dışında kalır.
   const y = (v: number) => (H - 24 - ((v - lo) / span) * (H - 44)).toFixed(1);
   const line = pts.map(([dd, e]) => `${x(dd)},${y(e)}`).join(" ");
-  return `<svg viewBox="0 0 ${W} ${H}" class="profile" role="img" aria-label="Yükseklik profili">
+  return `<svg viewBox="0 0 ${W} ${H}" class="profile" role="img" aria-label="${t("Yükseklik profili")}">
 <polygon points="0,${H - 20} ${line} ${W},${H - 20}" fill="#2f7d5d33"/><polyline points="${line}" fill="none" stroke="#2f7d5d" stroke-width="2"/>
-<text x="4" y="14">en yüksek ${esc(fmtElevation(hi))}</text><text x="4" y="${H - 5}">en düşük ${esc(fmtElevation(lo))}</text>
+<text x="4" y="14">${t("en yüksek")} ${esc(fmtElevation(hi))}</text><text x="4" y="${H - 5}">${t("en düşük")} ${esc(fmtElevation(lo))}</text>
 <text x="${W - 4}" y="${H - 5}" text-anchor="end">${esc(fmtDistance(maxD))}</text></svg>`;
 }
 
@@ -71,18 +72,18 @@ export function storyHtml({ s, detail, mapPng, nights, photos }: StoryInput): st
   const when = days.length ? (days.length > 1 ? `${isoToTr(days[0].day)} – ${isoToTr(days[days.length - 1].day)}` : isoToTr(days[0].day)) : "";
   const route = [s.startPlace, s.endPlace].filter(Boolean).join(" → ");
   const cards: [string, string][] = [
-    ["Mesafe", fmtDistance(st.distanceM)],
-    ["Hareket süresi", fmtDuration(st.movingMs)],
-    ["Toplam süre", fmtDuration(st.durationMs)],
-    ["Ort. hız", fmtSpeed(st.avgMovingSpeedMs)],
-    ["Tırmanış", fmtElevation(st.elevationGainM)],
-    ["En yüksek", fmtElevation(st.maxEleM)],
+    [t("Mesafe"), fmtDistance(st.distanceM)],
+    [t("Hareket süresi"), fmtDuration(st.movingMs)],
+    [t("Toplam süre"), fmtDuration(st.durationMs)],
+    [t("Ort. hız"), fmtSpeed(st.avgMovingSpeedMs)],
+    [t("Tırmanış"), fmtElevation(st.elevationGainM)],
+    [t("En yüksek"), fmtElevation(st.maxEleM)],
   ];
   const nightOn = (day: string) => nights.find((n) => dayKey(n.start, tz) === day);
   const dayRows = days
     .map((d, i) => {
       const n = nightOn(d.day);
-      return `<tr><td>${i + 1}. gün</td><td>${esc(isoToTr(d.day))}</td><td>${esc(fmtDistance(d.distanceM))}</td><td>${esc(
+      return `<tr><td>${t(`${i + 1}. gün`)}</td><td>${esc(isoToTr(d.day))}</td><td>${esc(fmtDistance(d.distanceM))}</td><td>${esc(
         fmtDuration(d.movingMs),
       )}</td><td>${n ? `🛏 ${esc(n.place || "")}` : ""}</td></tr>`;
     })
@@ -96,7 +97,7 @@ export function storyHtml({ s, detail, mapPng, nights, photos }: StoryInput): st
     )
     .join("");
   return `<!doctype html>
-<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <style>
 :root{--bg:#f6f5f2;--panel:#fff;--text:#1d2327;--muted:#6b7177;--accent:#2f7d5d;--border:#e0ddd5}
@@ -120,15 +121,15 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;text-align:center}
 </style></head><body><main>
 <h1>${esc(title)}</h1>
 <p class="sub">${esc([when, route].filter(Boolean).join(" · "))}</p>
-${mapPng ? `<img class="map" src="data:image/png;base64,${mapPng}" alt="Yolculuğun haritası">` : ""}
+${mapPng ? `<img class="map" src="data:image/png;base64,${mapPng}" alt="${t("Yolculuğun haritası")}">` : ""}
 <div class="cards">${cards.map(([k, v]) => `<div class="card"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`).join("")}</div>
-${days.length > 1 ? `<h2>Gün gün</h2><table>${dayRows}</table>` : ""}
+${days.length > 1 ? `<h2>${t("Gün gün")}</h2><table>${dayRows}</table>` : ""}
 ${detail ? (() => {
     const svg = profileSvg(detail);
-    return svg ? `<h2>Yükseklik</h2>${svg}` : "";
+    return svg ? `<h2>${t("Yükseklik")}</h2>${svg}` : "";
   })() : ""}
-${photos.length ? `<h2>Fotoğraflar</h2><div class="photos">${photoHtml}</div>` : ""}
-<footer>GPXer ile oluşturuldu${days.length ? ` · ${esc(dayRangeTr(days[0].day, days[days.length - 1].day))}` : ""}</footer>
+${photos.length ? `<h2>${t("Fotoğraflar")}</h2><div class="photos">${photoHtml}</div>` : ""}
+<footer>${t("GPXer ile oluşturuldu")}${days.length ? ` · ${esc(dayRangeTr(days[0].day, days[days.length - 1].day))}` : ""}</footer>
 </main></body></html>`;
 }
 

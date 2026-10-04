@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { lang, saveLang, type Lang } from "../i18n";
 import { CustomLayersEditor } from "./CustomLayersEditor";
 import { FUEL_KINDS, type FuelKind, type FuelPrefs } from "../fuel";
 import type { Goals, Prefs } from "../prefs";
@@ -57,12 +58,18 @@ export function SettingsDialog({
   const [fuel, setFuel] = useState<FuelPrefs>(prefs.fuel);
   const [goals, setGoals] = useState<Goals>(prefs.goals);
   const [layers, setLayers] = useState(prefs.customLayers);
+  const [language, setLanguage] = useState<Lang>(lang);
   const [clean, setClean] = useState(settings.stats.cleanSpikes);
   const [perType, setPerType] = useState(settings.stats.perType);
   const [stays, setStays] = useState(settings.stats.collapseStays);
   const preset = PRESETS.find((p) => p.movingKmh === movingKmh && p.eleM === eleM)?.id ?? "";
 
-  const save = () =>
+  const save = () => {
+    // Dil değişince arayüz yeniden yüklenir (çeviri ve biçimler açılışta kurulur).
+    if (language !== lang) {
+      saveLang(language);
+      setTimeout(() => window.location.reload(), 300);
+    }
     onSave(
       {
         stats: {
@@ -79,10 +86,19 @@ export function SettingsDialog({
         .map((x) => ({ ...x, name: x.name.trim(), radiusM: Math.max(10, Math.min(5000, Math.round(x.radiusM) || 150)) }))
         .filter((x) => x.name),
     );
+  };
 
   return (
     <Modal title="Ayarlar" onClose={onClose}>
       <div className="form">
+        <fieldset>
+          <legend>Dil / Language</legend>
+          <select value={language} onChange={(e) => setLanguage(e.target.value as Lang)} aria-label="Dil / Language" data-no-i18n>
+            <option value="tr">Türkçe</option>
+            <option value="en">English</option>
+          </select>
+        </fieldset>
+
         <fieldset>
           <legend>Hesaplama</legend>
           <label className="field">

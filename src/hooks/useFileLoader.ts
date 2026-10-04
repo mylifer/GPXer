@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { t } from "../i18n";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import {
@@ -34,7 +35,7 @@ async function notifyIfHidden(title: string, body: string) {
   try {
     let ok = await isPermissionGranted();
     if (!ok) ok = (await requestPermission()) === "granted";
-    if (ok) sendNotification({ title, body });
+    if (ok) sendNotification({ title: t(title), body: t(body) });
   } catch {
     // Bildirim gösterilemezse uygulama içi ileti yeter.
   }
@@ -383,7 +384,7 @@ export function useFileLoader({
       multiple: true,
       filters: [
         {
-          name: "İz dosyaları (GPX, FIT, TCX, KML, Google konum geçmişi JSON, Strava/Garmin/Takeout arşivi ZIP)",
+          name: t("İz dosyaları (GPX, FIT, TCX, KML, Google konum geçmişi JSON, Strava/Garmin/Takeout arşivi ZIP)"),
           extensions: OPEN_EXTS,
         },
       ],
@@ -494,8 +495,8 @@ export function useFileLoader({
     const all = filesRef.current.map((f) => f.summary.path);
     if (all.length === 0) return;
     const ok = await ask(
-      `Kütüphanedeki ${all.length} kaydın tamamı kaldırılsın mı? Orijinal dosyalarınız etkilenmez; hemen ardından “Geri al” ile geri getirebilirsiniz.`,
-      { title: "Kütüphaneyi boşalt", kind: "warning", okLabel: "Boşalt", cancelLabel: "Vazgeç" },
+      t(`Kütüphanedeki ${all.length} kaydın tamamı kaldırılsın mı? Orijinal dosyalarınız etkilenmez; hemen ardından “Geri al” ile geri getirebilirsiniz.`),
+      { title: t("Kütüphaneyi boşalt"), kind: "warning", okLabel: t("Boşalt"), cancelLabel: t("Vazgeç") },
     );
     if (!ok) return;
     await removePaths(all);

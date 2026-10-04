@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import type { FileSummary, NamedPlace } from "../api";
 import { dayTimeline } from "../dayTimeline";
-import { fmtDistance, fmtDuration, fmtTime, isoOf, isoToTr, trToIso, tzOf } from "../format";
+import { LOCALE, fmtDistance, fmtDuration, fmtTime, isoOf, isoToTr, trToIso, tzOf } from "../format";
 import { Modal } from "./Modal";
+import { t } from "../i18n";
 
 const shift = (iso: string, days: number) => {
   const [y, m, d] = iso.split("-").map(Number);
@@ -41,7 +42,7 @@ export function DayDialog({
   const prevData = [...daysWithData].reverse().find((d) => d < day);
   const nextData = daysWithData.find((d) => d > day);
   const total = items.reduce((a, x) => a + (x.kind === "move" ? x.distanceM : 0), 0);
-  const weekday = new Date(`${day}T12:00:00`).toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const weekday = new Date(`${day}T12:00:00`).toLocaleDateString(LOCALE, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   return (
     <Modal title="Gün akışı" onClose={onClose}>
@@ -75,7 +76,7 @@ export function DayDialog({
       </div>
       <p className="muted small-note">
         {weekday}
-        {items.length > 0 && ` · toplam ${fmtDistance(total)} yol`}
+        {items.length > 0 && ` · ${t("toplam yol")} ${fmtDistance(total)}`}
       </p>
       {items.length === 0 ? (
         <div className="muted small-note">Bu gün kayıt yok.</div>

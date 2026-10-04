@@ -5,6 +5,7 @@ import "uplot/dist/uPlot.min.css";
 import type { Detail } from "../api";
 import type { Metric, XAxis } from "../prefs";
 import { METRICS } from "../types";
+import { LOCALE } from "../format";
 
 interface Props {
   detail: Detail;
@@ -20,8 +21,8 @@ interface Props {
   onRange(range: [number, number] | null): void;
 }
 
-const nf1 = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 1 });
-const nf0 = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 });
+const nf1 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+const nf0 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
 
 function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();

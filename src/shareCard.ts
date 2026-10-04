@@ -1,4 +1,5 @@
 import type { Activity, FileSummary } from "./api";
+import { t } from "./i18n";
 import { dayBuckets, dedupedTotals, rangeShare } from "./days";
 import { flightsOf, uniqueFlights } from "./flights";
 import { dayKey, dayRangeTr, fmtDistance, fmtDuration, fmtElevation, fmtNumber, tzOf } from "./format";
@@ -146,7 +147,7 @@ export function drawYearCard(ctx: CanvasRenderingContext2D, c: YearCard) {
   const yw = ctx.measureText(c.year).width;
   ctx.font = `500 40px ${FONT}`;
   ctx.fillStyle = "#9fb3c8";
-  ctx.fillText("yolculuklarım", M + yw + 24, 166);
+  ctx.fillText(t("yolculuklarım"), M + yw + 24, 166);
 
   // Harita
   const box = { x: M, y: 220, w: W - 2 * M, h: 470 };
@@ -198,18 +199,18 @@ export function drawYearCard(ctx: CanvasRenderingContext2D, c: YearCard) {
     ctx.fillStyle = "#6b819a";
     ctx.font = `500 32px ${FONT}`;
     ctx.textAlign = "center";
-    ctx.fillText("Bu yıl kayıt yok", W / 2, box.y + box.h / 2);
+    ctx.fillText(t("Bu yıl kayıt yok"), W / 2, box.y + box.h / 2);
     ctx.textAlign = "left";
   }
 
   // Sayılar
   const tiles: [string, string][] = [
-    ["Mesafe", fmtDistance(c.distanceM)],
-    ["Hareket süresi", fmtDuration(c.movingMs)],
-    ["Etkin gün", fmtNumber(c.days)],
-    ["Kayıt", fmtNumber(c.records)],
-    ["Tırmanış", fmtElevation(c.gainM)],
-    ["Uçuş", c.flights.count ? `${fmtNumber(c.flights.count)} · ${fmtDistance(c.flights.distanceM)}` : "—"],
+    [t("Mesafe"), fmtDistance(c.distanceM)],
+    [t("Hareket süresi"), fmtDuration(c.movingMs)],
+    [t("Etkin gün"), fmtNumber(c.days)],
+    [t("Kayıt"), fmtNumber(c.records)],
+    [t("Tırmanış"), fmtElevation(c.gainM)],
+    [t("Uçuş"), c.flights.count ? `${fmtNumber(c.flights.count)} · ${fmtDistance(c.flights.distanceM)}` : "—"],
   ];
   const tw = (W - 2 * M) / 3;
   tiles.forEach(([label, value], i) => {
@@ -242,14 +243,14 @@ export function drawYearCard(ctx: CanvasRenderingContext2D, c: YearCard) {
     y += 56;
   };
   line(
-    c.countries.length === 1 ? "Ülke" : `${fmtNumber(c.countries.length)} ülke`,
+    c.countries.length === 1 ? t("Ülke") : t(`${fmtNumber(c.countries.length)} ülke`),
     c.countries.map((x) => countryName(x.cc)).join(" · "),
     2,
   );
-  line("En çok bulunulan yerler", c.cities.join(" · "), 1);
+  line(t("En çok bulunulan yerler"), c.cities.join(" · "), 1);
   if (c.longest)
     line(
-      "En uzun yolculuk",
+      t("En uzun yolculuk"),
       `${fmtDistance(c.longest.distanceM)}${c.longest.days ? ` · ${c.longest.days}` : ""} · ${c.longest.name}`,
       2,
     );

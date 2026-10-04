@@ -6,9 +6,17 @@
  * saat dilimini kullanır.
  */
 
-const nf0 = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 });
-const nf1 = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const nf2 = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { lang } from "./i18n";
+
+/** Sayı ve tarih biçimlerinin dili (İngilizce arayüzde İngiliz biçimi: 1,234.5; 24 saat). */
+export const LOCALE = lang === "en" ? "en-GB" : "tr-TR";
+const EN = lang === "en";
+/** Süre ve hız birimleri. */
+const U = EN ? { d: "d", h: "h", m: "min", s: "s", kmh: "km/h" } : { d: "g", h: "sa", m: "dk", s: "sn", kmh: "km/sa" };
+
+const nf0 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
+const nf1 = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const nf2 = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const DASH = "—";
 
@@ -25,7 +33,7 @@ export function tzOf(s: { timeZone: string | null } | null | undefined): string 
 }
 
 const fmtCache = new Map<string, Intl.DateTimeFormat>();
-function dtf(kind: string, opts: Intl.DateTimeFormatOptions, tz?: string, locale = "tr-TR") {
+function dtf(kind: string, opts: Intl.DateTimeFormatOptions, tz?: string, locale = LOCALE) {
   const key = `${kind}|${tz ?? ""}|${locale}`;
   let f = fmtCache.get(key);
   if (!f) {
@@ -74,17 +82,17 @@ export function fmtDuration(ms: number | null | undefined): string {
   const h = Math.floor((total % 86400) / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
-  if (d > 0) return `${d} g ${h} sa ${m} dk`;
-  if (h > 0) return `${h} sa ${m} dk`;
-  if (m > 0) return `${m} dk ${s} sn`;
-  return `${s} sn`;
+  if (d > 0) return `${d} ${U.d} ${h} ${U.h} ${m} ${U.m}`;
+  if (h > 0) return `${h} ${U.h} ${m} ${U.m}`;
+  if (m > 0) return `${m} ${U.m} ${s} ${U.s}`;
+  return `${s} ${U.s}`;
 }
 
 /** Dar yerler (liste satırı) için: bir günden uzun sürede dakika yazılmaz. */
 export function fmtDurationShort(ms: number | null | undefined): string {
   if (ms != null && ms >= 86_400_000) {
     const h = Math.floor(ms / 3_600_000);
-    return `${Math.floor(h / 24)} g ${h % 24} sa`;
+    return `${Math.floor(h / 24)} ${U.d} ${h % 24} ${U.h}`;
   }
   return fmtDuration(ms);
 }
@@ -102,11 +110,11 @@ export function fmtClock(ms: number | null | undefined): string {
 /** m/s → km/sa */
 export function fmtSpeed(ms: number | null | undefined): string {
   if (ms == null) return DASH;
-  return `${nf1.format(ms * 3.6)} km/sa`;
+  return `${nf1.format(ms * 3.6)} ${U.kmh}`;
 }
 
 export function fmtKmh(v: number | null | undefined): string {
-  return v == null ? DASH : `${nf1.format(v)} km/sa`;
+  return v == null ? DASH : `${nf1.format(v)} ${U.kmh}`;
 }
 
 export function fmtPace(ms: number | null | undefined): string {
@@ -136,7 +144,7 @@ export function fmtNumber(n: number): string {
 
 export function fmtDecimal(n: number | null | undefined, digits = 1): string {
   if (n == null) return "";
-  return n.toLocaleString("tr-TR", { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false });
+  return n.toLocaleString(LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false });
 }
 
 export function fmtUnit(v: number | null | undefined, unit: string, digits = 0): string {
@@ -193,20 +201,9 @@ export function fmtBytes(b: number): string {
   return `${nf1.format(b / 1024 / 1024)} MB`;
 }
 
-export const MONTHS = [
-  "Ocak",
-  "Şubat",
-  "Mart",
-  "Nisan",
-  "Mayıs",
-  "Haziran",
-  "Temmuz",
-  "Ağustos",
-  "Eylül",
-  "Ekim",
-  "Kasım",
-  "Aralık",
-];
+export const MONTHS = EN
+  ? ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+  : ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
 
 /** "2025-03" → "Mart 2025" */
 export function monthLabel(key: string): string {
