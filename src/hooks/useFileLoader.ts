@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { ask, open } from "@tauri-apps/plugin-dialog";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import {
   expandPaths,
   flushCache,
@@ -27,6 +28,18 @@ const CHUNK = 24;
 const UNDO_MS = 12_000;
 
 
+/** Pencere arka plandaysa sistem bildirimi (izin bir kez sorulur). */
+async function notifyIfHidden(title: string, body: string) {
+  if (document.hasFocus()) return;
+  try {
+    let ok = await isPermissionGranted();
+    if (!ok) ok = (await requestPermission()) === "granted";
+    if (ok) sendNotification({ title, body });
+  } catch {
+    // Bildirim gösterilemezse uygulama içi ileti yeter.
+  }
+}
+
 export interface OpenOptions {
   /** Kopya bildirimleri gösterilmesin (kütüphane, izlenen klasörler). */
   quiet?: boolean;
@@ -38,6 +51,9 @@ export interface OpenOptions {
   silent?: boolean;
   /** Kullanıcı dosyaları kendisi açtı (kütüphaneden çıkarılmışlar da eklenir). */
   explicit?: boolean;
+  /** İzlenen klasöre yeni dosya geldi (telefondan otomatik alma): eklenenler
+   * adlarıyla bildirilir; pencere arka plandaysa sistem bildirimi de gösterilir. */
+  watched?: boolean;
 }
 
 /** Yeniden yükleme sürerken kullanıcı kendisi bir kayıt seçti (ya da seçimi
@@ -245,7 +261,12 @@ export function useFileLoader({
         // İlk yüklemede hepsini, sonradan eklemede yalnızca yenileri göster.
         requestAnimationFrame(() => mapRef.current?.fitFiles(wasEmpty ? filesRef.current : added));
       }
-      if (opts.quiet && !opts.silent && added.length > 0 && !initialLoad.current) {
+      if (opts.watched && added.length > 0 && !initialLoad.current) {
+        const names = added.slice(0, 3).map(label).join(", ") + (added.length > 3 ? "…" : "");
+        const msg = `İzlenen klasörden ${fmtNumber(added.length)} yeni kayıt geldi: ${names}`;
+        say(msg);
+        notifyIfHidden("GPXer: yeni kayıt", msg);
+      } else if (opts.quiet && !opts.silent && added.length > 0 && !initialLoad.current) {
         say(`${fmtNumber(added.length)} yeni kayıt kütüphaneye eklendi.`);
       }
       return added;

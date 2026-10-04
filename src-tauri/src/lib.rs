@@ -381,6 +381,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(PendingPaths::default())
         .manage(export::ApprovedPaths::default())
         .manage(photos::PhotoPaths::default())

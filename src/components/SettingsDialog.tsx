@@ -213,7 +213,11 @@ export function SettingsDialog({
 
         <fieldset>
           <legend>İzlenen klasörler</legend>
-          <small>Bu klasörlere (alt klasörler dahil) eklenen GPX, FIT, TCX ve KML dosyaları kütüphaneye kendiliğinden eklenir.</small>
+          <small>
+            Bu klasörlere (alt klasörler dahil) eklenen GPX, FIT, TCX ve KML dosyaları kütüphaneye kendiliğinden eklenir ve
+            bildirilir. Telefondaki kayıt uygulaması dosyaları OneDrive, iCloud Drive, Google Drive ya da Dropbox'a
+            kaydediyorsa o klasörü buraya ekleyin: telefonda biten kayıt bilgisayara kendiliğinden gelir.
+          </small>
           <ul className="folder-list">
             {folders.map((f) => (
               <li key={f}>

@@ -74,7 +74,7 @@ export function useStartup({
       }),
     );
     unlisten.push(listen("pending-paths", drainPending));
-    unlisten.push(listen<string[]>("watched-paths", (e) => openPaths(e.payload, { quiet: true, noFit: true, noSelect: true })));
+    unlisten.push(listen<string[]>("watched-paths", (e) => openPaths(e.payload, { quiet: true, noFit: true, noSelect: true, watched: true })));
     return () => unlisten.forEach((p) => p.then((fn) => fn()));
   }, [openPaths, fail]);
 
