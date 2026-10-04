@@ -598,7 +598,7 @@ export default function App() {
       )}
       {dragging && (
         <div className="drop-overlay">
-          <div>GPX, FIT, TCX, KML dosyalarını, klasörleri ya da fotoğrafları bırakın</div>
+          <div>GPX, FIT, TCX, KML, Google konum geçmişi (JSON) dosyalarını, klasörleri ya da fotoğrafları bırakın</div>
         </div>
       )}
     </div>

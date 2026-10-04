@@ -1537,3 +1537,60 @@ fn flight_altitude_is_not_an_elevation_record() {
         s.elevation_gain_m
     );
 }
+
+#[test]
+fn reads_google_location_history_formats() {
+    use crate::google::{is_google_file_name, parse_google};
+    // Eski Records.json: zaman ISO ya da ms; doğruluğu kötü nokta atılır.
+    let records = r#"{"locations":[
+        {"latitudeE7":410000000,"longitudeE7":290000000,"timestamp":"2019-06-04T08:00:00.000Z","accuracy":10,"altitude":50},
+        {"latitudeE7":410100000,"longitudeE7":290100000,"timestampMs":"1559635260000","accuracy":20},
+        {"latitudeE7":420000000,"longitudeE7":300000000,"timestamp":"2019-06-04T08:02:00Z","accuracy":5000}
+    ]}"#;
+    let g = parse_google(records.as_bytes()).unwrap();
+    let pts = &g.tracks[0].segments[0];
+    assert_eq!(pts.len(), 2);
+    assert_eq!(pts[0].ele, Some(50.0));
+    assert!(g
+        .name
+        .as_deref()
+        .unwrap()
+        .starts_with("Google konum geçmişi 2019-06-04"));
+
+    // Anlamsal aylık dosya: yolculuk yolu ve durak.
+    let semantic = r#"{"timelineObjects":[
+        {"activitySegment":{"startLocation":{"latitudeE7":410000000,"longitudeE7":290000000},
+          "endLocation":{"latitudeE7":410500000,"longitudeE7":290500000},
+          "duration":{"startTimestamp":"2019-06-04T08:00:00Z","endTimestamp":"2019-06-04T09:00:00Z"},
+          "waypointPath":{"waypoints":[{"latE7":410200000,"lngE7":290200000}]}}},
+        {"placeVisit":{"location":{"latitudeE7":410500000,"longitudeE7":290500000,"name":"Ev"},
+          "duration":{"startTimestamp":"2019-06-04T09:00:00Z","endTimestamp":"2019-06-04T18:00:00Z"}}}
+    ]}"#;
+    let g = parse_google(semantic.as_bytes()).unwrap();
+    let pts = &g.tracks[0].segments[0];
+    assert_eq!(pts.len(), 4, "{pts:?}");
+    assert!(pts.windows(2).all(|w| w[0].time <= w[1].time));
+
+    // Android Zaman Çizelgesi.
+    let android = r#"[
+        {"startTime":"2024-05-01T10:00:00.000+03:00","endTime":"2024-05-01T11:00:00.000+03:00",
+         "activity":{"start":"geo:41.0,29.0","end":"geo:41.05,29.05"}},
+        {"startTime":"2024-05-01T10:00:00.000+03:00","endTime":"2024-05-01T12:00:00.000+03:00",
+         "timelinePath":[{"point":"geo:41.02,29.02","durationMinutesOffsetFromStartTime":"20"}]}
+    ]"#;
+    let g = parse_google(android.as_bytes()).unwrap();
+    assert_eq!(g.tracks[0].segments[0].len(), 3);
+
+    // iOS Zaman Çizelgesi.
+    let ios = r#"{"semanticSegments":[{"startTime":"2024-05-01T10:00:00+03:00","endTime":"2024-05-01T11:00:00+03:00",
+        "timelinePath":[{"point":"41.0°, 29.0°","time":"2024-05-01T10:05:00+03:00"}]}],
+        "rawSignals":[{"position":{"LatLng":"41.01°, 29.01°","accuracyMeters":12,"timestamp":"2024-05-01T10:06:00+03:00"}}]}"#;
+    let g = parse_google(ios.as_bytes()).unwrap();
+    assert_eq!(g.tracks[0].segments[0].len(), 2);
+
+    assert!(parse_google(br#"{"name":"baska bir json"}"#).is_err());
+    assert!(is_google_file_name("Records.json"));
+    assert!(is_google_file_name("2019_JUNE.json"));
+    assert!(is_google_file_name("location-history.json"));
+    assert!(!is_google_file_name("package.json"));
+}

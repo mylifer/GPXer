@@ -1,7 +1,7 @@
 # GPXer
 
 Windows ve macOS'ta çalışan, yüzlerce GPX günlüğünü aynı anda rahatça açabilen
-bir GPX görüntüleyici. FIT (Garmin vb.), TCX ve KML dosyalarını da açar. [Tauri 2](https://tauri.app) (Rust) + React + MapLibre GL
+bir GPX görüntüleyici. FIT (Garmin vb.), TCX ve KML dosyalarını ve Google Konum Geçmişi (Takeout `Records.json`, aylık anlamsal geçmiş, telefondaki Zaman Çizelgesi dışa aktarımı) JSON dosyalarını da açar. [Tauri 2](https://tauri.app) (Rust) + React + MapLibre GL
 ile yazılmıştır.
 
 ## Özellikler

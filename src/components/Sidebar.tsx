@@ -94,7 +94,7 @@ export const Sidebar = memo(function Sidebar(p: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="sidebar-actions">
-        <button className="btn primary" onClick={p.onOpenFiles} title="GPX, FIT, TCX, KML dosyalarını aç (Ctrl/⌘+O)">
+        <button className="btn primary" onClick={p.onOpenFiles} title="GPX, FIT, TCX, KML dosyalarını ya da Google konum geçmişini (JSON) aç (Ctrl/⌘+O)">
           Dosya Aç
         </button>
         <button className="btn" onClick={p.onOpenFolder} title="Bir klasördeki tüm kayıtları aç (Ctrl/⌘+Shift+O)">

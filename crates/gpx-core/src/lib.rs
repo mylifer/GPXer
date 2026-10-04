@@ -9,6 +9,7 @@
 pub mod analysis;
 mod detail;
 pub mod formats;
+pub mod google;
 pub mod ops;
 pub mod parse;
 mod segments;

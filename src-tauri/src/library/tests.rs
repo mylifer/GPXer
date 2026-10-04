@@ -407,3 +407,37 @@ fn gps_glitch_abroad_is_not_a_visited_country_even_without_cleaning() {
     assert!(s.visits.iter().all(|v| v.1 == "TR"), "{:?}", s.visits);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn imports_google_takeout_json() {
+    let root = temp_root("google");
+    let lib = Library::open(&root).unwrap();
+    let src = root.join("Records.json");
+    let locs: Vec<String> = (0..60)
+        .map(|k| {
+            format!(
+                r#"{{"latitudeE7":{},"longitudeE7":290000000,"timestamp":"{}","accuracy":10}}"#,
+                410_000_000 + k * 1000,
+                gpx_core::write::format_time(1_559_635_200_000 + k * 60_000)
+            )
+        })
+        .collect();
+    std::fs::write(&src, format!(r#"{{"locations":[{}]}}"#, locs.join(","))).unwrap();
+    assert!(is_track_file(&src));
+    assert!(!is_track_file(&root.join("package.json")));
+    let LoadResult::Ok { file } = lib.load(
+        src.to_string_lossy().into_owned(),
+        &StatsConfig::default(),
+        None,
+    ) else {
+        panic!()
+    };
+    assert!(file.path.ends_with("Records.gpx"), "{}", file.path);
+    assert!(file
+        .name
+        .as_deref()
+        .unwrap()
+        .starts_with("Google konum geçmişi"));
+    assert_eq!(file.stats.point_count + file.removed_points + file.collapsed_points, 60, "{} {} {}", file.stats.point_count, file.removed_points, file.collapsed_points);
+    let _ = std::fs::remove_dir_all(&root);
+}

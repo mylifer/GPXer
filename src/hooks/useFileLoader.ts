@@ -43,7 +43,7 @@ export interface OpenOptions {
  * kaldırdı): yükleme bitince eski seçim geri getirilmez. */
 const KEEP_SELECTION = Symbol("keep");
 
-export const OPEN_EXTS = ["gpx", "GPX", "fit", "FIT", "tcx", "TCX", "kml", "KML"];
+export const OPEN_EXTS = ["gpx", "GPX", "fit", "FIT", "tcx", "TCX", "kml", "KML", "json", "JSON"];
 
 interface Deps {
   prefsRef: RefObject<Prefs>;
@@ -327,7 +327,7 @@ export function useFileLoader({
   const pickFiles = useCallback(async () => {
     const res = await open({
       multiple: true,
-      filters: [{ name: "İz dosyaları (GPX, FIT, TCX, KML)", extensions: OPEN_EXTS }],
+      filters: [{ name: "İz dosyaları (GPX, FIT, TCX, KML, Google konum geçmişi JSON)", extensions: OPEN_EXTS }],
     });
     if (res) openPaths(Array.isArray(res) ? res : [res], { explicit: true });
   }, [openPaths]);

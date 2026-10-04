@@ -295,7 +295,7 @@ export function FileList(p: SidebarProps) {
       </ul>
       {p.files.length === 0 && !p.loading && (
         <div className="empty-hint">
-          GPX, FIT, TCX, KML dosyalarını ya da klasörleri pencereye sürükleyip bırakın veya yukarıdaki düğmeleri kullanın.
+          GPX, FIT, TCX, KML dosyalarını, Google konum geçmişini (Takeout JSON) ya da klasörleri pencereye sürükleyip bırakın veya yukarıdaki düğmeleri kullanın.
         </div>
       )}
       {p.files.length > 0 && p.shown.length === 0 && (

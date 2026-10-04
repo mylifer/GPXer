@@ -8,7 +8,8 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 
 /// Açılabilen dosya uzantıları (küçük harf).
-pub const SUPPORTED: [&str; 4] = ["gpx", "fit", "tcx", "kml"];
+/// `json`: Google Konum Geçmişi (Takeout).
+pub const SUPPORTED: [&str; 5] = ["gpx", "fit", "tcx", "kml", "json"];
 
 pub fn is_supported_ext(ext: &str) -> bool {
     format_of_ext(ext).is_some()
@@ -31,6 +32,7 @@ pub fn parse_any(ext: &str, bytes: &[u8]) -> Result<Gpx, ParseError> {
         "fit" => parse_fit(bytes),
         "tcx" => parse_tcx(bytes),
         "kml" => parse_kml(bytes),
+        "json" => crate::google::parse_google(bytes),
         _ => parse_gpx(bytes),
     }
 }

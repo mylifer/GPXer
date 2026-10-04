@@ -185,10 +185,19 @@ pub fn is_gpx(path: &Path) -> bool {
         .is_some_and(|e| gpx_core::formats::format_of_ext(&e.to_string_lossy()) == Some("gpx"))
 }
 
-/// Açılabilen iz dosyası mı (GPX, FIT, TCX, KML).
+/// Açılabilen iz dosyası mı (GPX, FIT, TCX, KML; JSON yalnızca Google konum
+/// geçmişi adıyla).
 pub fn is_track_file(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|e| gpx_core::formats::is_supported_ext(&e.to_string_lossy()))
+    path.extension().is_some_and(|e| {
+        let ext = e.to_string_lossy();
+        match gpx_core::formats::format_of_ext(&ext) {
+            Some("json") => path
+                .file_name()
+                .is_some_and(|n| gpx_core::google::is_google_file_name(&n.to_string_lossy())),
+            Some(_) => true,
+            None => false,
+        }
+    })
 }
 
 fn now_ms() -> i64 {
