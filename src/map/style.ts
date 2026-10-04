@@ -102,7 +102,10 @@ export async function addVectorBase(map: maplibregl.Map, id: BaseLayer, url: str
   }
   if (style.glyphs) map.setGlyphs(style.glyphs);
   // Altlık; kabartma gölgesinin, gezilen yer dolgularının ve izlerin altına.
-  const before = ["hillshade", "regions-countries", "heat"].find((x) => map.getLayer(x));
+  // Vektör altlık geç yüklenir: önceden eklenmiş kullanıcı katmanlarının altına girer.
+  const before =
+    map.getStyle().layers.find((l) => l.id.startsWith("custom-"))?.id ??
+    ["hillshade", "regions-countries", "heat"].find((x) => map.getLayer(x));
   let added = 0;
   for (const layer of style.layers) {
     const l = { ...layer, id: `base-${id}-v-${layer.id}` } as LayerSpecification & {

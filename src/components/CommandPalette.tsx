@@ -73,7 +73,9 @@ export function CommandPalette({ commands, onClose }: { commands: Command[]; onC
           {shown.map((c, i) => (
             <li key={c.id} className={i === sel ? "active" : ""} onMouseEnter={() => setSel(i)} onClick={() => run(c)}>
               <span className="palette-group">{c.group}</span>
-              <span className="palette-label">{c.label}</span>
+              <span className="palette-label" data-no-i18n={c.group === "Kayıt" || c.group === "Yer" || undefined}>
+                {c.label}
+              </span>
               {c.hint && <span className="palette-hint">{c.hint}</span>}
             </li>
           ))}

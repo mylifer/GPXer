@@ -89,9 +89,13 @@ export function BookmarkList({
             return (
               <li key={m.id}>
                 <button className="link" onClick={() => onGo(m)} title="Haritada göster">
-                  {m.wish ? "⭐" : "📌"} <strong>{m.name}</strong>
+                  {m.wish ? "⭐" : "📌"} <strong data-no-i18n>{m.name}</strong>
                   {v != null && <span className="badge">gidildi{v ? ` · ${fmtDate(v)}` : ""}</span>}
-                  {m.note && <div className="muted small">{m.note}</div>}
+                  {m.note && (
+                    <div className="muted small" data-no-i18n>
+                      {m.note}
+                    </div>
+                  )}
                 </button>
                 <button className="icon-btn tiny" onClick={() => onEdit(m)} aria-label={`${m.name} düzenle`}>
                   ✎

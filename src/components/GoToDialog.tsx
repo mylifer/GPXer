@@ -82,7 +82,7 @@ export function GoToDialog({
         {miss?.kind === "near" && missSummary && (
           <div className="hint goto-miss">
             <span>
-              Kayıt yok (en yakın: <strong>{missSummary.name || missSummary.fileName}</strong>,{" "}
+              Kayıt yok (en yakın: <strong data-no-i18n>{missSummary.name || missSummary.fileName}</strong>,{" "}
               {fmtDuration(Math.abs(miss.dt))} {miss.dt < 0 ? "sonra" : "önce"} · {fmtTimestamp(miss.t, tzOf(missSummary))})
             </span>
             <button type="button" className="btn small" onClick={() => onGo(miss)}>

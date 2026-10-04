@@ -72,9 +72,10 @@ export function deviation(ref: P[], other: P[], thresholdM = 200): Deviation {
         }
       }
       // Bulunan, bir sonraki halkadaki her şeyden yakınsa dur.
-      if (best <= r * CELL * KY * 0.7) return best;
+      // Doğu-batı yönünde hücre kx(enlem) metre: yüksek enlemlerde KY'den çok kısa.
+      if (best <= r * CELL * Math.min(KY, kx(p[1])) * 0.9) return best;
     }
-    if (Number.isFinite(best)) return best;
+    // Halkalarda kanıtlanamadı (en yakın parça halkaların dışında olabilir): kaba tarama da yapılır.
     for (const i of coarse) best = Math.min(best, segDist(p, ref[i - stride], ref[i]));
     return best;
   };

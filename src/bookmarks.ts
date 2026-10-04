@@ -13,7 +13,8 @@ export function visitedBookmarks(marks: Bookmark[], files: FileSummary[], radius
         line.forEach((q, i) => {
           if (Math.abs(q[1] - b.lat) > 0.01 || metersBetween(q, p) > radiusM) return;
           const t = s.times[li]?.[i] ?? 0;
-          if (best == null || (t && t < best)) best = t;
+          // Zamansız geçiş (0) zamanlı bir geçişe yer bırakır.
+          if (best == null || (t && (best === 0 || t < best))) best = t;
         }),
       );
     }

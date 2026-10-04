@@ -28,6 +28,8 @@ export function tilesOf(s: FileSummary): Set<number> {
       out.add(key(tx(lon), ty(lat)));
       if (i === 0) continue;
       const [lon0, lat0] = line[i - 1];
+      // Tarih değiştirme çizgisini geçen adım dünyayı dolaşmasın.
+      if (Math.abs(lon - lon0) > 180) continue;
       // Karonun yarısından kısa adımlarla ara noktalar.
       const steps = Math.min(2000, Math.ceil(Math.max(Math.abs(lon - lon0), Math.abs(lat - lat0)) / (180 / N)));
       for (let k = 1; k < steps; k++) {

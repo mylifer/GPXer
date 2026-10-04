@@ -589,7 +589,9 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
                 <tr>
                   <th>Ay</th>
                   {usedPlaces.map((p) => (
-                    <th key={p.id}>{p.name}</th>
+                    <th key={p.id} data-no-i18n>
+                      {p.name}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -620,7 +622,7 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
               <span className="muted">{r.label}</span>
               <button className="link" onClick={() => onOpen(r.f!.summary.path)}>
                 <span className="swatch" style={{ background: r.f!.color }} />
-                {r.f!.summary.name || r.f!.summary.fileName}
+                <span data-no-i18n>{r.f!.summary.name || r.f!.summary.fileName}</span>
                 <span className="muted"> · {fmtDate(r.f!.summary.stats.startTime, tzOf(r.f!.summary))}</span>
               </button>
               <strong>{r.value(r.f!)}</strong>

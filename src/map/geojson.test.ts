@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FileEntry } from "../types";
-import { boundsOf, gapsGeoJSON, heatGeoJSON, nearLon, unwrapLines } from "./geojson";
+import { boundsOf, gapsGeoJSON, HEAT_MAX_POINTS, heatGeoJSON, heatStep, nearLon, unwrapLines } from "./geojson";
 
 const entry = (lines: [number, number][][], bbox: [number, number, number, number]) =>
   ({
@@ -42,6 +42,11 @@ describe("antimeridian", () => {
     const f = entry(lines, [-179.95, -17, 179.95, -17]);
     // Isı haritası dünyayı kat eden ~40.000 km'lik bir parça üretmez.
     expect(heatGeoJSON([f], null).features.length).toBeLessThan(2000);
+    // Çok uzun izlerde nokta sayısı sınırlı (bellek), aralık genişler.
+    const long = entry([Array.from({ length: 2001 }, (_, i) => [20 + i * 0.05, 40] as [number, number])], [20, 40, 120, 40]);
+    const many = [long, long, long];
+    expect(heatStep(many, null)).toBeGreaterThan(40);
+    expect(heatGeoJSON(many, null).features.length).toBeLessThanOrEqual(HEAT_MAX_POINTS);
     const b = boundsOf([f]) as [[number, number], [number, number]];
     expect(b[1][0] - b[0][0]).toBeLessThan(1);
     const g = gapsGeoJSON([f], null).features[0].geometry as GeoJSON.LineString;

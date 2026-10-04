@@ -72,7 +72,7 @@ export function DuplicatesDialog({ groups, files, onOpen, onRemove, onClose }: P
                         />
                       </td>
                       <td>
-                        <span className="swatch" style={{ background: f.color }} /> {s.name || s.fileName}
+                        <span className="swatch" style={{ background: f.color }} /> <span data-no-i18n>{s.name || s.fileName}</span>
                         {g.keep.includes(s.path) && <span className="badge">önerilen</span>}
                         <div className="muted small">{s.fileName}</div>
                       </td>

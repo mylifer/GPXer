@@ -9,8 +9,10 @@ const SCHEME = "gpxc://";
  * ve indirilen bölgeler çevrimdışı açılır. */
 export function installTileCache() {
   if (!inTauri) return;
-  maplibregl.addProtocol("gpxc", async (params) => {
+  maplibregl.addProtocol("gpxc", async (params, abort) => {
     const url = params.url.slice(SCHEME.length);
+    // Kaydırırken vazgeçilen karolar indirilmez (sıra görünen karolara kalsın).
+    if (abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
     const buf = await invoke<ArrayBuffer>("tile", { url });
     if (params.type === "json") return { data: JSON.parse(new TextDecoder().decode(buf)) };
     if (params.type === "string") return { data: new TextDecoder().decode(buf) };
@@ -51,11 +53,21 @@ const bbox3857 = (x: number, y: number, z: number) => {
   return [x * size - o, o - (y + 1) * size, (x + 1) * size - o, o - y * size].join(",");
 };
 
+const quadkey = (x: number, y: number, z: number) => {
+  let q = "";
+  for (let i = z; i > 0; i--) {
+    const m = 1 << (i - 1);
+    q += String((x & m ? 1 : 0) + (y & m ? 2 : 0));
+  }
+  return q;
+};
+
 /** Görünen alanın, açık katmanlarda şu anki yakınlaştırmadan `extra` düzey
- * ötesine kadarki karo adresleri. Toplu indirmeye kapalı sunucular atlanır. */
+ * ötesine kadarki karo adresleri. Toplu indirmeye kapalı sunucular atlanır.
+ * Düzey ve adres MapLibre'nin isteyeceğiyle aynı hesaplanır (karo boyutu,
+ * raster yuvarlama, alt alan adı seçimi): yoksa çevrimdışı önbellekte bulunmaz. */
 export function visibleTileUrls(map: maplibregl.Map, extra: number): { urls: string[]; skipped: string[]; capped: boolean } {
   const b = map.getBounds();
-  const z0 = Math.max(0, Math.floor(map.getZoom()));
   const visible = new Set(
     map
       .getStyle()
@@ -63,36 +75,55 @@ export function visibleTileUrls(map: maplibregl.Map, extra: number): { urls: str
       .map((l) => (l as { source: string }).source),
   );
   if (map.getTerrain()) visible.add(map.getTerrain()!.source);
-  const urls: string[] = [];
+  const urls = new Set<string>();
+  const seen = new Set<string>();
   const skipped = new Set<string>();
   let capped = false;
   for (const id of visible) {
-    const src = map.getSource(id) as (maplibregl.Source & { tiles?: string[]; maxzoom?: number }) | undefined;
-    const tpl = src?.tiles?.[0];
-    if (!tpl) continue;
-    if (NO_BULK.test(tpl)) {
-      skipped.add(new URL(tpl.replace(/\{[^}]+\}/g, "0")).host);
+    const src = map.getSource(id) as
+      | (maplibregl.Source & { tiles?: string[]; tileSize?: number; minzoom?: number; maxzoom?: number })
+      | undefined;
+    const tiles = src?.tiles;
+    if (!src || !tiles?.length) continue;
+    // Aynı karolar iki kaynakta (ör. arazi ve gölgelendirme) bir kez sayılır.
+    const key = tiles.join(" ");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (NO_BULK.test(tiles[0])) {
+      skipped.add(new URL(tiles[0].replace(/\{[^}]+\}/g, "0")).host);
       continue;
     }
-    const zMax = Math.min(z0 + extra, src?.maxzoom ?? 18);
-    for (let z = Math.min(z0, zMax); z <= zMax; z++) {
-      const [x0, x1] = [lon2x(b.getWest(), z), lon2x(b.getEast(), z)];
-      const [y0, y1] = [lat2y(b.getNorth(), z), lat2y(b.getSouth(), z)];
-      for (let x = x0; x <= x1; x++)
+    const raster = src.type === "raster" || src.type === "raster-dem";
+    const z = map.getZoom() + Math.log2(512 / (src.tileSize ?? 512));
+    const zMin = src.minzoom ?? 0;
+    const zMax = src.maxzoom ?? 18;
+    const base = Math.max(zMin, Math.min(zMax, raster ? Math.round(z) : Math.floor(z)));
+    const top = Math.min(base + extra, zMax);
+    for (let zz = base; zz <= top && !capped; zz++) {
+      const n = 2 ** zz;
+      const wrapX = b.getEast() - b.getWest() >= 360;
+      const [x0, x1] = wrapX ? [0, n - 1] : [lon2x(b.getWest(), zz), lon2x(b.getEast(), zz)];
+      const [y0, y1] = [Math.max(0, lat2y(b.getNorth(), zz)), Math.min(n - 1, lat2y(b.getSouth(), zz))];
+      for (let xr = x0; xr <= x1 && !capped; xr++) {
+        // Tarih değiştirme çizgisinin ötesi dünyanın öbür ucundaki karolardır.
+        const x = ((xr % n) + n) % n;
         for (let y = y0; y <= y1; y++) {
-          if (urls.length >= MAX_TILES) {
+          if (urls.size >= MAX_TILES) {
             capped = true;
             break;
           }
-          urls.push(
+          const tpl = tiles[(x + y) % tiles.length];
+          urls.add(
             tpl
-              .replace("{z}", String(z))
-              .replace("{x}", String(x))
-              .replace("{y}", String(y))
-              .replace("{bbox-epsg-3857}", bbox3857(x, y, z)),
+              .replace(/\{z\}/g, String(zz))
+              .replace(/\{x\}/g, String(x))
+              .replace(/\{y\}/g, String(y))
+              .replace(/\{quadkey\}/g, quadkey(x, y, zz))
+              .replace(/\{bbox-epsg-3857\}/g, bbox3857(x, y, zz)),
           );
         }
+      }
     }
   }
-  return { urls, skipped: [...skipped], capped };
+  return { urls: [...urls], skipped: [...skipped], capped };
 }

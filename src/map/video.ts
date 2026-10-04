@@ -20,7 +20,8 @@ export interface VideoOptions {
 
 /** Tarayıcının kaydedebildiği ilk biçim (WebKit MP4, Chromium WebM/MP4). */
 export function videoMime(): string | null {
-  if (typeof MediaRecorder === "undefined") return null;
+  // Tuvalden akış da gerekir (bazı WebKit sürümlerinde yok).
+  if (typeof MediaRecorder === "undefined" || !("captureStream" in HTMLCanvasElement.prototype)) return null;
   const list = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
   return list.find((m) => MediaRecorder.isTypeSupported(m)) ?? null;
 }
@@ -60,64 +61,90 @@ export async function recordTrip(map: maplibregl.Map, d: Detail, o: VideoOptions
 
   const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
   map.fitBounds(bounds, { padding: o.padding, duration: 0, maxZoom: 15 });
-  map.setPaintProperty("video-trail", "line-color", o.color);
-  map.setPaintProperty("video-head", "circle-color", o.color);
-  for (const id of LAYERS) map.setLayoutProperty(id, "visibility", "visible");
-  setData(map, "video-trail", EMPTY);
-  setData(map, "video-head", EMPTY);
-  await new Promise<void>((r) => {
-    map.once("idle", () => r());
-    map.triggerRepaint();
-  });
-
-  const src = map.getCanvas();
-  const out = document.createElement("canvas");
-  // Kodlayıcılar çift boyut ister.
-  out.width = src.width - (src.width % 2);
-  out.height = src.height - (src.height % 2);
-  const ctx = out.getContext("2d")!;
-  const scale = out.width / src.clientWidth || 1;
-  let k = 0;
-  const overlay = () => {
-    ctx.drawImage(src, 0, 0);
-    maskCanvas(ctx, (p) => map.project(p), o.zones, scale);
-    const i = idx[k];
-    const pad = 14 * scale;
-    ctx.font = `600 ${16 * scale}px system-ui, sans-serif`;
-    const line1 = o.title;
-    const line2 = `${d.time[i] != null ? fmtTimestamp(d.time[i], o.tz) + " · " : ""}${fmtDistance(d.dist[i])}`;
-    const w = Math.max(ctx.measureText(line1).width, ctx.measureText(line2).width) + 2 * pad;
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.fillRect(pad, pad, w, 52 * scale);
-    ctx.fillStyle = "#1d2327";
-    ctx.fillText(line1, 2 * pad, pad + 22 * scale);
-    ctx.font = `${14 * scale}px system-ui, sans-serif`;
-    ctx.fillText(line2, 2 * pad, pad + 42 * scale);
-    ctx.font = `${11 * scale}px system-ui, sans-serif`;
-    ctx.fillStyle = "rgba(0,0,0,0.55)";
-    ctx.fillText("GPXer", out.width - 50 * scale, out.height - 8 * scale);
-  };
-  const onRender = () => overlay();
-  map.on("render", onRender);
-
-  const stream = out.captureStream(FPS);
-  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 });
+  let rec: MediaRecorder | null = null;
+  let stopped: Promise<void> = Promise.resolve();
   const chunks: Blob[] = [];
-  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  const stopped = new Promise<void>((r) => (rec.onstop = () => r()));
-  rec.start(1000);
-
-  const dur = o.seconds * 1000;
-  const t0 = performance.now();
+  const onRender = () => overlay();
+  // Kurulumda bir adım hata verse de katmanlar ve dinleyici geri alınır.
+  const cleanup = () => {
+    map.off("render", onRender);
+    for (const id of LAYERS) map.setLayoutProperty(id, "visibility", "none");
+    setData(map, "video-trail", EMPTY);
+    setData(map, "video-head", EMPTY);
+  };
+  let overlay = () => {};
   try {
+    map.setPaintProperty("video-trail", "line-color", o.color);
+    map.setPaintProperty("video-head", "circle-color", o.color);
+    for (const id of LAYERS) map.setLayoutProperty(id, "visibility", "visible");
+    setData(map, "video-trail", EMPTY);
+    setData(map, "video-head", EMPTY);
+    await new Promise<void>((r) => {
+      map.once("idle", () => r());
+      map.triggerRepaint();
+    });
+
+    const src = map.getCanvas();
+    const out = document.createElement("canvas");
+    // Kodlayıcılar çift boyut ister.
+    out.width = src.width - (src.width % 2);
+    out.height = src.height - (src.height % 2);
+    const ctx = out.getContext("2d")!;
+    const scale = out.width / src.clientWidth || 1;
+    let k = 0;
+    overlay = () => {
+      ctx.drawImage(src, 0, 0);
+      maskCanvas(ctx, (p) => map.project(p), o.zones, scale);
+      const i = idx[k];
+      const pad = 14 * scale;
+      ctx.font = `600 ${16 * scale}px system-ui, sans-serif`;
+      const line1 = o.title;
+      const line2 = `${d.time[i] != null ? fmtTimestamp(d.time[i], o.tz) + " · " : ""}${fmtDistance(d.dist[i])}`;
+      const w = Math.max(ctx.measureText(line1).width, ctx.measureText(line2).width) + 2 * pad;
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillRect(pad, pad, w, 52 * scale);
+      ctx.fillStyle = "#1d2327";
+      ctx.fillText(line1, 2 * pad, pad + 22 * scale);
+      ctx.font = `${14 * scale}px system-ui, sans-serif`;
+      ctx.fillText(line2, 2 * pad, pad + 42 * scale);
+      ctx.font = `${11 * scale}px system-ui, sans-serif`;
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillText("GPXer", out.width - 50 * scale, out.height - 8 * scale);
+    };
+    map.on("render", onRender);
+
+    const stream = out.captureStream(FPS);
+    const r = new MediaRecorder(stream, {
+      mimeType: mime,
+      videoBitsPerSecond: 6_000_000,
+    });
+    rec = r;
+    r.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    // Kodlayıcı hata verirse de beklenen durma gelir (takılı kalmasın).
+    stopped = new Promise<void>((res) => {
+      r.onstop = () => res();
+      r.onerror = () => res();
+    });
+    r.start(1000);
+
+    const dur = o.seconds * 1000;
+    const t0 = performance.now();
     await new Promise<void>((resolve, reject) => {
       const frame = (now: number) => {
         if (o.signal.aborted) return reject(new DOMException("İptal edildi", "AbortError"));
         const p = Math.min(1, (now - t0) / dur);
         const v = p * total;
         while (k < idx.length - 1 && clock[k + 1] <= v) k++;
-        setData(map, "video-trail", { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords.slice(0, k + 1) } });
-        setData(map, "video-head", { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: coords[k] } });
+        setData(map, "video-trail", {
+          type: "Feature",
+          properties: {},
+          geometry: { type: "LineString", coordinates: coords.slice(0, k + 1) },
+        });
+        setData(map, "video-head", {
+          type: "Feature",
+          properties: {},
+          geometry: { type: "Point", coordinates: coords[k] },
+        });
         map.triggerRepaint();
         o.onProgress(p);
         if (now - t0 >= dur + HOLD_MS) resolve();
@@ -126,12 +153,9 @@ export async function recordTrip(map: maplibregl.Map, d: Detail, o: VideoOptions
       requestAnimationFrame(frame);
     });
   } finally {
-    rec.stop();
+    if (rec && rec.state !== "inactive") rec.stop();
     await stopped;
-    map.off("render", onRender);
-    for (const id of LAYERS) map.setLayoutProperty(id, "visibility", "none");
-    setData(map, "video-trail", EMPTY);
-    setData(map, "video-head", EMPTY);
+    cleanup();
   }
   return new Blob(chunks, { type: mime.split(";")[0] });
 }

@@ -133,7 +133,7 @@ function StopList({
                     {fmtTime(st.start, tz).slice(0, 5)}
                   </span>
                   <span>{fmtDuration(st.durationMs)}</span>
-                  {place && <strong className="stop-name">{place.name}</strong>}
+                  {place && <strong className="stop-name" data-no-i18n>{place.name}</strong>}
                 </button>
                 <button
                   className="icon-btn tiny"
@@ -196,11 +196,13 @@ function WeatherList({ path, detail, tz }: { path: string; detail: Detail | null
   const load = async () => {
     if (!detail) return;
     setState({ path, loading: true });
+    // Geç gelen yanıt bu arada açılan başka kaydın durumunu ezmesin.
+    const mine = (next: NonNullable<typeof state>) => setState((s) => (s?.path === path ? next : s));
     try {
       const w = await weatherFor(path, detail);
-      setState({ path, days: weatherDays(w, tz) });
+      mine({ path, days: weatherDays(w, tz) });
     } catch (e) {
-      setState({ path, error: String(e) });
+      mine({ path, error: String(e) });
     }
   };
   return (
@@ -372,7 +374,7 @@ export function DetailPanel(p: Props) {
       <header className="detail-header">
         <ColorPicker color={p.entry.color} onColor={p.onColor} />
         <div className="detail-title">
-          <h2>{s.name || s.fileName}</h2>
+          <h2 data-no-i18n>{s.name || s.fileName}</h2>
           <div className="muted">
             {fmtDateTime(st.startTime, tz)}
             {tz && ` (${tz})`} · {s.fileName} · {fmtBytes(s.fileSize)} · {fmtNumber(st.pointCount)} nokta

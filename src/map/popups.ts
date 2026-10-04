@@ -18,7 +18,7 @@ export function flightPopupHtml(f: Flight, s: FileSummary | undefined): string {
   return (
     `<strong>✈ ${escapeHtml(endName(f, "from"))} → ${escapeHtml(endName(f, "to"))}</strong><br>` +
     `<span class="popup-time">${fmtTimestamp(f.start, tz)}</span> · ${fmtDistance(f.distanceM)} · ${fmtDuration(f.durationMs)}` +
-    (s ? `<br><span class="muted">${escapeHtml(s.name || s.fileName)} · tıklayınca seçilir</span>` : "")
+    (s ? `<br><span class="muted"><span data-no-i18n>${escapeHtml(s.name || s.fileName)}</span> · tıklayınca seçilir</span>` : "")
   );
 }
 
@@ -38,7 +38,7 @@ export function escapeHtml(s: string) {
 export function detailPopupHtml(s: FileSummary, d: Detail, i: number): string {
   const tz = tzOf(s);
   const rows: string[] = [
-    `<strong>${escapeHtml(s.name || s.fileName)}</strong>`,
+    `<strong data-no-i18n>${escapeHtml(s.name || s.fileName)}</strong>`,
     `<span class="popup-time">${fmtTimestamp(d.time[i], tz)}</span>`,
     `${fmtDistance(d.dist[i])} · ${fmtUnit(d.ele[i], "m")} · ${fmtKmh(d.speed[i])}`,
   ];
@@ -54,7 +54,7 @@ export function detailPopupHtml(s: FileSummary, d: Detail, i: number): string {
 /** Seçili olmayan izin bilgi kutusu: imlecin altındaki an (varsa) ve uzunluk. */
 export function trackPopupHtml(s: FileSummary, t: number | null, hits: number): string {
   return (
-    `<strong>${escapeHtml(s.name || s.fileName)}</strong><br>` +
+    `<strong data-no-i18n>${escapeHtml(s.name || s.fileName)}</strong><br>` +
     (t != null
       ? `<span class="popup-time">${fmtTimestamp(t, tzOf(s))}</span><br>${fmtDistance(s.stats.distanceM)}`
       : `${fmtDate(s.stats.startTime, tzOf(s))} · ${fmtDistance(s.stats.distanceM)}`) +
@@ -65,7 +65,7 @@ export function trackPopupHtml(s: FileSummary, t: number | null, hits: number): 
 /** Üst üste binen izlerden seçim penceresindeki bir satır. */
 export function chooserItemHtml(f: FileEntry): string {
   const s = f.summary;
-  return `<span class="swatch" style="background:${f.color}"></span><span><strong>${escapeHtml(
+  return `<span class="swatch" style="background:${f.color}"></span><span><strong data-no-i18n>${escapeHtml(
     s.name || s.fileName,
   )}</strong><br><small>${fmtDate(s.stats.startTime, tzOf(s))} · ${fmtDistance(s.stats.distanceM)}</small></span>`;
 }
@@ -73,9 +73,9 @@ export function chooserItemHtml(f: FileEntry): string {
 /** Fotoğraf kutusundaki bilgi: ad, çekim zamanı, eşleşen kayıt, konumun kaynağı. */
 export function photoInfoHtml(ph: PlacedPhoto, sum: FileSummary | undefined): string {
   return (
-    `<strong>${escapeHtml(ph.name)}</strong>` +
+    `<strong data-no-i18n>${escapeHtml(ph.name)}</strong>` +
     (ph.at != null ? `<br><span class="popup-time">${fmtTimestamp(ph.at, tzOf(sum))}</span>` : "") +
-    (sum ? `<br><span class="muted">${escapeHtml(sum.name || sum.fileName)}</span>` : "") +
+    (sum ? `<br><span class="muted" data-no-i18n>${escapeHtml(sum.name || sum.fileName)}</span>` : "") +
     `<br><small class="muted">${ph.fromTrack ? "Konum izden (çekim zamanına göre)" : "Konum fotoğrafın GPS bilgisinden"}</small>`
   );
 }

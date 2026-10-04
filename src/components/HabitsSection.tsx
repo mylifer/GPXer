@@ -53,7 +53,7 @@ export function HabitsSection({ files, from, to, onOpen }: { files: FileEntry[];
             {" "}
             · en uzun molasız ({">"}15 dk mola vermeden):{" "}
             <button className="link" onClick={() => onOpen(rec.summary.path)}>
-              <strong>{fmtDuration(h.longest.ms)}</strong> · {fmtDate(h.longest.start, tzOf(rec.summary))} · {rec.summary.name || rec.summary.fileName}
+              <strong>{fmtDuration(h.longest.ms)}</strong> · {fmtDate(h.longest.start, tzOf(rec.summary))} · <span data-no-i18n>{rec.summary.name || rec.summary.fileName}</span>
             </button>
           </>
         )}

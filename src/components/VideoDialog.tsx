@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { videoMime } from "../map/video";
 import { Modal } from "./Modal";
 
@@ -15,6 +15,8 @@ export function VideoDialog({
   const [seconds, setSeconds] = useState(30);
   const [progress, setProgress] = useState<number | null>(null);
   const abort = useRef<AbortController | null>(null);
+  // Pencere başka nedenle kapanırsa (kayıt değişti) kayıt da durur.
+  useEffect(() => () => abort.current?.abort(), []);
   const mime = videoMime();
   const ext = mime?.includes("mp4") ? "MP4" : "WebM";
   const start = async () => {

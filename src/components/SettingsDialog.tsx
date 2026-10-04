@@ -22,7 +22,8 @@ interface Props {
   settings: Settings;
   /** Arayüz tercihleri (bu pencerede düzenlenenler). */
   prefs: Prefs;
-  onSave(s: Settings, prefs: Partial<Prefs>, places: NamedPlace[]): void;
+  /** Kayıt bitince çözülür (dil değişince sayfa ondan sonra yenilenir). */
+  onSave(s: Settings, prefs: Partial<Prefs>, places: NamedPlace[]): Promise<void>;
   /** Adlandırılmış yerler (ad, yarıçap düzenlenir, silinir). */
   places: NamedPlace[];
   onPickFolder(): Promise<string | null>;
@@ -66,11 +67,9 @@ export function SettingsDialog({
 
   const save = () => {
     // Dil değişince arayüz yeniden yüklenir (çeviri ve biçimler açılışta kurulur).
-    if (language !== lang) {
-      saveLang(language);
-      setTimeout(() => window.location.reload(), 300);
-    }
-    onSave(
+    const reload = language !== lang;
+    if (reload) saveLang(language);
+    const saved = onSave(
       {
         stats: {
           movingSpeedMs: Math.max(0, movingKmh) / 3.6,
@@ -86,6 +85,7 @@ export function SettingsDialog({
         .map((x) => ({ ...x, name: x.name.trim(), radiusM: Math.max(10, Math.min(5000, Math.round(x.radiusM) || 150)) }))
         .filter((x) => x.name),
     );
+    if (reload) void saved.finally(() => window.location.reload());
   };
 
   return (

@@ -17,4 +17,25 @@ describe("deviation", () => {
     expect(d.offShare).toBeLessThan(0.4);
     expect(deviation(plan, plan, 200).maxM).toBeLessThan(1);
   });
+
+  it("finds the nearest segment at high latitudes", () => {
+    // 65°K: doğu-batı hücreleri kuzey-güneyin yarısından kısa; sonuç kaba aramayla aynı olmalı.
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const plan: [number, number][] = Array.from({ length: 12 }, () => [20 + rnd() * 0.6, 65 + rnd() * 0.3]);
+    const real: [number, number][] = Array.from({ length: 200 }, () => [20 + rnd() * 0.6, 65 + rnd() * 0.3]);
+    const k = (lat: number) => 111_320 * Math.cos((lat * Math.PI) / 180);
+    const seg = (p: [number, number], a: [number, number], b: [number, number]) => {
+      const [ax, ay, bx, by] = [(a[0] - p[0]) * k(p[1]), (a[1] - p[1]) * 110_574, (b[0] - p[0]) * k(p[1]), (b[1] - p[1]) * 110_574];
+      const [dx, dy] = [bx - ax, by - ay];
+      const len = dx * dx + dy * dy;
+      const t = len > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len)) : 0;
+      return Math.hypot(ax + t * dx, ay + t * dy);
+    };
+    for (const p of real) {
+      let best = Infinity;
+      for (let i = 1; i < plan.length; i++) best = Math.min(best, seg(p, plan[i - 1], plan[i]));
+      expect(deviation(plan, [p], 1e9).maxM).toBeCloseTo(best, 0);
+    }
+  });
 });

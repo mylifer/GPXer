@@ -87,7 +87,7 @@ export function RouteSearchDialog({
                       {d === best && legs.length > 1 && <span className="badge">en hızlı</span>}
                     </td>
                     <td>{fmtDistance(l.distanceM)}</td>
-                    <td>{s?.name || s?.fileName}</td>
+                    <td data-no-i18n>{s?.name || s?.fileName}</td>
                   </tr>
                 );
               })}

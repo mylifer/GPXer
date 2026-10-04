@@ -21,6 +21,7 @@ import {
   flightsGeoJSON,
   gapsGeoJSON,
   heatGeoJSON,
+  heatStep,
   hotspotsGeoJSON,
   metricDomain,
   rangeGeoJSON,
@@ -87,7 +88,13 @@ export function useTrackLayers(
   }, [files, selected]);
 
   useEffect(() => {
-    whenReady((map) => setData(map, "heat", heatmap ? heatGeoJSON(files, win) : EMPTY));
+    whenReady((map) => {
+      if (!heatmap) return setData(map, "heat", EMPTY);
+      // Seyrek noktalar daha ağır sayılır: görünüm nokta aralığından bağımsız.
+      const step = heatStep(files, win);
+      map.setPaintProperty("heat", "heatmap-weight", (0.5 * step) / 40);
+      setData(map, "heat", heatGeoJSON(files, win, step));
+    });
   }, [files, heatmap, win]);
   useEffect(() => {
     whenReady((map) => {
@@ -498,6 +505,7 @@ export function useBookmarkMarkers(map: maplibregl.Map | null, marks: Bookmark[]
       el.className = "bookmark-pin";
       el.textContent = b.wish ? "⭐" : "📌";
       el.title = b.note ? `${b.name}\n${b.note}` : b.name;
+      el.dataset.noI18n = "";
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         onClick(b);

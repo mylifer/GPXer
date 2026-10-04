@@ -12,7 +12,7 @@ export function usePlaces(say: (msg: string) => void, fail: (message: string) =>
   const updatePlaces = useCallback(
     (next: NamedPlace[]) => {
       setPlacesState(next);
-      savePlaces(next).catch((e) => fail(`Yerler kaydedilemedi: ${e}`));
+      return savePlaces(next).catch((e) => fail(`Yerler kaydedilemedi: ${e}`));
     },
     [fail],
   );

@@ -37,15 +37,25 @@ export function maskCanvas(
   scale: number,
 ) {
   for (const z of zones) {
+    // Bölgenin kenarı ekrana izdüşürülüp çokgen olarak örtülür: harita eğikken
+    // (3B arazi) daire elipse dönüşür; yalnız kuzeye bakan yarıçap yetmez.
+    const [lon, lat] = z.center;
+    const dLat = (z.radiusM * 1.1) / 110_574;
+    const dLon = dLat / Math.max(0.01, Math.cos((lat * Math.PI) / 180));
+    const edge = Array.from({ length: 32 }, (_, i) => {
+      const a = (i / 32) * Math.PI * 2;
+      return project([lon + dLon * Math.sin(a), lat + dLat * Math.cos(a)]);
+    });
     const c = project(z.center);
-    // Yarıçap kuzeydeki bir noktanın ekrandaki uzaklığından.
-    const north = project([z.center[0], z.center[1] + z.radiusM / 110_574]);
-    const r = Math.hypot(north.x - c.x, north.y - c.y) * scale;
     ctx.save();
     ctx.beginPath();
-    ctx.arc(c.x * scale, c.y * scale, Math.max(r, 6 * scale), 0, Math.PI * 2);
+    edge.forEach((p, i) => (i ? ctx.lineTo(p.x * scale, p.y * scale) : ctx.moveTo(p.x * scale, p.y * scale)));
+    ctx.closePath();
+    // Çok uzaktan bakılınca da görünür kalsın.
+    ctx.moveTo((c.x + 6) * scale, c.y * scale);
+    ctx.arc(c.x * scale, c.y * scale, 6 * scale, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(190,190,190,0.96)";
-    ctx.fill();
+    ctx.fill("nonzero");
     ctx.restore();
   }
 }

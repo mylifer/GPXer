@@ -108,6 +108,8 @@ function translateNode(n: Node) {
   if (n.nodeType !== Node.ELEMENT_NODE) return;
   const el = n as Element;
   if (SKIP.has(el.tagName) && el.tagName !== "INPUT" && el.tagName !== "TEXTAREA") return;
+  // Kullanıcı metni (kayıt, yer, etiket adları) çevrilmez.
+  if (el.closest("[data-no-i18n]")) return;
   for (const a of ATTRS) {
     const v = el.getAttribute(a);
     if (v) {

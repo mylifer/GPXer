@@ -81,7 +81,7 @@ export function MetaEditor({ summary, meta, allTags, onChange }: Props) {
       <div className="tag-box" role="group" aria-label="Etiketler">
         {meta.tags.map((t) => (
           <span key={t} className="tag">
-            {t}
+            <span data-no-i18n>{t}</span>
             <button
               className="tag-x"
               onClick={() => onChange({ ...meta, tags: meta.tags.filter((x) => x !== t) })}

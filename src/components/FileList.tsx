@@ -85,7 +85,7 @@ const Row = memo(function Row({
               ⧉
             </span>
           )}
-          {s.name || s.fileName}
+          <span data-no-i18n>{s.name || s.fileName}</span>
         </div>
         <div className="file-meta">
           <span

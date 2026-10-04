@@ -32,7 +32,7 @@ export function PlaceStatsSection({ files, places, from, to }: { files: FileEntr
             {st.named.map((p) => (
               <tr key={`n${p.name}`}>
                 <td>
-                  <strong>{p.name}</strong>
+                  <strong data-no-i18n>{p.name}</strong>
                 </td>
                 <td>{fmtNumber(p.days)}</td>
                 <td>{fmtNumber(p.visits)}</td>

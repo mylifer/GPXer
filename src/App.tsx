@@ -82,6 +82,9 @@ import { useKeyboard } from "./hooks/useKeyboard";
  * birleştirilip arayüze bağlanır. Kancaların çağrılma sırası efektlerin
  * çalışma sırasını belirler; sırayı değiştirirken dikkat.
  */
+/** Bir pencere (Modal) ya da komut paleti açık mı. */
+const anyModalOpen = () => !!document.querySelector(".modal-backdrop, .palette");
+
 export default function App() {
   const { prefs, prefsRef, persistedSel, up } = usePrefs();
   const [baseLayer, setBaseLayer] = useBaseLayer();
@@ -93,6 +96,10 @@ export default function App() {
   const [dialog, setDialog] = useState<Dialog>(null);
   /** Rota planlama (kapalıyken null). */
   const [plan, setPlan] = useState<PlanState | null>(null);
+  const openPlan = useCallback(() => {
+    setEditMode(false);
+    setPlan((s) => s ?? { points: [], profile: "car", route: null, busy: false, error: null });
+  }, []);
   /** Düzenlenen (ya da yeni) yer imi. */
   const [editMark, setEditMark] = useState<{ mark: Bookmark; isNew: boolean } | null>(null);
   /** Güzergâh aramasının A ve B noktaları (haritada sağ tık menüsünden). */
@@ -249,23 +256,37 @@ export default function App() {
     },
     [patchFiles, fail],
   );
+  // Kayıt yerinde değişince eski ayrıntı yeni ayrıntı gelene dek düzenlemede
+  // kullanılmaz: eski dizinler yeni dosyada başka noktaları gösterir.
+  const staleDetail = useRef(false);
+  const editBusy = useRef(false);
+  useEffect(() => {
+    staleDetail.current = false;
+  }, [detail]);
   const applyRewrite = useCallback(
     (path: string, r: RewriteResult) => {
+      staleDetail.current = true;
+      setRange(null);
       replaceSummary(r.result);
       setRewritten((m) => ({ ...m, [path]: [...(m[path] ?? []), r.previous] }));
       setDetailRev((x) => x + 1);
     },
-    [replaceSummary],
+    [replaceSummary, setRange],
   );
   /** Nokta düzenleme (silme, taşıma): yerinde, geri alınabilir. */
   const editPoints = useCallback(
     async (path: string, run: () => Promise<RewriteResult>, msg: string) => {
+      // Çift tıklama, basılı tutulan Delete: önceki işlem ve yeni ayrıntı beklenir.
+      if (editBusy.current || staleDetail.current) return;
+      editBusy.current = true;
       try {
         applyRewrite(path, await run());
         setEditIdx(null);
         say(`${msg} “Düzeltmeyi geri al” ile geri alınabilir.`);
       } catch (e) {
         fail(String(e));
+      } finally {
+        editBusy.current = false;
       }
     },
     [applyRewrite, say, fail],
@@ -296,6 +317,8 @@ export default function App() {
       const prev = stack?.[stack.length - 1];
       if (!prev) return;
       try {
+        staleDetail.current = true;
+        setRange(null);
         replaceSummary(await undoRewrite(path, prev));
         setRewritten((m) => {
           const n = { ...m };
@@ -310,24 +333,33 @@ export default function App() {
         fail(String(e));
       }
     },
-    [rewritten, replaceSummary, say, fail],
+    [rewritten, replaceSummary, setRange, say, fail],
   );
   // Nokta düzenlemede Delete seçili noktayı siler; kayıt değişince seçim kalkar.
   useEffect(() => {
     setEditIdx(null);
+    setEditMode(false);
   }, [selected]);
   useEffect(() => {
     if (!editMode || editIdx == null || !detail || !selected) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest("input, textarea, select, [contenteditable]")) return;
+      if (t.closest("input, textarea, select, [contenteditable]") || anyModalOpen()) return;
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        editPoints(selected, () => deletePoints(selected, detail.idx[editIdx], detail.idx[editIdx]), "Nokta silindi.");
-      } else if (e.key === "Escape") setEditIdx(null);
+        if (e.repeat) return;
+        const i = detail.idx[editIdx];
+        if (i == null) return;
+        editPoints(selected, () => deletePoints(selected, i, i), "Nokta silindi.");
+      } else if (e.key === "Escape") {
+        // Yalnızca nokta seçimi kalkar; genel Esc (kaydı kapatma) çalışmaz.
+        e.preventDefault();
+        setEditIdx(null);
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Yakalama evresinde: genel kısayollardan önce çalışır.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [editMode, editIdx, detail, selected, editPoints]);
   // ---------- Çevrimdışı harita: görünen alanı indir ----------
   const downloadArea = useCallback(async () => {
@@ -437,7 +469,12 @@ export default function App() {
       const dest = await pickSavePath(`GPXer-yedek-${day}.zip`, [{ name: "GPXer yedeği", extensions: ["zip"] }]);
       if (!dest) return;
       const path = /\.zip$/i.test(dest) ? dest : `${dest}.zip`;
-      const r = await backupLibrary(path, pw || null).catch(() => backupLibrary(dest, pw || null));
+      // Uzantı eklenen yol onaylı değilse seçilen yol denenir; hata olursa ilk hata gösterilir.
+      const r = await backupLibrary(path, pw || null).catch((e) =>
+        path === dest
+          ? Promise.reject(e)
+          : backupLibrary(dest, pw || null).catch(() => Promise.reject(e)),
+      );
       say(`${fmtNumber(r.records)} kayıt ${pw ? "parolayla şifrelenerek " : ""}yedeklendi (${fmtBytes(r.bytes)}).`);
     } catch (e) {
       fail(String(e));
@@ -534,7 +571,9 @@ export default function App() {
   }, [planKey]);
   const savePlan = useCallback(async () => {
     const r = plan?.route;
-    if (!plan || !r) return;
+    if (!plan || !r || plan.busy) return;
+    // Kaydedilirken düğme kapalı: çift tıklama iki kayıt eklemesin.
+    setPlan((s) => s && { ...s, busy: true });
     const label = { car: "araç", bike: "bisiklet", foot: "yaya" }[plan.profile];
     const name = `Plan (${label}) ${fmtDistance(r.distanceM)} · ${isoToTr(isoOf(new Date()))}`;
     const pts = r.coords.map(([lat, lon]) => `<trkpt lat="${lat.toFixed(6)}" lon="${lon.toFixed(6)}"/>`).join("\n");
@@ -552,10 +591,12 @@ ${pts}
         say("Plan kütüphaneye eklendi; GPX olarak dışa aktarılabilir ya da gerçek kayıtla karşılaştırılabilir.");
         setPlan(null);
         selectAndZoom(added[0].summary.path);
+        return;
       }
     } catch (e) {
       fail(String(e));
     }
+    setPlan((s) => s && { ...s, busy: false });
   }, [plan, addResults, say, fail, selectAndZoom]);
 
   // ---------- Başlangıç, sürükle-bırak, menü, klavye ----------
@@ -575,7 +616,7 @@ ${pts}
   });
 
   useMenuHandlers({
-    palette: () => setPalette(true),
+    palette: () => !anyModalOpen() && setPalette(true),
     open_files: pickFiles,
     open_folder: pickFolder,
     close_all: closeAll,
@@ -616,7 +657,8 @@ ${pts}
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        setPalette(true);
+        // Açık bir pencerenin üstünde açılmaz (Esc arkadaki pencereyi kapatırdı).
+        if (!anyModalOpen()) setPalette(true);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -635,7 +677,7 @@ ${pts}
     add("İşlem", "day", "Gün akışı", () => setDialog("day"), undefined, "zaman çizelgesi timeline");
     add("İşlem", "goto", "Tarihe git (neredeydim?)", openGoTo, "G");
     if (duplicateGroups.length) add("İşlem", "dups", `Kopya kayıtlar (${duplicateGroups.length})`, () => setDialog("duplicates"));
-    add("İşlem", "plan", "Rota planla", () => setPlan((s) => s ?? { points: [], profile: "car", route: null, busy: false, error: null }), undefined, "yol tarifi güzergah");
+    add("İşlem", "plan", "Rota planla", () => openPlan(), undefined, "yol tarifi güzergah");
     add("İşlem", "bookmarks", "Yer imleri listesi", () => setDialog("bookmarks"), undefined, "gitmek istediklerim");
     add("İşlem", "offline", "Görünen alanı çevrimdışı için indir", downloadArea, undefined, "offline karo");
     add("İşlem", "fit", "Tümüne yakınlaştır", fitAll, `${MOD}+0`);
@@ -664,7 +706,10 @@ ${pts}
       add("Seçili", "sel-story", "Gezi hikâyesi (HTML)…", makeStory);
       add("Seçili", "sel-ele", "Yüksekliği düzelt", () => rewrite(s.path, "elevation"), undefined, "dem arazi");
       add("Seçili", "sel-snap", "Yola oturt", () => rewrite(s.path, "snap"), undefined, "harita eşleştirme");
-      add("Seçili", "sel-edit", "Noktaları düzenle", () => setEditMode(true));
+      add("Seçili", "sel-edit", "Noktaları düzenle", () => {
+        setPlan(null);
+        setEditMode(true);
+      });
     }
     for (const p of places) add("Yer", `place-${p.id}`, p.name, () => mapRef.current?.centerOn([p.lon, p.lat], 14), "adlandırılmış yer");
     for (const b of bookmarks.marks)
@@ -681,7 +726,32 @@ ${pts}
       );
     }
     return c;
-  }, [palette, prefs, selectedEntry, places, bookmarks.marks, shown, duplicateGroups]);
+  }, [
+    palette,
+    prefs,
+    selectedEntry,
+    places,
+    bookmarks.marks,
+    shown,
+    duplicateGroups,
+    backup,
+    restore,
+    downloadArea,
+    exportCsv,
+    exportPng,
+    exportSelectedGpx,
+    fitAll,
+    openGoTo,
+    pickFiles,
+    pickFolder,
+    rewrite,
+    makeStory,
+    selectAndZoom,
+    setBaseLayer,
+    up,
+    zoomTo,
+    setDialog,
+  ]);
   useKeyboard({
     rows,
     selected,
@@ -841,7 +911,7 @@ ${pts}
             photoTrack={makePhotoTracks}
             downloadArea={downloadArea}
             openBookmarks={() => setDialog("bookmarks")}
-            openPlan={() => setPlan((s) => s ?? { points: [], profile: "car", route: null, busy: false, error: null })}
+            openPlan={openPlan}
           />
 
           {plan && (
@@ -946,30 +1016,25 @@ ${pts}
             onExportGpx={exportSelectedGpx}
             onRewrite={(kind) => rewrite(selectedEntry.summary.path, kind)}
             onUndoRewrite={rewritten[selectedEntry.summary.path] ? () => undoRewriteOf(selectedEntry.summary.path) : undefined}
-            onDeleteRange={() =>
-              detail &&
-              range &&
-              editPoints(
-                selectedEntry.summary.path,
-                () => deletePoints(selectedEntry.summary.path, detail.idx[range[0]], detail.idx[range[1]]),
-                "Aralıktaki noktalar silindi.",
-              )
-            }
+            onDeleteRange={() => {
+              const a = range && detail?.idx[range[0]];
+              const b = range && detail?.idx[range[1]];
+              if (a == null || b == null) return;
+              editPoints(selectedEntry.summary.path, () => deletePoints(selectedEntry.summary.path, a, b), "Aralıktaki noktalar silindi.");
+            }}
             editMode={editMode}
             onEditMode={() => {
+              // Rota planlama ile nokta düzenleme birlikte açık olmaz (tek tıklama ikisine birden gider).
+              if (!editMode) setPlan(null);
               setEditMode((v) => !v);
               setEditIdx(null);
             }}
             editIdx={editIdx}
-            onDeletePoint={() =>
-              detail &&
-              editIdx != null &&
-              editPoints(
-                selectedEntry.summary.path,
-                () => deletePoints(selectedEntry.summary.path, detail.idx[editIdx], detail.idx[editIdx]),
-                "Nokta silindi.",
-              )
-            }
+            onDeletePoint={() => {
+              const i = editIdx != null ? detail?.idx[editIdx] : undefined;
+              if (i == null) return;
+              editPoints(selectedEntry.summary.path, () => deletePoints(selectedEntry.summary.path, i, i), "Nokta silindi.");
+            }}
             rewriting={rewriting?.path === selectedEntry.summary.path ? rewriting.kind : null}
             meta={meta[selectedEntry.summary.path] ?? EMPTY_META}
             allTags={allTags}
@@ -997,11 +1062,13 @@ ${pts}
             const r = await open({ directory: true, multiple: false });
             return typeof r === "string" ? r : null;
           }}
-          onSave={(s, patch, nextPlaces) => {
+          onSave={async (s, patch, nextPlaces) => {
             setDialog(null);
             up(patch);
-            applySettings(s);
-            if (JSON.stringify(nextPlaces) !== JSON.stringify(places)) updatePlaces(nextPlaces);
+            await Promise.all([
+              applySettings(s),
+              JSON.stringify(nextPlaces) !== JSON.stringify(places) ? updatePlaces(nextPlaces) : null,
+            ]);
           }}
           places={places}
           libraryCount={files.length}

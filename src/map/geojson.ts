@@ -69,9 +69,27 @@ export function waypointsGeoJSON(files: FileEntry[]): GeoJSON.FeatureCollection 
   return { type: "FeatureCollection", features };
 }
 
+/** Isı haritasındaki en çok nokta sayısı: büyük kütüphanede bellek taşmasın. */
+export const HEAT_MAX_POINTS = 250_000;
+
+/** Isı haritası nokta aralığı (m): en az 40 m; toplam iz uzunluğu büyükse
+ * nokta sayısı HEAT_MAX_POINTS'i aşmayacak kadar seyrek. */
+export function heatStep(files: FileEntry[], win: DateWindow | null): number {
+  let total = 0;
+  for (const f of files)
+    for (const line of geoOf(f, win).lines)
+      for (let j = 0; j + 1 < line.length; j++) {
+        const [x0, y0] = line[j];
+        const [x1r, y1] = line[j + 1];
+        const kx = 111_320 * Math.cos((y0 * Math.PI) / 180);
+        total += Math.hypot((nearLon(x1r, x0) - x0) * kx, (y1 - y0) * 110_574);
+      }
+  return Math.max(40, total / HEAT_MAX_POINTS);
+}
+
 /** Isı haritası için izleri eşit aralıklı noktalara böler; böylece virajlı
  * yerler (sadeleştirmede daha çok nokta kalır) olduğundan yoğun görünmez. */
-export function heatGeoJSON(files: FileEntry[], win: DateWindow | null, stepM = 40): GeoJSON.FeatureCollection {
+export function heatGeoJSON(files: FileEntry[], win: DateWindow | null, stepM = heatStep(files, win)): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   for (const f of files) {
     for (const line of geoOf(f, win).lines) {
