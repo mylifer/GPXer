@@ -13,6 +13,7 @@ mod rewrite;
 mod settings;
 mod snap;
 mod store;
+mod weather;
 
 use gpx_core::{Detail, Stats};
 use library::{is_track_file, Library, LoadResult, TrashItem};
@@ -426,6 +427,7 @@ pub fn run() {
             rewrite::undo_rewrite,
             snap::snap_to_roads,
             links::open_street_view,
+            weather::weather_at,
             take_pending_paths,
             library_files,
             remove_files,

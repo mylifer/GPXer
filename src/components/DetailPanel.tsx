@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { weatherDays, weatherFor, weatherLabel, type WeatherDay } from "../weather";
 import { fmtCo2, fmtFuel, fmtMoney, fuelFor, type FuelPrefs } from "../fuel";
 import { nightsOf, type Night } from "../nights";
 import type { Detail, FileMeta, FileSummary, NamedPlace, RewriteKind, Stats, Stop } from "../api";
@@ -9,6 +10,7 @@ import type { Metric, TrackColorBy, XAxis } from "../prefs";
 import {
   fmtBytes,
   fmtDate,
+  fmtDecimal,
   fmtTime,
   fmtDateTime,
   fmtDistance,
@@ -179,6 +181,60 @@ function NightList({ nights, tz, onFocusPoint }: { nights: Night[]; tz: string |
       )}
     </div>
   );
+}
+
+/** Kaydın yapıldığı saatlerdeki hava durumu (istek üzerine, çevrimiçi). */
+function WeatherList({ path, detail, tz }: { path: string; detail: Detail | null; tz: string | undefined }) {
+  const [state, setState] = useState<{ path: string; days?: WeatherDay[]; error?: string; loading?: boolean } | null>(null);
+  const cur = state?.path === path ? state : null;
+  const load = async () => {
+    if (!detail) return;
+    setState({ path, loading: true });
+    try {
+      const w = await weatherFor(path, detail);
+      setState({ path, days: weatherDays(w, tz) });
+    } catch (e) {
+      setState({ path, error: String(e) });
+    }
+  };
+  return (
+    <div className="stop-list">
+      <button
+        className="stat stat-btn"
+        onClick={() => (cur?.days ? setState(null) : load())}
+        disabled={!detail || cur?.loading}
+        title="Kaydın yapıldığı saatlerdeki hava (Open-Meteo geçmiş hava arşivi; internet gerekir)"
+      >
+        <span>Hava durumu {cur?.days ? "▾" : "▸"}</span>
+        <strong>{cur?.loading ? "alınıyor…" : cur?.days ? weatherSummary(cur.days) : "göster"}</strong>
+      </button>
+      {cur?.error && <div className="error small-note">{cur.error}</div>}
+      {cur?.days && (
+        <ul>
+          {cur.days.map((d) => {
+            const [icon, label] = weatherLabel(d.code);
+            return (
+              <li key={d.day} title={label}>
+                <span className="stop-time">{isoToTr(d.day).slice(0, 5)}</span>
+                <span>
+                  {icon} {d.min != null ? `${Math.round(d.min)}–${Math.round(d.max!)} °C` : "—"}
+                  {d.precipMm >= 0.5 ? ` · ${fmtDecimal(d.precipMm, 0)} mm` : ""}
+                  {d.windMax != null ? ` · rüzgâr ≤ ${Math.round(d.windMax)} km/sa` : ""}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function weatherSummary(days: WeatherDay[]): string {
+  const t = days.flatMap((d) => (d.min != null ? [d.min, d.max!] : []));
+  if (!t.length) return "veri yok";
+  const [icon] = weatherLabel(Math.max(...days.map((d) => d.code ?? 0)));
+  return `${icon} ${Math.round(Math.min(...t))}–${Math.round(Math.max(...t))} °C`;
 }
 
 function StatCards({ st, children }: { st: Stats; children?: React.ReactNode }) {
@@ -521,6 +577,7 @@ export function DetailPanel(p: Props) {
             />
           )}
           {nights.length > 0 && <NightList nights={nights} tz={tz} onFocusPoint={p.onFocusPoint} />}
+          {s.stats.startTime != null && <WeatherList path={s.path} detail={d} tz={tz} />}
           {s.activity === "car" && st.distanceM > 0 && (() => {
             const u = fuelFor(st.distanceM, p.fuel);
             return (
