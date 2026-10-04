@@ -248,7 +248,7 @@ export const addGpxRecord = (name: string, gpx: string) => invoke<LoadResult>("a
 export const timeZoneAt = (lon: number, lat: number) => invoke<string | null>("time_zone_at", { lon, lat });
 /** Hesap dışa aktarma arşivini (Strava, Garmin Connect, Google Takeout zip) içe aktarır. */
 export const importArchive = (src: string) =>
-  invoke<{ results: LoadResult[]; source: string; typed: number }>("import_archive", { src });
+  invoke<{ results: LoadResult[]; source: string; typed: number; skipped: number }>("import_archive", { src });
 /** Kayıtlara tek seferde etiket ekler; değişen kayıtların yeni bilgileri döner. */
 export const addTag = (paths: string[], tag: string) => invoke<Record<string, FileMeta>>("add_tag", { paths, tag });
 interface SaveFilter {

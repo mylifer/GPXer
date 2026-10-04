@@ -67,7 +67,11 @@ fn aside_name(path: &Path) -> PathBuf {
 /// işler (`sync_all`), sonra yerine taşır. Elektrik kesilirse eski ya da yeni
 /// içerik kalır, boş dosya kalmaz.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension("tmp");
+    // Aynı dosyaya eşzamanlı iki yazma (ör. karo önbelleği) birbirinin geçici
+    // dosyasını bozmasın: geçici ad her yazmada farklı.
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("{}-{}.tmp", std::process::id(), seq));
     let mut f = std::fs::File::create(&tmp)?;
     f.write_all(bytes)?;
     f.sync_all()?;

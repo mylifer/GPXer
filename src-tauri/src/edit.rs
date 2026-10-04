@@ -134,6 +134,7 @@ pub(crate) async fn add_gpx_record(
 
 /// Konumun saat dilimi (IANA adı); EXIF'teki dilimsiz saatleri çevirmek için.
 #[tauri::command]
-pub(crate) fn time_zone_at(lon: f64, lat: f64) -> Option<String> {
-    crate::geo::time_zone_at(lon, lat)
+pub(crate) async fn time_zone_at(lon: f64, lat: f64) -> Result<Option<String>, String> {
+    // İlk çağrıda dilim veritabanı kurulur; arayüz donmasın diye ayrı iş parçacığında.
+    crate::run_blocking(move || crate::geo::time_zone_at(lon, lat)).await
 }

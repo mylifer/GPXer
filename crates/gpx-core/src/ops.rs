@@ -254,6 +254,7 @@ pub fn mask_zones(gpx: &mut Gpx, zones: &[(f64, f64, f64)]) -> usize {
     }
     gpx.tracks.retain(|t| !t.segments.is_empty());
     gpx.routes.retain(|t| !t.segments.is_empty());
+    let before = gpx.waypoints.len();
     gpx.waypoints.retain(|w| !inside(w.point.lat, w.point.lon));
-    removed
+    removed + before - gpx.waypoints.len()
 }

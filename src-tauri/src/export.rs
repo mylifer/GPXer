@@ -107,13 +107,20 @@ pub(crate) async fn export_as(
             return Err("Kayıt kendi üzerine kaydedilemez; başka bir yer seçin".into());
         }
         let zones = privacy_zones(&app.state::<PlacesStore>().all());
-        if format == "gpx" && zones.is_empty() {
-            return std::fs::copy(&src, &dest)
+        let copy = || {
+            std::fs::copy(&src, &dest)
                 .map(|_| ())
-                .map_err(|e| e.to_string());
+                .map_err(|e| e.to_string())
+        };
+        if format == "gpx" && zones.is_empty() {
+            return copy();
         }
         let (mut gpx, _) = gpx_core::read_gpx_file(Path::new(&src)).map_err(|e| e.to_string())?;
-        gpx_core::ops::mask_zones(&mut gpx, &zones);
+        // Bölgeye değmeyen kayıt GPX'e olduğu gibi kopyalanır: ayrıştırıcının
+        // tanımadığı alanlar (açıklama, uzantılar) kaybolmasın.
+        if gpx_core::ops::mask_zones(&mut gpx, &zones) == 0 && format == "gpx" {
+            return copy();
+        }
         let bytes = match format.as_str() {
             "gpx" => gpx_core::write::write_gpx(&gpx).into_bytes(),
             "kml" => gpx_core::formats::write_kml(&gpx).into_bytes(),

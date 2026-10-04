@@ -366,10 +366,11 @@ export function useFileLoader({
         const errs = r.results.filter((x) => x.status === "error");
         for (const e of errs.slice(0, 5)) if (e.status === "error") fail(e.message, e.path);
         say(
-          `${r.source || "Arşiv"}: ${fmtNumber(fresh.length)} kayıt eklendi` +
-            (dup ? `, ${fmtNumber(dup)} kayıt zaten kütüphanedeydi` : "") +
-            (errs.length ? `, ${fmtNumber(errs.length)} dosya okunamadı` : "") +
-            (r.typed ? `; ${fmtNumber(r.typed)} kaydın etkinlik türü arşivden alındı` : "") +
+          t(`${r.source || t("Arşiv")}: ${fmtNumber(fresh.length)} kayıt eklendi`) +
+            (dup ? ", " + t(`${fmtNumber(dup)} kayıt zaten kütüphanedeydi`) : "") +
+            (errs.length ? ", " + t(`${fmtNumber(errs.length)} dosya okunamadı`) : "") +
+            (r.skipped ? ", " + t(`${fmtNumber(r.skipped)} arşiv girdisi açılamadı`) : "") +
+            (r.typed ? "; " + t(`${fmtNumber(r.typed)} kaydın etkinlik türü arşivden alındı`) : "") +
             ".",
         );
         flushCache().catch(() => {});

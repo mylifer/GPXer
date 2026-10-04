@@ -74,10 +74,15 @@ impl TileCache {
         })?;
         let mut buf = Vec::new();
         use std::io::Read;
+        const MAX: u64 = 20 * 1024 * 1024;
         resp.into_reader()
-            .take(20 * 1024 * 1024)
+            .take(MAX + 1)
             .read_to_end(&mut buf)
             .map_err(|e| e.to_string())?;
+        // Kesik yanıt önbelleğe girmesin.
+        if buf.len() as u64 > MAX {
+            return Err("Karo çok büyük".into());
+        }
         Ok(buf)
     }
 

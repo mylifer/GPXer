@@ -197,24 +197,29 @@ fn extract(src: &Path, tmp: &Path, password: Option<&str>) -> Result<Extracted, 
                 .map_err(|_| "Parola yanlış".to_string())?;
         }
     }
-    let read = |zip: &mut zip::ZipArchive<std::fs::File>, name: &str| -> Option<Vec<u8>> {
+    // Eski yedeklerde olmayan dosya boş sayılır; var ama okunamıyorsa geri
+    // yükleme durur (etiketler, notlar sessizce kaybolmasın).
+    fn parse<T: serde::de::DeserializeOwned + Default>(
+        zip: &mut zip::ZipArchive<std::fs::File>,
+        pw: Option<&[u8]>,
+        name: &str,
+    ) -> Result<T, String> {
+        if zip.index_for_name(name).is_none() {
+            return Ok(T::default());
+        }
+        let bad = || format!("Yedekteki {name} okunamadı; yedek bozuk olabilir");
         let mut f = match pw {
-            Some(pw) => zip.by_name_decrypt(name, pw).ok()?,
-            None => zip.by_name(name).ok()?,
-        };
+            Some(pw) => zip.by_name_decrypt(name, pw),
+            None => zip.by_name(name),
+        }
+        .map_err(|_| bad())?;
         let mut b = Vec::new();
-        f.read_to_end(&mut b).ok()?;
-        Some(b)
-    };
-    let meta: HashMap<String, FileMeta> = read(&mut zip, META_FILE)
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default();
-    let places: Vec<NamedPlace> = read(&mut zip, PLACES_FILE)
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default();
-    let bookmarks: Vec<Bookmark> = read(&mut zip, BOOKMARKS_FILE)
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default();
+        f.read_to_end(&mut b).map_err(|_| bad())?;
+        serde_json::from_slice(&b).map_err(|_| bad())
+    }
+    let meta: HashMap<String, FileMeta> = parse(&mut zip, pw, META_FILE)?;
+    let places: Vec<NamedPlace> = parse(&mut zip, pw, PLACES_FILE)?;
+    let bookmarks: Vec<Bookmark> = parse(&mut zip, pw, BOOKMARKS_FILE)?;
     std::fs::create_dir_all(tmp).map_err(|e| e.to_string())?;
     let mut paths = Vec::new();
     for i in 0..zip.len() {

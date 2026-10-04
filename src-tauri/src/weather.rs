@@ -28,7 +28,8 @@ pub(crate) struct WeatherSample {
 }
 
 fn day_of(t: i64) -> String {
-    gpx_core::write::format_time(t)[..10].to_owned()
+    let s = gpx_core::write::format_time(t);
+    s.get(..10).unwrap_or(&s).to_owned()
 }
 
 fn get(base: &str, date: &str, pts: &[&WeatherPoint]) -> Result<serde_json::Value, String> {
