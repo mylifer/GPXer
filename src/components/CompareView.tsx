@@ -4,7 +4,8 @@ import "uplot/dist/uPlot.min.css";
 import type { Detail } from "../api";
 import { METRICS, type FileEntry } from "../types";
 import type { Metric } from "../prefs";
-import { fmtDate, fmtDistance, fmtDuration, fmtSpeed, fmtUnit, tzOf } from "../format";
+import { fmtDate, fmtDistance, fmtDuration, fmtNumber, fmtSpeed, fmtUnit, tzOf } from "../format";
+import { deviation, type Deviation } from "../deviation";
 import { hasMetric, metricValues } from "./ProfileChart";
 import { PLAY_SPEEDS } from "./DetailPanel";
 
@@ -20,6 +21,7 @@ interface Props {
   onPlaySpeed(v: number): void;
   onCursors(c: Cursor[]): void;
   onClose(): void;
+  onFocusPoint(lonLat: [number, number]): void;
 }
 
 const GRID = 600;
@@ -58,7 +60,37 @@ function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-export function CompareView({ a, b, detailA, detailB, height, playSpeed, onPlaySpeed, onCursors, onClose }: Props) {
+/** Bir izin ötekinden sapması (plan ile gerçekleşen karşılaştırması için). */
+function DeviationRow({ label, d, onFocus }: { label: string; d: Deviation; onFocus(p: [number, number]): void }) {
+  return (
+    <div className="deviation">
+      <span>
+        {label}: en çok <strong>{fmtDistance(d.maxM)}</strong> uzaklaşıyor
+        {d.offM > 0 && ` · ${fmtDistance(d.offM)} (%${fmtNumber(Math.round(d.offShare * 100))}) 200 m'den uzak`}
+      </span>
+      {d.sections.slice(0, 8).map((s, i) => (
+        <button key={i} className="chip" onClick={() => onFocus(s.at)} title="Haritada göster">
+          {fmtDistance(s.fromM)}–{fmtDistance(s.toM)} · {fmtDistance(s.maxM)}
+        </button>
+      ))}
+      {d.sections.length > 8 && <span className="muted">+{d.sections.length - 8} bölüm</span>}
+    </div>
+  );
+}
+
+export function CompareView({ a, b, detailA, detailB, height, playSpeed, onPlaySpeed, onCursors, onClose, onFocusPoint }: Props) {
+  // Sapma, grafik çizildikten sonra hesaplanır (uzun izlerde arayüzü bekletmesin).
+  const [dev, setDev] = useState<{ ba: Deviation; ab: Deviation; of: [Detail, Detail] } | null>(null);
+  useEffect(() => {
+    if (!detailA || !detailB) return;
+    const t = setTimeout(() => {
+      const pts = (d: Detail) => d.lon.map((lon, i) => [lon, d.lat[i]] as [number, number]);
+      const [pa, pb] = [pts(detailA), pts(detailB)];
+      setDev({ ba: deviation(pa, pb), ab: deviation(pb, pa), of: [detailA, detailB] });
+    }, 50);
+    return () => clearTimeout(t);
+  }, [detailA, detailB]);
+  const devNow = dev && dev.of[0] === detailA && dev.of[1] === detailB ? dev : null;
   const host = useRef<HTMLDivElement>(null);
   const [metricPref, setMetric] = useState<Metric>("speed");
   const [hoverD, setHoverD] = useState<number | null>(null);
@@ -347,6 +379,12 @@ export function CompareView({ a, b, detailA, detailB, height, playSpeed, onPlayS
             {row("B", b)}
           </tbody>
         </table>
+        {devNow && (
+          <div className="deviations" title="Plan ile gerçekleşeni karşılaştırırken: izin ötekinden ne kadar ve nerede saptığı">
+            <DeviationRow label="B, A'dan" d={devNow.ba} onFocus={onFocusPoint} />
+            <DeviationRow label="A, B'den" d={devNow.ab} onFocus={onFocusPoint} />
+          </div>
+        )}
         <div className="readout">{readout ?? <span className="muted">Grafikte gezinin ya da “Yarıştır”a basın.</span>}</div>
         <div className="chart-area">
           {ready ? <div ref={host} className="chart" /> : <div className="chart-empty">Kayıtlar hazırlanıyor…</div>}

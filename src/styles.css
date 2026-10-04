@@ -2458,3 +2458,20 @@ kbd {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+.deviations {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0;
+  font-size: 12.5px;
+}
+.deviation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.deviation .chip {
+  cursor: pointer;
+}

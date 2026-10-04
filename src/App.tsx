@@ -800,6 +800,7 @@ ${pts}
               onPlaySpeed={(playSpeed) => up({ playSpeed })}
               onCursors={setCursors}
               onClose={() => setCompare(null)}
+              onFocusPoint={(pt) => mapRef.current?.centerOn(pt, 13)}
             />
           ) : null;
         })()}
