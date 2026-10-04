@@ -292,8 +292,8 @@ export function addOverlayLayers(map: maplibregl.Map) {
     source: "stops",
     paint: {
       "circle-radius": ["interpolate", ["linear"], ["get", "dur"], 120000, 6, 1800000, 13],
-      "circle-color": "#ffffff",
-      "circle-stroke-color": "#1d2327",
+      "circle-color": ["case", ["==", ["get", "night"], 1], "#3c4fd8", "#ffffff"],
+      "circle-stroke-color": ["case", ["==", ["get", "night"], 1], "#ffffff", "#1d2327"],
       "circle-stroke-width": 2.5,
     },
   });

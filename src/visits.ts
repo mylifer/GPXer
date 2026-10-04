@@ -14,7 +14,7 @@ interface HourPlace {
   name: string;
 }
 
-const visitsOf = (s: FileSummary) => (Array.isArray(s.visits) ? s.visits : []);
+export const visitsOf = (s: FileSummary) => (Array.isArray(s.visits) ? s.visits : []);
 
 /** `t` anını kapsayan öğenin sırası (visits saat başına göre sıralı); yoksa -1. */
 function coverIdx(v: [number, string, string][], t: number): number {

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { nightsOf, type Night } from "../nights";
 import type { Detail, FileMeta, FileSummary, NamedPlace, RewriteKind, Stats, Stop } from "../api";
 import { namedPlaceAt } from "../places";
 import { METRICS, PALETTE, placeLabel, type FileEntry } from "../types";
@@ -146,6 +147,36 @@ function StopList({
   );
 }
 
+/** Çok günlük kayıtta gece kalınan yerler. */
+function NightList({ nights, tz, onFocusPoint }: { nights: Night[]; tz: string | undefined; onFocusPoint(lonLat: [number, number]): void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="stop-list">
+      <button className="stat stat-btn" onClick={() => setOpen((v) => !v)} aria-expanded={open} title="Gece kalınan yerleri listele">
+        <span>
+          Konaklama {open ? "▾" : "▸"}
+        </span>
+        <strong>{fmtNumber(nights.length)} gece</strong>
+      </button>
+      {open && (
+        <ul>
+          {nights.map((n, i) => (
+            <li key={n.start}>
+              <button className="link" onClick={() => onFocusPoint([n.lon, n.lat])} title="Haritada göster">
+                <span className="stop-time">{i + 1}. gece</span>
+                <span>
+                  {fmtDate(n.start, tz).slice(0, 5)} {fmtTime(n.start, tz).slice(0, 5)}–{fmtTime(n.end, tz).slice(0, 5)}
+                </span>
+                {n.place && <strong className="stop-name">{n.place}</strong>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function StatCards({ st, children }: { st: Stats; children?: React.ReactNode }) {
   const cards: [string, string][] = [
     ["Mesafe", fmtDistance(st.distanceM)],
@@ -217,6 +248,7 @@ function isSparse(s: FileSummary): boolean {
 
 export function DetailPanel(p: Props) {
   const s = p.entry.summary;
+  const nights = useMemo(() => nightsOf(s, p.places), [s, p.places]);
   const st = s.stats;
   /** Durakta biriken noktaların sadeleştirilmesiyle düşenler (sıçramalardan ayrı). */
   const collapsed = s.collapsedPoints ?? 0;
@@ -473,6 +505,7 @@ export function DetailPanel(p: Props) {
               onFocusPoint={p.onFocusPoint}
             />
           )}
+          {nights.length > 0 && <NightList nights={nights} tz={tz} onFocusPoint={p.onFocusPoint} />}
         </StatCards>
         <div className="chart-wrap">
           <div className="readout" aria-live="off">

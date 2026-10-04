@@ -25,7 +25,9 @@ export function flightPopupHtml(f: Flight, s: FileSummary | undefined): string {
 export function stopPopupHtml(pr: Record<string, unknown>, kind: "stop" | "hot"): string {
   const name = pr.name ? `<strong>${escapeHtml(String(pr.name))}</strong> · ` : "";
   return kind === "stop"
-    ? `${name}<strong>Duraklama</strong><br>${fmtTime(Number(pr.start), tzOf({ timeZone: (pr.tz as string) || null }))} · ${fmtDuration(Number(pr.dur))}`
+    ? `${name}<strong>${pr.night ? "Konaklama" : "Duraklama"}</strong><br>${
+        pr.night ? `${fmtDate(Number(pr.start), tzOf({ timeZone: (pr.tz as string) || null }))} ` : ""
+      }${fmtTime(Number(pr.start), tzOf({ timeZone: (pr.tz as string) || null }))} · ${fmtDuration(Number(pr.dur))}`
     : `${name}<strong>Sık duraklanan yer</strong><br>${fmtNumber(Number(pr.n))} duraklama · ${fmtNumber(Number(pr.files))} kayıt<br>toplam ${fmtDuration(Number(pr.dur))}`;
 }
 

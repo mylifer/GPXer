@@ -1,4 +1,5 @@
 /** Haritaya verilen GeoJSON verilerini kuran saf yardımcılar. */
+import { nightsOf } from "../nights";
 import type { LngLatBoundsLike } from "maplibre-gl";
 import type { Detail, FileSummary, NamedPlace } from "../api";
 import type { FileEntry } from "../types";
@@ -172,20 +173,25 @@ export function nearestDetail(d: Detail, lon: number, lat: number): number {
 /** Seçili kaydın duraklamaları. */
 export function stopsGeoJSON(entry: FileEntry | undefined, win: DateWindow | null, places: NamedPlace[]): GeoJSON.FeatureCollection {
   const zone = entry ? tzOf(entry.summary) : undefined;
-  const stops = (entry?.summary.stops ?? []).filter((st) => !win || dayIn(fastDayKey(st.start, zone), win.from, win.to));
+  const inWin = (t: number) => !win || dayIn(fastDayKey(t, zone), win.from, win.to);
+  const stops = (entry?.summary.stops ?? []).filter((st) => inWin(st.start));
+  // Gece kalınan yerler ayrı renkte; kayıt kesintisindeki konaklamalar da eklenir.
+  const nights = entry ? nightsOf(entry.summary, places).filter((n) => inWin(n.start)) : [];
+  const nightStarts = new Set(nights.map((n) => n.start));
+  const point = (start: number, dur: number, lon: number, lat: number, night: boolean, name: string): GeoJSON.Feature => ({
+    type: "Feature",
+    properties: { kind: "stop", start, dur, night: night ? 1 : 0, tz: entry?.summary.timeZone ?? "", name },
+    geometry: { type: "Point", coordinates: [lon, lat] },
+  });
+  const stopStarts = new Set(stops.map((st) => st.start));
   return {
     type: "FeatureCollection",
-    features: stops.map((st) => ({
-      type: "Feature",
-      properties: {
-        kind: "stop",
-        start: st.start,
-        dur: st.durationMs,
-        tz: entry?.summary.timeZone ?? "",
-        name: namedPlaceAt(st.lon, st.lat, places)?.name ?? "",
-      },
-      geometry: { type: "Point", coordinates: [st.lon, st.lat] },
-    })),
+    features: [
+      ...stops.map((st) =>
+        point(st.start, st.durationMs, st.lon, st.lat, nightStarts.has(st.start), namedPlaceAt(st.lon, st.lat, places)?.name ?? ""),
+      ),
+      ...nights.filter((n) => !stopStarts.has(n.start)).map((n) => point(n.start, n.end - n.start, n.lon, n.lat, true, n.place)),
+    ],
   };
 }
 

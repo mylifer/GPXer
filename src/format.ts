@@ -247,7 +247,7 @@ export function isoOf(date: Date): string {
 
 /** Saat diliminin `t` anındaki farkı (ms): yerel duvar saati = t + fark.
  * `tz` verilmezse bilgisayarın saat dilimi. */
-function tzOffsetMs(t: number, tz?: string | null): number {
+export function tzOffsetMs(t: number, tz?: string | null): number {
   if (!tz) return -new Date(t).getTimezoneOffset() * 60_000;
   const f = dtf(
     "off",
