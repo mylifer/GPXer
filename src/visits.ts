@@ -4,6 +4,7 @@
  */
 
 import type { FileSummary } from "./api";
+import { lang } from "./i18n";
 
 const HOUR = 3_600_000;
 
@@ -77,11 +78,11 @@ export function hourPlaces(s: FileSummary): HourPlace[] {
 
 let regionNames: Intl.DisplayNames | null | undefined;
 
-/** Ülke kodunun Türkçe adı ("DE" → "Almanya"). */
+/** Ülke kodunun arayüz dilindeki adı ("DE" → "Almanya" / "Germany"). */
 export function countryName(cc: string): string {
   if (regionNames === undefined) {
     try {
-      regionNames = new Intl.DisplayNames(["tr"], { type: "region" });
+      regionNames = new Intl.DisplayNames([lang], { type: "region" });
     } catch {
       regionNames = null;
     }

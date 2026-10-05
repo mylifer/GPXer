@@ -2248,7 +2248,8 @@ kbd {
 }
 .legend-regions {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   font-size: 12px;
 }
 .legend-regions .sw {
@@ -2268,6 +2269,14 @@ kbd {
 .province-bar > div {
   height: 100%;
   background: #e8743b;
+}
+
+.abroad-regions .abroad-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .day-nav .date-input {

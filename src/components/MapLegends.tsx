@@ -58,6 +58,12 @@ export function MapLegends({
             <span>
               <i className="sw" style={{ background: "rgba(232,116,59,0.45)" }} /> {fmtNumber(regions.provinceVisits.length)} / {PROVINCE_COUNT} il
             </span>
+            {regions.abroad.length > 0 && (
+              <span>
+                <i className="sw" style={{ background: "rgba(232,116,59,0.45)" }} /> {fmtNumber(regions.abroad.reduce((n, a) => n + a.visits.length, 0))}{" "}
+                yurtdışı bölge
+              </span>
+            )}
             <span>
               <i className="sw" style={{ background: "rgba(60,120,216,0.3)" }} /> {fmtNumber(regions.countryCodes.length)} ülke
             </span>

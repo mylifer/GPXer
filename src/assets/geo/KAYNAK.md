@@ -5,3 +5,7 @@
   Koordinatlar 0,001°'ye yuvarlandı.
 - `tr-iller.geojson`: Türkiye il sınırları, cihadturhan/tr-geojson
   (© OpenStreetMap katkıcıları, ODbL). Koordinatlar 0,001°'ye yuvarlandı.
+- `bolgeler.geojson`: Türkiye dışındaki ülkelerin birinci düzey idari bölgeleri
+  (eyalet, bölge, il…), Natural Earth 1:10m admin-1 (kamu malı). mapshaper ile
+  %10'a sadeleştirildi, koordinatlar 0,001°'ye yuvarlandı; `name` Türkçe ad
+  ("ili", "eyaleti" gibi ekler atıldı), `en` İngilizce ad, `cc` ISO alfa-2.

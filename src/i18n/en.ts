@@ -436,8 +436,9 @@ export const EN: Record<string, string> = {
   "Toplam gün": "Total days",
   "Gezilen iller:": "Visited provinces:",
   "Gösterilen kayıtlarda Türkiye'de geçilen il yok.": "No Turkish provinces in the shown recordings.",
-  "Haritada görmek için: Katmanlar ▾ → Gezilen il ve ülkeler. İl sınırları © OpenStreetMap katkıcıları.":
-    "To see them on the map: Layers ▾ → Visited provinces and countries. Province borders © OpenStreetMap contributors.",
+  "Haritada görmek için: Katmanlar ▾ → Gezilen il ve ülkeler. İl sınırları © OpenStreetMap katkıcıları; öteki ülkelerin bölgeleri Natural Earth.":
+    "To see them on the map: Layers ▾ → Visited provinces and countries. Turkish province borders © OpenStreetMap contributors; other countries' regions from Natural Earth.",
+  "Yurtdışında gezilen bölgeler": "Regions visited abroad",
   "Sürüş alışkanlıkları (araç kayıtları)": "Driving habits (car recordings)",
   "Hareket alışkanlıkları": "Travel habits",
   "Gece (20:00–06:00) gidilen yol:": "Distance at night (20:00–06:00):",
@@ -1010,6 +1011,8 @@ export const EN_T: [string, string][] = [
   ["İzlenen klasörden {0} yeni kayıt geldi: {1}", "{0} new recordings arrived from a watched folder: {1}"],
   ["Gezilen iller: {0} / {1}", "Visited provinces: {0} / {1}"],
   ["{0} / {1} il", "{0} / {1} provinces"],
+  ["{0} / {1} bölge", "{0} / {1} regions"],
+  ["{0} yurtdışı bölge", "{0} regions abroad"],
   ["{0} kare", "{0} tiles"],
   ["{0} gece", "{0} nights"],
   ["{0} parça", "{0} parts"],

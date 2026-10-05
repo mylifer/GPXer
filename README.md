@@ -132,7 +132,7 @@ ile yazılmıştır.
   ilerleme haritada gösterilir.
 
 **Planlama, analiz ve paylaşım**
-- Gezilen iller/ülkeler (Katmanlar), keşif kareleri, konaklama yerleri, günlük
+- Gezilen iller/ülkeler (Katmanlar; yurtdışında eyalet ve bölgeler), keşif kareleri, konaklama yerleri, günlük
   zaman çizelgesi (*📅 Gün akışı*), hava durumu geçmişi (ayrıntı paneli).
 - Rota planlama (*Katmanlar → 🧭 Rota planla*), plan-gerçek karşılaştırma (plan
   ile kayıt karşılaştırıldığında), A→B güzergâh arama (sağ tık → *Buradan (A)* /
