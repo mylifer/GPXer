@@ -140,7 +140,7 @@ html[data-ui="modern"] .multi-bar {
 }
 
 html[data-ui="modern"] .file-list {
-  padding: 4px 0;
+  padding: 0 0 4px;
 }
 
 html[data-ui="modern"] .file-row {
@@ -159,12 +159,14 @@ html[data-ui="modern"] .file-name {
   font-weight: 550;
 }
 
+/* Yükseklik sanal listedeki HEAD_H (30 px) ile aynı kalmalı; arka plan
+   saydam olursa üstte sabit duran başlığın altından kayıtlar görünür. */
 html[data-ui="modern"] .group-head {
-  height: 28px;
-  margin: 6px 0 2px;
-  padding: 0 14px;
+  height: 30px;
+  padding: 2px 14px 0;
   border: none;
-  background: transparent;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
   font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
