@@ -101,14 +101,15 @@ const expand = (q: string) =>
     .split(/\s+/)
     .map((w) => ABBR[w.replace(/\.$/, "")] ?? w)
     .join(" ");
-/** Sonuç adının sorguya uyumu: 0 tam, 1 baştan, 2 bütün kelimeler kelime başlarında, 3 diğer.
+/** Sonuç adının sorguya uyumu: 0 tam, 1 baştan, 2 bütün kelimeler adın ya da
+ * adresin kelime başlarında ("fırın sokak erenköy" → Fırın Sokak · Erenköy), 3 diğer.
  * `q` katlanmış sorgu. */
-function strength(name: string, q: string): number {
+function strength(name: string, q: string, detail = ""): number {
   const n = fold(name);
   const e = expand(q);
   if (n === q || n === e) return 0;
   if (n.startsWith(q) || n.startsWith(e)) return 1;
-  const words = n.split(/[\s,'’.-]+/);
+  const words = fold(`${name} ${detail}`).split(/[\s,'’.·-]+/);
   if (e.split(" ").every((w) => words.some((k) => k.startsWith(w) || (w.startsWith("sokak") && k.startsWith("soka"))))) return 2;
   return 3;
 }
@@ -245,7 +246,7 @@ export function MapSearch({
         })),
     ].slice(0, 6);
     // Eski sorgunun sonuçları yenisi gelene kadar gösterilir, ama yalnızca hâlâ uyuyorsa.
-    const fits = (g: Got) => (g.q === query ? g.hits : g.q && fq.startsWith(fold(g.q)) ? g.hits.filter((h) => strength(h.name, fq) < 3) : []);
+    const fits = (g: Got) => (g.q === query ? g.hits : g.q && fq.startsWith(fold(g.q)) ? g.hits.filter((h) => strength(h.name, fq, h.detail) < 3) : []);
     const offHits = fits(offline);
     const strHits = fits(streets);
     const onHits = online.q === query ? online.hits : [];
@@ -263,7 +264,7 @@ export function MapSearch({
     // benzer adlar varken çevrimiçinde tam eşleşme). Eşitlikte olağan sıra;
     // sokak adına benzeyen sorguda sokaklar yerleşimlerden önce.
     const order = STREETY.test(query) ? [0, 2, 1, 3] : [0, 1, 2, 3];
-    const best = (g: Row[]) => Math.min(4, ...g.map((r) => strength(r.hit.name, fq)));
+    const best = (g: Row[]) => Math.min(4, ...g.map((r) => strength(r.hit.name, fq, r.hit.detail)));
     return order
       .map((i) => ({ i, rows: groups[i], best: best(groups[i]) }))
       .filter((g) => g.rows.length)
@@ -279,7 +280,7 @@ export function MapSearch({
     setWaiting(false);
   };
   /** Enter için ilk sonuç yeterince iyi mi (yoksa çevrimiçi sonuç beklenir). */
-  const settled = !pending && (onlineState !== "busy" || (rows[0] != null && strength(rows[0].hit.name, fold(query)) <= 1));
+  const settled = !pending && (onlineState !== "busy" || (rows[0] != null && strength(rows[0].hit.name, fold(query), rows[0].hit.detail) <= 1));
   useEffect(() => {
     if (!waiting || !settled) return;
     setWaiting(false);

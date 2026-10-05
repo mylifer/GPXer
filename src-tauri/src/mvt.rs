@@ -189,7 +189,9 @@ fn layer_names(b: &[u8], z: u32, x: u32, y: u32, out: &mut Vec<Named>) -> Option
             },
             "place" => match class.as_str() {
                 // Şehir ve kasabalar zaten çevrimdışı yerleşim listesinde.
-                "city" | "town" | "country" | "state" | "province" | "continent" => continue,
+                // İlçe merkezleri (town) kalır: "Kadıköy" gibi yerler hem aranır
+                // hem sokak aramasında konum olarak kullanılır.
+                "city" | "country" | "state" | "province" | "continent" => continue,
                 c => c.to_owned(),
             },
             "poi" => format!(

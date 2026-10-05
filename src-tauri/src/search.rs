@@ -121,6 +121,17 @@ fn cities() -> &'static [City] {
     })
 }
 
+/// Adının bir kelimesi `word` ile başlayan yerleşimlerin konumları
+/// (boylam, enlem); sokak aramasında "erenköy", "kadıköy" gibi konum kelimeleri için.
+pub(crate) fn places_named(word: &str) -> Vec<(f64, f64)> {
+    cities()
+        .iter()
+        .filter(|c| c.key.split(['|', ' ', '-']).any(|k| k.starts_with(word)))
+        .take(5000)
+        .map(|c| (c.lon, c.lat))
+        .collect()
+}
+
 /// Çevrimdışı yerleşim araması. `prefer`: öne alınacak ülke kodları (ör. gezilen ülkeler).
 pub(crate) fn search_cities(query: &str, prefer: &[String], limit: usize) -> Vec<PlaceHit> {
     let q = fold(query.trim());
@@ -256,6 +267,30 @@ pub(crate) fn expand_word(w: &str) -> Option<&'static str> {
     })
 }
 
+/// Sorgunun yazım çeşitleri: OpenStreetMap'te ad "Fırın Sokak" da "Fırın
+/// Sokağı" da olabilir.
+fn variants(q: &str) -> Vec<String> {
+    let swap = |w: &str| -> Option<&'static str> {
+        Some(match fold(w).as_str() {
+            "sokak" => "Sokağı",
+            "sokagi" => "Sokak",
+            "caddesi" => "Cadde",
+            "bulvari" => "Bulvar",
+            _ => return None,
+        })
+    };
+    let mut out = vec![q.to_owned()];
+    if q.split_whitespace().any(|w| swap(w).is_some()) {
+        out.push(
+            q.split_whitespace()
+                .map(|w| swap(w).unwrap_or(w))
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+    }
+    out
+}
+
 /// Sorgudaki kısaltmalar açılmış hali.
 pub(crate) fn expand_query(q: &str) -> String {
     q.split_whitespace()
@@ -264,7 +299,13 @@ pub(crate) fn expand_query(q: &str) -> String {
         .join(" ")
 }
 
-/// Sonuç adı sorgunun bütün kelimelerini (kelime başı olarak) içeriyor mu.
+/// Sonuç sorgunun bütün kelimelerini (kelime başı olarak) içeriyor mu; ad ve
+/// adres birlikte: "fırın sokak erenköy" → "Fırın Sokak" · "Erenköy, Kadıköy".
+fn hit_fits(h: &PlaceHit, query: &str) -> bool {
+    name_fits(&format!("{} {}", h.name, h.detail), query)
+}
+
+/// Metin sorgunun bütün kelimelerini (kelime başı olarak) içeriyor mu.
 fn name_fits(name: &str, query: &str) -> bool {
     let key = fold(name);
     let words: Vec<&str> = key.split([' ', '-', '.', ',', '\'']).collect();
@@ -418,25 +459,51 @@ pub(crate) async fn search_places_online(
     run_blocking(move || {
         let q = expand_query(query.trim());
         let at = lat.zip(lon);
-        let first = photon(&q, at);
-        // Photon'da sorguya uyan ad yoksa (ya da Photon'a ulaşılamadıysa) Nominatim.
-        let good = first
-            .as_ref()
-            .is_ok_and(|r| r.iter().any(|h| name_fits(&h.name, &q)));
-        if good {
-            return first;
-        }
-        match (first, nominatim(&q, at)) {
-            (Ok(mut a), Ok(b)) => {
-                // Nominatim'in uyan sonuçları önce.
-                let mut out: Vec<PlaceHit> =
-                    b.into_iter().filter(|h| name_fits(&h.name, &q)).collect();
-                out.append(&mut a);
-                Ok(out)
+        let fits = |r: &[PlaceHit]| r.iter().any(|h| hit_fits(h, &q));
+        // Önce Photon (yazım çeşitleriyle), uyan yoksa Nominatim.
+        let mut found: Vec<PlaceHit> = Vec::new();
+        let mut last_err = None;
+        for v in variants(&q) {
+            match photon(&v, at) {
+                Ok(r) => {
+                    let ok = fits(&r);
+                    found.extend(r);
+                    if ok {
+                        break;
+                    }
+                }
+                Err(e) => last_err = Some(e),
             }
-            (Ok(a), Err(_)) => Ok(a),
-            (Err(_), Ok(b)) => Ok(b),
-            (Err(e), Err(_)) => Err(e),
+        }
+        if !fits(&found) {
+            for (i, v) in variants(&q).into_iter().enumerate() {
+                // Nominatim kullanım koşulu: saniyede en çok bir istek.
+                if i > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(1100));
+                }
+                match nominatim(&v, at) {
+                    Ok(r) => {
+                        // Uyanlar en öne.
+                        let (good, rest): (Vec<_>, Vec<_>) =
+                            r.into_iter().partition(|h| hit_fits(h, &q));
+                        let ok = !good.is_empty();
+                        found.splice(0..0, good);
+                        found.extend(rest);
+                        if ok {
+                            break;
+                        }
+                    }
+                    Err(e) => last_err = Some(e),
+                }
+            }
+        }
+        match (found.is_empty(), last_err) {
+            (true, Some(e)) => Err(e),
+            _ => {
+                // Uyan sonuçlar önce (sıraları korunarak).
+                found.sort_by_key(|h| !hit_fits(h, &q));
+                Ok(found)
+            }
         }
     })
     .await?
@@ -498,6 +565,21 @@ mod tests {
         assert!(name_fits("1234. Sokak", "1234 sok"));
         assert!(name_fits("Gül Sokağı", "gül sokak"));
         assert!(!name_fits("Atatürk Bulvarı", "ataturk caddesi"));
+        let h = PlaceHit::new(
+            "Fırın Sokak".into(),
+            "Erenköy, Kadıköy, İstanbul, Türkiye".into(),
+            40.97,
+            29.08,
+            None,
+            "residential".into(),
+        );
+        assert!(hit_fits(&h, "firin sokak kadikoy erenkoy"));
+        assert!(!hit_fits(&h, "firin sokak besiktas"));
+        assert_eq!(
+            variants("Fırın Sokak Erenköy"),
+            ["Fırın Sokak Erenköy", "Fırın Sokağı Erenköy"]
+        );
+        assert_eq!(variants("Moda"), ["Moda"]);
     }
 
     #[test]

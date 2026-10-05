@@ -14,6 +14,17 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
+/// Konum olarak kullanılan yer türleri (karolardaki yerleşim katmanı).
+const PLACE_KINDS: &[&str] = &[
+    "town",
+    "village",
+    "suburb",
+    "quarter",
+    "neighbourhood",
+    "district",
+    "hamlet",
+];
+
 /// Ayrıntılı sokak adları bu düzeyden itibaren karolarda bulunur.
 const MIN_ZOOM: u32 = 13;
 
@@ -179,6 +190,29 @@ pub(crate) fn search(query: &str, center: Option<(f64, f64)>, limit: usize) -> V
         .map(|w| crate::search::expand_word(w).map_or_else(|| w.to_owned(), fold))
         .collect();
     let words: Vec<&str> = expanded.iter().map(String::as_str).collect();
+    let word_hit = |key: &str, w: &str| {
+        key.split([' ', '-', '.', '\''])
+            .any(|k| k.starts_with(w) || (w.starts_with("sokak") && k.starts_with("soka")))
+    };
+    // Konum kelimeleri ("fırın sokak erenköy"): adla eşleşmeyen kelime, adı o
+    // kelimeyle başlayan bir semt ya da yerleşimin ~13 km yakınındaki sokağı
+    // daraltır. Semtler dizindeki karolardan ve yerleşim listesinden.
+    let mut near_cache: Vec<Option<Vec<(f64, f64)>>> = vec![None; words.len()];
+    let mut near_of = |i: usize, ix_entries: &[Entry]| -> Vec<(f64, f64)> {
+        near_cache[i]
+            .get_or_insert_with(|| {
+                let w = words[i];
+                let mut v = crate::search::places_named(w);
+                v.extend(
+                    ix_entries
+                        .iter()
+                        .filter(|e| PLACE_KINDS.contains(&e.kind.as_str()) && word_hit(&e.key, w))
+                        .map(|e| (e.lon, e.lat)),
+                );
+                v
+            })
+            .clone()
+    };
     // (eşleşme sırası, uzaklık², öğe)
     let mut hits: Vec<(u8, f64, &Entry)> = Vec::new();
     for e in &ix.entries {
@@ -186,14 +220,22 @@ pub(crate) fn search(query: &str, center: Option<(f64, f64)>, limit: usize) -> V
             0
         } else if e.key.starts_with(&q) {
             1
-        } else if words.iter().all(|w| {
-            e.key
-                .split([' ', '-', '.', '\''])
-                .any(|k| k.starts_with(w) || (w.starts_with("sokak") && k.starts_with("soka")))
-        }) {
-            2
         } else {
-            continue;
+            let matched: Vec<bool> = words.iter().map(|w| word_hit(&e.key, w)).collect();
+            if matched.iter().all(|&m| m) {
+                2
+            } else if matched.iter().any(|&m| m)
+                && (0..words.len()).filter(|&i| !matched[i]).all(|i| {
+                    let kx = e.lat.to_radians().cos();
+                    near_of(i, &ix.entries).iter().any(|&(lon, lat)| {
+                        ((lon - e.lon) * kx).abs() < 0.12 && (lat - e.lat).abs() < 0.12
+                    })
+                })
+            {
+                3
+            } else {
+                continue;
+            }
         };
         let d = center.map_or(0.0, |(lon, lat)| {
             let kx = (lat.to_radians()).cos();
@@ -313,14 +355,30 @@ mod tests {
         assert_eq!(r[0].name, "Bağdat Caddesi");
         assert!(r[0].bbox.is_some());
         assert_eq!(search("moda", None, 8)[0].name, "Moda Caddesi");
+        // Konum kelimesiyle: dizindeki semt (Moda Caddesi'nin yanındaki
+        // "Caferağa") ya da yerleşim listesindeki yer.
+        let t3 = crate::mvt::tests::tile("place", &[("Caferağa", "suburb", &[(20, 20)])]);
+        index_tile(
+            "https://tiles.openfreemap.org/planet/v/14/9513/6145.pbf",
+            &t3,
+        );
+        let r = search("moda caferağa", None, 8);
+        assert_eq!(
+            r.first().map(|h| h.name.as_str()),
+            Some("Moda Caddesi"),
+            "{r:?}"
+        );
+        assert!(search("moda beşiktaş", None, 8)
+            .iter()
+            .all(|h| h.name != "Moda Caddesi"));
         // Kısaltmayla.
         assert_eq!(search("bağdat cd", None, 8)[0].name, "Bağdat Caddesi");
         assert_eq!(search("moda cad.", None, 8)[0].name, "Moda Caddesi");
-        assert_eq!(stats(), (3, 2));
+        assert_eq!(stats(), (4, 3));
         // Diskten yeniden okunur.
         STREETS.get().unwrap().index.lock().unwrap().loaded = false;
         *STREETS.get().unwrap().index.lock().unwrap() = Index::default();
-        assert_eq!(stats(), (3, 2));
+        assert_eq!(stats(), (4, 3));
         let _ = std::fs::remove_dir_all(&root);
     }
 }
