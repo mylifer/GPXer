@@ -173,7 +173,12 @@ pub(crate) fn search(query: &str, center: Option<(f64, f64)>, limit: usize) -> V
     }
     let mut ix = s.index.lock().unwrap_or_else(|e| e.into_inner());
     load(s, &mut ix);
-    let words: Vec<&str> = q.split_whitespace().collect();
+    // Kısaltmalar açılır ("cd" → "caddesi"); kelimeler kelime başı olarak aranır.
+    let expanded: Vec<String> = q
+        .split_whitespace()
+        .map(|w| crate::search::expand_word(w).map_or_else(|| w.to_owned(), fold))
+        .collect();
+    let words: Vec<&str> = expanded.iter().map(String::as_str).collect();
     // (eşleşme sırası, uzaklık², öğe)
     let mut hits: Vec<(u8, f64, &Entry)> = Vec::new();
     for e in &ix.entries {
@@ -181,10 +186,11 @@ pub(crate) fn search(query: &str, center: Option<(f64, f64)>, limit: usize) -> V
             0
         } else if e.key.starts_with(&q) {
             1
-        } else if words
-            .iter()
-            .all(|w| e.key.split([' ', '-', '.']).any(|k| k.starts_with(w)))
-        {
+        } else if words.iter().all(|w| {
+            e.key
+                .split([' ', '-', '.', '\''])
+                .any(|k| k.starts_with(w) || (w.starts_with("sokak") && k.starts_with("soka")))
+        }) {
             2
         } else {
             continue;
@@ -307,6 +313,9 @@ mod tests {
         assert_eq!(r[0].name, "Bağdat Caddesi");
         assert!(r[0].bbox.is_some());
         assert_eq!(search("moda", None, 8)[0].name, "Moda Caddesi");
+        // Kısaltmayla.
+        assert_eq!(search("bağdat cd", None, 8)[0].name, "Bağdat Caddesi");
+        assert_eq!(search("moda cad.", None, 8)[0].name, "Moda Caddesi");
         assert_eq!(stats(), (3, 2));
         // Diskten yeniden okunur.
         STREETS.get().unwrap().index.lock().unwrap().loaded = false;

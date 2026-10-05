@@ -243,6 +243,169 @@ pub(crate) async fn search_places_offline(
     run_blocking(move || search_cities(&query, &prefer, 8)).await
 }
 
+/// Türkçe adres kısaltmalarının açılımı (sorgu kelimesi → aranacak kelime):
+/// "Atatürk cd" → "Atatürk Caddesi", "1234 sk" → "1234 Sokak".
+pub(crate) fn expand_word(w: &str) -> Option<&'static str> {
+    Some(match fold(w.trim_end_matches('.')).as_str() {
+        "cd" | "cad" | "cadd" => "Caddesi",
+        "sk" | "sok" | "sokk" => "Sokak",
+        "blv" | "bulv" | "bul" => "Bulvarı",
+        "mh" | "mah" | "mahl" => "Mahallesi",
+        "sb" | "sit" => "Sitesi",
+        _ => return None,
+    })
+}
+
+/// Sorgudaki kısaltmalar açılmış hali.
+pub(crate) fn expand_query(q: &str) -> String {
+    q.split_whitespace()
+        .map(|w| expand_word(w).unwrap_or(w))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Sonuç adı sorgunun bütün kelimelerini (kelime başı olarak) içeriyor mu.
+fn name_fits(name: &str, query: &str) -> bool {
+    let key = fold(name);
+    let words: Vec<&str> = key.split([' ', '-', '.', ',', '\'']).collect();
+    fold(query).split_whitespace().all(|w| {
+        words
+            .iter()
+            .any(|k| k.starts_with(w) || (w.starts_with("sokak") && k.starts_with("soka")))
+    })
+}
+
+/// Nominatim yanıtını sonuçlara çevirir.
+fn parse_nominatim(v: &serde_json::Value) -> Vec<PlaceHit> {
+    let Some(items) = v.as_array() else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|it| {
+            let num = |k: &str| it[k].as_str().and_then(|x| x.parse::<f64>().ok());
+            let (lat, lon) = (num("lat")?, num("lon")?);
+            let a = &it["address"];
+            let s = |k: &str| a[k].as_str().unwrap_or("").to_owned();
+            let name = it["name"]
+                .as_str()
+                .filter(|n| !n.is_empty())
+                .map(str::to_owned)
+                .or_else(|| {
+                    it["display_name"]
+                        .as_str()
+                        .and_then(|d| d.split(", ").next())
+                        .map(str::to_owned)
+                })?;
+            let mut parts: Vec<String> = Vec::new();
+            for k in [
+                s("road"),
+                s("suburb"),
+                s("town"),
+                s("city"),
+                s("province"),
+                s("state"),
+                s("country"),
+            ] {
+                if !k.is_empty() && k != name && !parts.contains(&k) {
+                    parts.push(k);
+                }
+            }
+            // Nominatim kutusu: [güney, kuzey, batı, doğu].
+            let bbox = it["boundingbox"].as_array().and_then(|b| {
+                let n: Vec<f64> = b
+                    .iter()
+                    .filter_map(|x| x.as_str().and_then(|x| x.parse().ok()))
+                    .collect();
+                (n.len() == 4).then(|| [n[2], n[0], n[3], n[1]])
+            });
+            let kind = it["addresstype"]
+                .as_str()
+                .filter(|t| *t != "road")
+                .or(it["type"].as_str())
+                .unwrap_or("")
+                .to_owned();
+            Some(PlaceHit {
+                name,
+                detail: parts.join(", "),
+                lat,
+                lon,
+                bbox,
+                kind,
+            })
+        })
+        .collect()
+}
+
+fn agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent(concat!(
+            "GPXer/",
+            env!("CARGO_PKG_VERSION"),
+            " (https://github.com/mylifer/gpxer)"
+        ))
+        .build()
+}
+
+fn get_json(req: ureq::Request) -> Result<serde_json::Value, String> {
+    let body = req
+        .call()
+        .map_err(|e| format!("Çevrimiçi arama yapılamadı: {e}"))?
+        .into_string()
+        .map_err(|e| e.to_string())?;
+    serde_json::from_str(&body).map_err(|e| e.to_string())
+}
+
+/// Photon araması; haritanın ortası verilirse yakın sonuçlar belirgin biçimde
+/// öne alınır (aynı adlı cadde her şehirde var).
+fn photon(query: &str, at: Option<(f64, f64)>) -> Result<Vec<PlaceHit>, String> {
+    let base = |strong: bool| {
+        let mut req = agent()
+            .get("https://photon.komoot.io/api/")
+            .query("q", query)
+            .query("limit", "12");
+        if let Some((lat, lon)) = at {
+            req = req
+                .query("lat", &format!("{lat:.4}"))
+                .query("lon", &format!("{lon:.4}"));
+            if strong {
+                req = req.query("location_bias_scale", "0.1").query("zoom", "12");
+            }
+        }
+        req
+    };
+    // Eski sürüm sunucu ek parametreleri tanımazsa yalın istek.
+    match get_json(base(true)) {
+        Ok(v) => Ok(parse_photon(&v)),
+        Err(_) if at.is_some() => get_json(base(false)).map(|v| parse_photon(&v)),
+        Err(e) => Err(e),
+    }
+}
+
+/// Nominatim araması (Photon'un bulamadığı adresler için); haritanın
+/// çevresi öne alınır ama dışı da aranır.
+fn nominatim(query: &str, at: Option<(f64, f64)>) -> Result<Vec<PlaceHit>, String> {
+    let mut req = agent()
+        .get("https://nominatim.openstreetmap.org/search")
+        .query("q", query)
+        .query("format", "jsonv2")
+        .query("limit", "8")
+        .query("addressdetails", "1")
+        .query("accept-language", "tr,en");
+    if let Some((lat, lon)) = at {
+        let vb = format!(
+            "{:.3},{:.3},{:.3},{:.3}",
+            lon - 0.6,
+            lat + 0.4,
+            lon + 0.6,
+            lat - 0.4
+        );
+        req = req.query("viewbox", &vb);
+    }
+    get_json(req).map(|v| parse_nominatim(&v))
+}
+
 #[tauri::command]
 pub(crate) async fn search_places_online(
     query: String,
@@ -253,26 +416,28 @@ pub(crate) async fn search_places_online(
         return Ok(Vec::new());
     }
     run_blocking(move || {
-        let mut req = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(10))
-            .user_agent(concat!("GPXer/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .get("https://photon.komoot.io/api/")
-            .query("q", query.trim())
-            .query("limit", "12");
-        // Haritanın ortasına yakın sonuçlar öne çıksın.
-        if let (Some(lat), Some(lon)) = (lat, lon) {
-            req = req
-                .query("lat", &format!("{lat:.4}"))
-                .query("lon", &format!("{lon:.4}"));
+        let q = expand_query(query.trim());
+        let at = lat.zip(lon);
+        let first = photon(&q, at);
+        // Photon'da sorguya uyan ad yoksa (ya da Photon'a ulaşılamadıysa) Nominatim.
+        let good = first
+            .as_ref()
+            .is_ok_and(|r| r.iter().any(|h| name_fits(&h.name, &q)));
+        if good {
+            return first;
         }
-        let body = req
-            .call()
-            .map_err(|e| format!("Çevrimiçi arama yapılamadı: {e}"))?
-            .into_string()
-            .map_err(|e| e.to_string())?;
-        let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-        Ok(parse_photon(&v))
+        match (first, nominatim(&q, at)) {
+            (Ok(mut a), Ok(b)) => {
+                // Nominatim'in uyan sonuçları önce.
+                let mut out: Vec<PlaceHit> =
+                    b.into_iter().filter(|h| name_fits(&h.name, &q)).collect();
+                out.append(&mut a);
+                Ok(out)
+            }
+            (Ok(a), Err(_)) => Ok(a),
+            (Err(_), Ok(b)) => Ok(b),
+            (Err(e), Err(_)) => Err(e),
+        }
     })
     .await?
 }
@@ -321,5 +486,31 @@ mod tests {
         assert_eq!(r[0].bbox, Some([29.0, 40.9, 29.1, 41.0]));
         assert_eq!(r[1].name, "Bağdat Caddesi 5");
         assert_eq!(r[1].detail, "İstanbul, Türkiye");
+    }
+
+    #[test]
+    fn expands_turkish_abbreviations() {
+        assert_eq!(expand_query("Atatürk cd."), "Atatürk Caddesi");
+        assert_eq!(expand_query("1234 sk"), "1234 Sokak");
+        assert_eq!(expand_query("Kordon blv izmir"), "Kordon Bulvarı izmir");
+        assert_eq!(expand_query("Cadde bostan"), "Cadde bostan");
+        assert!(name_fits("Atatürk Caddesi", "ataturk cadd"));
+        assert!(name_fits("1234. Sokak", "1234 sok"));
+        assert!(name_fits("Gül Sokağı", "gül sokak"));
+        assert!(!name_fits("Atatürk Bulvarı", "ataturk caddesi"));
+    }
+
+    #[test]
+    fn parses_nominatim() {
+        let v = serde_json::json!([
+            {"lat":"38.4237","lon":"27.1428","name":"Kıbrıs Şehitleri Caddesi","addresstype":"road","type":"tertiary",
+             "boundingbox":["38.42","38.43","27.13","27.15"],
+             "address":{"road":"Kıbrıs Şehitleri Caddesi","suburb":"Alsancak","city":"Konak","province":"İzmir","country":"Türkiye"}}
+        ]);
+        let r = parse_nominatim(&v);
+        assert_eq!(r[0].name, "Kıbrıs Şehitleri Caddesi");
+        assert_eq!(r[0].detail, "Alsancak, Konak, İzmir, Türkiye");
+        assert_eq!(r[0].bbox, Some([27.13, 38.42, 27.15, 38.43]));
+        assert_eq!(r[0].kind, "tertiary");
     }
 }

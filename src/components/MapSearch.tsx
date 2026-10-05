@@ -83,12 +83,33 @@ const fold = (s: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/^[📌⭐]\s*/u, "")
     .trim();
-/** Sonuç adının sorguya uyumu: 0 tam, 1 baştan, 2 bir kelimenin başından, 3 diğer. */
+/** Türkçe adres kısaltmaları ("cd" → "caddesi"); arka uçtaki açılımla aynı. */
+const ABBR: Record<string, string> = {
+  cd: "caddesi",
+  cad: "caddesi",
+  cadd: "caddesi",
+  sk: "sokak",
+  sok: "sokak",
+  blv: "bulvari",
+  bulv: "bulvari",
+  bul: "bulvari",
+  mh: "mahallesi",
+  mah: "mahallesi",
+};
+const expand = (q: string) =>
+  q
+    .split(/\s+/)
+    .map((w) => ABBR[w.replace(/\.$/, "")] ?? w)
+    .join(" ");
+/** Sonuç adının sorguya uyumu: 0 tam, 1 baştan, 2 bütün kelimeler kelime başlarında, 3 diğer.
+ * `q` katlanmış sorgu. */
 function strength(name: string, q: string): number {
   const n = fold(name);
-  if (n === q) return 0;
-  if (n.startsWith(q)) return 1;
-  if (n.split(/[\s,'’.-]+/).some((w) => w.startsWith(q))) return 2;
+  const e = expand(q);
+  if (n === q || n === e) return 0;
+  if (n.startsWith(q) || n.startsWith(e)) return 1;
+  const words = n.split(/[\s,'’.-]+/);
+  if (e.split(" ").every((w) => words.some((k) => k.startsWith(w) || (w.startsWith("sokak") && k.startsWith("soka"))))) return 2;
   return 3;
 }
 

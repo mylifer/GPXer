@@ -149,7 +149,8 @@ ile yazılmıştır.
 - İki görünüm: **Modern** (varsayılan; simge çubuğu, kart yerleşimi, açık/koyu
   tema) ve **Klasik** (ilk tasarım). Ayarlar → Görünüm ve dil → Arayüz.
 - Haritada yer arama (Ctrl/⌘+F): adlandırılmış yerler, yer imleri, çevrimdışı
-  ~145 bin yerleşim ve çevrimiçi adres araması (OpenStreetMap/Photon).
+  ~145 bin yerleşim ve çevrimiçi adres araması (OpenStreetMap: Photon, bulamazsa
+  Nominatim). "cd", "sk", "blv", "mah" gibi kısaltmalar anlaşılır.
   Cadde ve sokaklar da aranır: haritada gezilen ya da çevrimdışı için indirilen
   bölgelerdeki cadde, sokak, mahalle, mekân ve zirve adları (Sade/Koyu altlık,
   yakınlaştırma 13 ve üstü) otomatik dizine eklenir ve internetsiz bulunur.
