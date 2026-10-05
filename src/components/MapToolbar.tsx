@@ -77,6 +77,7 @@ export function MapToolbar({
           </button>
         ))}
       </div>
+      {search}
       {files.length > 0 && (
         <>
           <div className="segmented">
@@ -227,7 +228,6 @@ export function MapToolbar({
         onClear={clearPhotos}
         onTrack={photoTrack}
       />
-      {search}
     </div>
   );
 }

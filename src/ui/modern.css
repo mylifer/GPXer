@@ -498,19 +498,11 @@ html[data-ui="modern"] .cal-day.picked {
 }
 
 /* Haritada yer arama: araç çubuğunun sağında. */
-html[data-ui="modern"] .tool-search {
-  margin-left: auto;
-  margin-right: 40px;
-  padding: 3px;
-}
-
-html[data-ui="modern"] .map-search {
-  width: 270px;
-}
-
-html[data-ui="modern"] .map-search-results {
+html[data-ui="modern"] .map-search-panel {
+  top: calc(100% + 8px);
+  left: -4px;
+  padding: 8px;
   border-radius: 12px;
-  padding: 6px;
 }
 
 html[data-ui="modern"] .map-search-results li {

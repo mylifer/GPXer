@@ -751,7 +751,7 @@ ${pts}
     add("İşlem", "day", "Gün akışı", () => setDialog("day"), undefined, "zaman çizelgesi timeline");
     add("İşlem", "goto", "Tarihe git (neredeydim?)", openGoTo, "G");
     if (duplicateGroups.length) add("İşlem", "dups", `Kopya kayıtlar (${duplicateGroups.length})`, () => setDialog("duplicates"));
-    add("İşlem", "search", "Haritada ara", () => (document.querySelector<HTMLInputElement>('input[aria-label="Haritada ara"]')?.focus()), `${MOD}+F`, "yer adres şehir bul");
+    add("İşlem", "search", "Haritada ara", () => window.dispatchEvent(new Event("gpxer:open-search")), `${MOD}+F`, "yer adres şehir bul");
     add("İşlem", "plan", "Rota planla", () => openPlan(), undefined, "yol tarifi güzergah");
     add("İşlem", "bookmarks", "Yer imleri listesi", () => setDialog("bookmarks"), undefined, "gitmek istediklerim");
     add("İşlem", "offline", "Görünen alanı çevrimdışı için indir", downloadArea, undefined, "offline karo");

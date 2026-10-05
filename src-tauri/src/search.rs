@@ -47,6 +47,8 @@ struct City {
     admin1: String,
     cc: String,
     key: String,
+    /// GeoNames nüfusu (bilinmiyorsa 0).
+    pop: u32,
 }
 
 /// Arama için sadeleştirilmiş yazım: küçük harf, aksansız (İstanbul ≈ istanbul ≈ Istanbul).
@@ -90,15 +92,18 @@ fn cities() -> &'static [City] {
                 let raw = f.next()?;
                 let admin1 = f.next()?.to_owned();
                 let cc = f.next()?.to_owned();
+                let pop = f.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+                // Özgün (aksanlı) yazım: "Kaş", "Göreme", "Zürich".
+                let utf = f.next().filter(|u| !u.is_empty());
                 let admin1 = if cc == "TR" {
                     crate::geo::turkish(&admin1)
                 } else {
                     admin1
                 };
-                let name = if cc == "TR" {
-                    crate::geo::turkish(raw)
-                } else {
-                    raw.to_owned()
+                let name = match utf {
+                    Some(u) => u.to_owned(),
+                    None if cc == "TR" => crate::geo::turkish(raw),
+                    None => raw.to_owned(),
                 };
                 // Türkçe yazımla da, özgün yazımla da bulunsun.
                 let key = format!("{}|{}", fold(&name), fold(raw));
@@ -109,6 +114,7 @@ fn cities() -> &'static [City] {
                     admin1,
                     cc,
                     key,
+                    pop,
                 })
             })
             .collect()
@@ -121,7 +127,10 @@ pub(crate) fn search_cities(query: &str, prefer: &[String], limit: usize) -> Vec
     if q.chars().count() < 2 {
         return Vec::new();
     }
-    let mut hits: Vec<(u8, u8, usize, &City)> = Vec::new();
+    // (eşleşme sırası, önem, yer): önem nüfusun logaritması; Türkiye ve
+    // gezilen ülkeler öne alınır (aynı adlı küçük yer büyük şehri geçmesin
+    // diye nüfus yine sayılır: "Paris" Fransa'daki, "Kemer" Antalya'daki).
+    let mut hits: Vec<(u8, f64, &City)> = Vec::new();
     for c in cities() {
         let rank = c
             .key
@@ -139,24 +148,29 @@ pub(crate) fn search_cities(query: &str, prefer: &[String], limit: usize) -> Vec
             })
             .min();
         if let Some(r) = rank {
-            let country = if c.cc == "TR" {
-                0
+            let boost = if c.cc == "TR" {
+                2.0
             } else if prefer.contains(&c.cc) {
-                1
+                1.0
             } else {
-                2
+                0.0
             };
-            hits.push((r, country, c.name.len(), c));
+            hits.push((
+                r,
+                f64::from(c.pop).ln_1p() / std::f64::consts::LN_10 + boost,
+                c,
+            ));
         }
     }
     hits.sort_by(|a, b| {
-        (a.0, a.1, a.2)
-            .cmp(&(b.0, b.1, b.2))
-            .then_with(|| a.3.name.cmp(&b.3.name))
+        a.0.cmp(&b.0)
+            .then(b.1.total_cmp(&a.1))
+            .then_with(|| a.2.name.len().cmp(&b.2.name.len()))
+            .then_with(|| a.2.name.cmp(&b.2.name))
     });
     hits.into_iter()
         .take(limit)
-        .map(|(_, _, _, c)| PlaceHit {
+        .map(|(_, _, c)| PlaceHit {
             name: c.name.clone(),
             detail: [c.admin1.as_str(), c.cc.as_str()]
                 .iter()
@@ -284,6 +298,14 @@ mod tests {
         // Türkiye dışı: öne alınan ülke önce.
         let r = search_cities("paris", &["FR".into()], 5);
         assert_eq!(r[0].detail.rsplit(", ").next(), Some("FR"));
+        // Aynı adlı yerlerden büyüğü önce; gezilen ülke olmasa da.
+        let r = search_cities("paris", &[], 5);
+        assert_eq!(r[0].detail.rsplit(", ").next(), Some("FR"));
+        let r = search_cities("kemer", &[], 5);
+        assert!(r[0].detail.starts_with("Antalya"), "{r:?}");
+        // Özgün yazım ve aksansız yazım aynı yeri bulur.
+        assert_eq!(search_cities("kas", &[], 1)[0].name, "Kaş");
+        assert_eq!(search_cities("Göreme", &[], 1)[0].name, "Göreme");
         assert!(search_cities("x", &[], 5).is_empty());
     }
 

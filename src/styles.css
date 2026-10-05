@@ -2634,33 +2634,40 @@ td.down {
 
 .map-search {
   position: relative;
-  width: 260px;
 }
 
-.map-search > input {
-  width: 100%;
-  padding: 5px 10px;
-  border: none;
-  border-radius: 6px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
-}
-
-.map-search-results {
+/* Düğmenin altında açılan arama kutusu ve sonuçlar. */
+.map-search-panel {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   left: 0;
-  right: 0;
   z-index: 25;
-  max-height: 360px;
-  overflow-y: auto;
-  margin: 0;
-  padding: 4px;
-  list-style: none;
+  width: min(340px, calc(100vw - 32px));
+  padding: 6px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
   box-shadow: var(--shadow);
+}
+
+.map-search-panel > input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.map-search-hint {
+  padding: 6px 4px 2px;
+}
+
+.map-search-results {
+  max-height: min(420px, 60vh);
+  overflow-y: auto;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
 .map-search-results li {

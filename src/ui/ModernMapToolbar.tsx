@@ -85,6 +85,7 @@ export function ModernMapToolbar(p: Props) {
           data={BASE_LAYERS.map((l) => ({ value: l.id, label: t(l.label) }))}
         />
       </div>
+      {!has && p.search && <div className="tool-group">{p.search}</div>}
       {has && (
         <>
           <div className="tool-group">
@@ -115,6 +116,7 @@ export function ModernMapToolbar(p: Props) {
             />
           </div>
           <div className="tool-group">
+            {p.search}
             <Toggle
               on={prefs.stopsLayer}
               label="Duraklamalar: tüm kayıtlarda en sık duraklama yapılan yerler"
@@ -208,7 +210,6 @@ export function ModernMapToolbar(p: Props) {
           onTrack={p.photoTrack}
         />
       </div>
-      {p.search && <div className="tool-group tool-search">{p.search}</div>}
     </div>
   );
 }
