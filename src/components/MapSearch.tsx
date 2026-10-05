@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TextInput } from "@mantine/core";
 import { IconSearch } from "@tabler/icons-react";
-import { searchPlacesOffline, searchPlacesOnline, type Bookmark, type NamedPlace, type PlaceHit } from "../api";
+import { searchPlacesOffline, searchPlacesOnline, searchStreetsOffline, type Bookmark, type NamedPlace, type PlaceHit } from "../api";
 import { isModern } from "../ui/mode";
+import { t } from "../i18n";
 import { LOCALE, searchKey as foldText } from "../format";
 
 const regionNames = (() => {
@@ -26,9 +27,34 @@ function zoomFor(kind: string): number {
   if (["country"].includes(kind)) return 5;
   if (["state", "region", "province"].includes(kind)) return 7;
   if (["city", "town", "county", "municipality"].includes(kind)) return 11;
-  if (["village", "suburb", "district", "neighbourhood", "hamlet"].includes(kind)) return 13;
+  if (["village", "suburb", "district", "neighbourhood", "quarter", "hamlet"].includes(kind)) return 13;
+  if (kind === "peak") return 14;
+  if (kind.startsWith("poi:")) return 17;
   return 16;
 }
+
+/** OpenStreetMap yol türleri (çevrimiçi sonuçlarda "Cadde/sokak" diye gösterilir). */
+const ROAD = new Set(["motorway", "trunk", "primary", "secondary", "tertiary", "residential", "unclassified", "living_street", "service", "pedestrian", "road", "street"]);
+/** Sonuç türünün okunur adı (yoksa null). */
+function kindLabel(kind: string): string | null {
+  if (ROAD.has(kind)) return "Cadde/sokak";
+  if (kind === "path" || kind === "footway" || kind === "track") return "Patika";
+  if (kind === "suburb" || kind === "district") return "Semt";
+  if (kind === "quarter" || kind === "neighbourhood") return "Mahalle";
+  if (kind === "village") return "Köy";
+  if (kind === "hamlet" || kind === "isolated_dwelling") return "Mezra";
+  if (kind === "island" || kind === "islet") return "Ada";
+  if (kind === "peak") return "Zirve";
+  if (kind.startsWith("poi:")) return kind.slice(4).replace(/_/g, " ");
+  return null;
+}
+/** Türün adı ayrıntının başına (çevrilerek). */
+const withKind = (h: PlaceHit): PlaceHit => {
+  const label = kindLabel(h.kind);
+  return label ? { ...h, kind: ROAD.has(h.kind) ? "street" : h.kind, detail: [t(label), h.detail].filter(Boolean).join(" · ") } : h;
+};
+/** Sorgu bir yol adına benziyor mu (sokak sonuçları önce gelsin). */
+const STREETY = /(^|\s)(cad\S*|cd\.?|sok\S*|sk\.?|bulv\S*|blv\.?|yolu|street|st\.|road|rd\.?|avenue|ave\.?)(\s|$)/i;
 
 interface Row {
   hit: PlaceHit;
@@ -53,6 +79,7 @@ export function MapSearch({
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [offline, setOffline] = useState<PlaceHit[]>([]);
+  const [streets, setStreets] = useState<PlaceHit[]>([]);
   const [online, setOnline] = useState<PlaceHit[]>([]);
   const [onlineState, setOnlineState] = useState<"idle" | "busy" | "error">("idle");
   const [active, setActive] = useState(0);
@@ -87,6 +114,7 @@ export function MapSearch({
   useEffect(() => {
     if (query.length < 2) {
       setOffline([]);
+      setStreets([]);
       setOnline([]);
       setOnlineState("idle");
       return;
@@ -95,6 +123,12 @@ export function MapSearch({
     searchPlacesOffline(query, prefer)
       .then((r) => live && setOffline((r ?? []).map(withCountry)))
       .catch(() => live && setOffline([]));
+    {
+      const c = center();
+      searchStreetsOffline(query, c?.[1] ?? null, c?.[0] ?? null)
+        .then((r) => live && setStreets((r ?? []).map(withKind)))
+        .catch(() => live && setStreets([]));
+    }
     if (query.length < 3) return () => void (live = false);
     setOnlineState("busy");
     const t = setTimeout(() => {
@@ -102,7 +136,7 @@ export function MapSearch({
       searchPlacesOnline(query, c?.[1] ?? null, c?.[0] ?? null)
         .then((r) => {
           if (!live) return;
-          setOnline(r ?? []);
+          setOnline((r ?? []).map(withKind));
           setOnlineState("idle");
         })
         .catch(() => {
@@ -130,10 +164,15 @@ export function MapSearch({
     ].slice(0, 6);
     const near = (a: PlaceHit, b: PlaceHit) => Math.abs(a.lat - b.lat) < 0.02 && Math.abs(a.lon - b.lon) < 0.02 && foldText(a.name) === foldText(b.name);
     const off = offline.map((hit) => ({ group: "Yerleşim yerleri", hit }));
-    // Çevrimiçi sonuçlardan, çevrimdışı listede zaten olanlar atlanır.
-    const on = online.filter((h) => !offline.some((o) => near(o, h))).map((hit) => ({ group: "Çevrimiçi (OpenStreetMap)", hit }));
-    return [...mine, ...off, ...on];
-  }, [query, places, bookmarks, offline, online]);
+    const str = streets.map((hit) => ({ group: "Sokak ve yerler (çevrimdışı)", hit }));
+    // Aynı cadde çevrimdışı ve çevrimiçi aynı yerde: bir kez (yakınlık caddede daha gevşek).
+    const close = (a: PlaceHit, b: PlaceHit) => Math.abs(a.lat - b.lat) < 0.05 && Math.abs(a.lon - b.lon) < 0.05 && foldText(a.name) === foldText(b.name);
+    // Çevrimiçi sonuçlardan, çevrimdışı listelerde zaten olanlar atlanır.
+    const on = online
+      .filter((h) => !offline.some((o) => near(o, h)) && !streets.some((o) => close(o, h)))
+      .map((hit) => ({ group: "Çevrimiçi (OpenStreetMap)", hit }));
+    return STREETY.test(query) ? [...mine, ...str, ...off, ...on] : [...mine, ...off, ...str, ...on];
+  }, [query, places, bookmarks, offline, streets, online]);
 
   useEffect(() => setActive(0), [query]);
 

@@ -9,15 +9,35 @@ use std::sync::OnceLock;
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PlaceHit {
-    name: String,
+    pub(crate) name: String,
     /// İl/eyalet, ülke gibi ayırt edici bilgi.
-    detail: String,
-    lat: f64,
-    lon: f64,
+    pub(crate) detail: String,
+    pub(crate) lat: f64,
+    pub(crate) lon: f64,
     /// Kapsayan kutu [batı, güney, doğu, kuzey]; varsa haritada bu kutu gösterilir.
-    bbox: Option<[f64; 4]>,
+    pub(crate) bbox: Option<[f64; 4]>,
     /// "city" (çevrimdışı) ya da OSM türü (ör. "street", "country").
-    kind: String,
+    pub(crate) kind: String,
+}
+
+impl PlaceHit {
+    pub(crate) fn new(
+        name: String,
+        detail: String,
+        lat: f64,
+        lon: f64,
+        bbox: Option<[f64; 4]>,
+        kind: String,
+    ) -> Self {
+        PlaceHit {
+            name,
+            detail,
+            lat,
+            lon,
+            bbox,
+            kind,
+        }
+    }
 }
 
 struct City {
@@ -225,7 +245,7 @@ pub(crate) async fn search_places_online(
             .build()
             .get("https://photon.komoot.io/api/")
             .query("q", query.trim())
-            .query("limit", "8");
+            .query("limit", "12");
         // Haritanın ortasına yakın sonuçlar öne çıksın.
         if let (Some(lat), Some(lon)) = (lat, lon) {
             req = req

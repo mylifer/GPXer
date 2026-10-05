@@ -4,7 +4,7 @@ import { saveUiMode, uiMode, type UiMode } from "../ui/mode";
 import { CustomLayersEditor } from "./CustomLayersEditor";
 import { FUEL_KINDS, type FuelKind, type FuelPrefs } from "../fuel";
 import type { Goals, Prefs } from "../prefs";
-import { clearTileCache, syncInfo, tileCacheInfo, type NamedPlace, type Settings } from "../api";
+import { clearTileCache, streetsInfo, syncInfo, tileCacheInfo, type NamedPlace, type Settings } from "../api";
 import { fmtBytes, fmtNumber, fmtTimestamp, type TzMode } from "../format";
 import { Modal } from "./Modal";
 
@@ -464,14 +464,21 @@ export function SettingsDialog({
 /** Karo önbelleğinin boyutu ve temizleme düğmesi. */
 function TileCacheInfo() {
   const [info, setInfo] = useState<{ bytes: number; count: number } | null>(null);
+  const [names, setNames] = useState<number | null>(null);
   useEffect(() => {
     tileCacheInfo()
       .then(setInfo)
       .catch(() => setInfo(null));
+    streetsInfo()
+      .then((r) => setNames(r?.[0] ?? null))
+      .catch(() => {});
   }, []);
   return (
     <div className="row-actions">
-      <span>{info ? `${fmtNumber(info.count)} karo · ${fmtBytes(info.bytes)}` : "—"}</span>
+      <span>
+        {info ? `${fmtNumber(info.count)} karo · ${fmtBytes(info.bytes)}` : "—"}
+        {names ? ` · aramada ${fmtNumber(names)} sokak ve yer` : ""}
+      </span>
       <button
         className="btn small"
         disabled={!info?.count}

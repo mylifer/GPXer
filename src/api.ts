@@ -330,3 +330,8 @@ export interface SyncReport {
 export const syncNow = () => invoke<SyncReport>("sync_now");
 /** Eşitleme klasörü ve son eşitleme zamanı. */
 export const syncInfo = () => invoke<{ folder: string | null; last: number | null }>("sync_info");
+/** Çevrimdışı sokak, mahalle ve mekân araması (gezilen/indirilen harita bölgelerinden). */
+export const searchStreetsOffline = (query: string, lat: number | null, lon: number | null) =>
+  invoke<PlaceHit[]>("search_streets_offline", { query, lat, lon });
+/** Çevrimdışı arama dizinindeki ad ve karo sayısı. */
+export const streetsInfo = () => invoke<[number, number]>("streets_info");

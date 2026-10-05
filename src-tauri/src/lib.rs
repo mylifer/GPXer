@@ -9,6 +9,7 @@ mod library;
 mod links;
 mod menu;
 mod meta;
+mod mvt;
 mod photos;
 mod places;
 mod rewrite;
@@ -16,6 +17,7 @@ mod search;
 mod settings;
 mod snap;
 mod store;
+mod streets;
 mod sync;
 mod tiles;
 mod weather;
@@ -407,6 +409,7 @@ pub fn run() {
                 .app_cache_dir()
                 .unwrap_or_else(|_| root.join("cache"))
                 .join("karolar");
+            streets::init(&root);
             let tiles = tiles::TileCache::new(cache_dir);
             app.manage(tiles);
             let h = handle.clone();
@@ -460,6 +463,8 @@ pub fn run() {
             weather::weather_at,
             search::search_places_offline,
             search::search_places_online,
+            streets::search_streets_offline,
+            streets::streets_info,
             sync::sync_now,
             sync::sync_info,
             take_pending_paths,

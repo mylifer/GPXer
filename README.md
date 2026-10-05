@@ -150,6 +150,9 @@ ile yazılmıştır.
   tema) ve **Klasik** (ilk tasarım). Ayarlar → Görünüm ve dil → Arayüz.
 - Haritada yer arama (Ctrl/⌘+F): adlandırılmış yerler, yer imleri, çevrimdışı
   ~145 bin yerleşim ve çevrimiçi adres araması (OpenStreetMap/Photon).
+  Cadde ve sokaklar da aranır: haritada gezilen ya da çevrimdışı için indirilen
+  bölgelerdeki cadde, sokak, mahalle, mekân ve zirve adları (Sade/Koyu altlık,
+  yakınlaştırma 13 ve üstü) otomatik dizine eklenir ve internetsiz bulunur.
 - Cihazlar arası eşitleme (Ayarlar → Cihazlar arası eşitleme): Drive, iCloud,
   Dropbox ya da OneDrive klasörü üzerinden kayıtlar, etiket/notlar, yerler ve
   yer imleri; açılışta ve 15 dakikada bir. Bir kayıt yalnızca öbür cihazda

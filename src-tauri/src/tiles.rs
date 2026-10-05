@@ -107,18 +107,21 @@ impl TileCache {
             return Err("Geçersiz karo adresi".into());
         }
         let cached = self.cached(url);
-        if let Some((b, age)) = &cached {
-            if *age < FRESH {
-                return Ok(b.clone());
-            }
+        let out = match &cached {
+            Some((b, age)) if *age < FRESH => Ok(b.clone()),
+            _ => match self.download(url) {
+                Ok(b) => {
+                    self.store(url, &b);
+                    Ok(b)
+                }
+                Err(e) => cached.map(|(b, _)| b).ok_or(e),
+            },
+        };
+        // Vektör karolardaki sokak ve yer adları çevrimdışı arama dizinine.
+        if let Ok(b) = &out {
+            crate::streets::index_tile(url, b);
         }
-        match self.download(url) {
-            Ok(b) => {
-                self.store(url, &b);
-                Ok(b)
-            }
-            Err(e) => cached.map(|(b, _)| b).ok_or(e),
-        }
+        out
     }
 
     /// Önbelleğin boyutu ve karo sayısı.
