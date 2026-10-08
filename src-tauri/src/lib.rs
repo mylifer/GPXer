@@ -17,6 +17,7 @@ mod search;
 mod settings;
 mod snap;
 mod store;
+mod streetat;
 mod streets;
 mod sync;
 mod tiles;
@@ -465,6 +466,7 @@ pub fn run() {
             search::search_places_online,
             search::search_trace,
             tiles::index_street_tiles,
+            streetat::street_at,
             streets::search_streets_offline,
             streets::streets_info,
             sync::sync_now,

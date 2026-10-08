@@ -243,6 +243,149 @@ pub(crate) fn names(bytes: &[u8], z: u32, x: u32, y: u32) -> Vec<Named> {
     out
 }
 
+/// Sıkıştırılmışsa açılmış karo baytları.
+fn unzip(bytes: &[u8]) -> Option<std::borrow::Cow<'_, [u8]>> {
+    if !bytes.starts_with(&[0x1f, 0x8b]) {
+        return Some(std::borrow::Cow::Borrowed(bytes));
+    }
+    let mut raw = Vec::new();
+    flate2::read::GzDecoder::new(bytes)
+        .take(64 * 1024 * 1024)
+        .read_to_end(&mut raw)
+        .ok()?;
+    Some(std::borrow::Cow::Owned(raw))
+}
+
+/// Geometri komutlarından parçalar (her MoveTo yeni parça; karo koordinatı).
+fn parts(geom: &[u32]) -> Vec<Vec<(i64, i64)>> {
+    let mut out: Vec<Vec<(i64, i64)>> = Vec::new();
+    let (mut x, mut y) = (0i64, 0i64);
+    let mut i = 0;
+    let zz = |v: u32| ((v >> 1) as i64) ^ -((v & 1) as i64);
+    while i < geom.len() {
+        let cmd = geom[i] & 7;
+        let count = (geom[i] >> 3) as usize;
+        i += 1;
+        match cmd {
+            1 | 2 => {
+                for _ in 0..count {
+                    let (Some(&dx), Some(&dy)) = (geom.get(i), geom.get(i + 1)) else {
+                        return out;
+                    };
+                    i += 2;
+                    x += zz(dx);
+                    y += zz(dy);
+                    if cmd == 1 || out.is_empty() {
+                        out.push(Vec::new());
+                    }
+                    if let Some(p) = out.last_mut() {
+                        p.push((x, y));
+                    }
+                }
+            }
+            7 => {}
+            _ => return out,
+        }
+    }
+    out
+}
+
+/// Adlı yol: (ad, çizgi parçaları [boylam, enlem]).
+pub(crate) type Road = (String, Vec<Vec<(f64, f64)>>);
+
+/// Konum bilgisi için karodan okunanlar: adlı yollar (tam çizgileriyle) ve
+/// yer adları (mahalle, semt, ilçe merkezi…).
+#[derive(Debug, Default)]
+pub(crate) struct Locality {
+    /// (ad, çizgi parçaları [boylam, enlem]).
+    pub roads: Vec<Road>,
+    /// (ad, sınıf, boylam, enlem): sınıf OpenMapTiles place sınıfı.
+    pub places: Vec<(String, String, f64, f64)>,
+}
+
+/// Karodaki adlı yollar ve yer adları. Bozuk karoda boş.
+pub(crate) fn locality(bytes: &[u8], z: u32, x: u32, y: u32) -> Locality {
+    let mut out = Locality::default();
+    let Some(data) = unzip(bytes) else {
+        return out;
+    };
+    let mut r = Reader::new(&data);
+    while !r.done() {
+        let Some((f, w)) = r.key() else { break };
+        if f == 3 && w == 2 {
+            let Some(layer) = r.bytes() else { break };
+            let _ = layer_locality(layer, z, x, y, &mut out);
+        } else if r.skip(w).is_none() {
+            break;
+        }
+    }
+    out
+}
+
+fn layer_locality(b: &[u8], z: u32, x: u32, y: u32, out: &mut Locality) -> Option<()> {
+    let mut r = Reader::new(b);
+    let mut name = String::new();
+    let mut features: Vec<&[u8]> = Vec::new();
+    let mut keys: Vec<String> = Vec::new();
+    let mut values: Vec<Option<String>> = Vec::new();
+    let mut extent = 4096.0;
+    while !r.done() {
+        let (f, w) = r.key()?;
+        match (f, w) {
+            (1, 2) => name = String::from_utf8_lossy(r.bytes()?).into_owned(),
+            (2, 2) => features.push(r.bytes()?),
+            (3, 2) => keys.push(String::from_utf8_lossy(r.bytes()?).into_owned()),
+            (4, 2) => values.push(value_text(r.bytes()?)),
+            (5, 0) => extent = r.varint()? as f64,
+            _ => r.skip(w)?,
+        }
+    }
+    if name != "transportation_name" && name != "place" {
+        return Some(());
+    }
+    let key_ix = |k: &str| keys.iter().position(|x| x == k);
+    let (k_name, k_class) = (key_ix("name"), key_ix("class"));
+    for fb in features {
+        let mut fr = Reader::new(fb);
+        let (mut tags, mut geom) = (Vec::new(), Vec::new());
+        while !fr.done() {
+            let (f, w) = fr.key()?;
+            match (f, w) {
+                (2, 2) => tags = packed(fr.bytes()?),
+                (4, 2) => geom = packed(fr.bytes()?),
+                _ => fr.skip(w)?,
+            }
+        }
+        let tag = |k: Option<usize>| -> Option<String> {
+            let k = k? as u32;
+            tags.as_chunks::<2>()
+                .0
+                .iter()
+                .find(|p| p[0] == k)
+                .and_then(|p| values.get(p[1] as usize)?.clone())
+        };
+        let Some(n) = tag(k_name).filter(|n| !n.trim().is_empty()) else {
+            continue;
+        };
+        let ll = |(px, py): (i64, i64)| to_lonlat(px, py, extent, z, x, y);
+        if name == "place" {
+            let Some(p) = parts(&geom).into_iter().flatten().next() else {
+                continue;
+            };
+            let (lon, lat) = ll(p);
+            out.places
+                .push((n, tag(k_class).unwrap_or_default(), lon, lat));
+        } else {
+            let lines: Vec<Vec<(f64, f64)>> = parts(&geom)
+                .into_iter()
+                .map(|p| p.into_iter().map(ll).collect())
+                .collect();
+            out.roads.push((n, lines));
+        }
+    }
+    Some(())
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -375,5 +518,21 @@ pub(crate) mod tests {
             "neighbourhood"
         );
         assert!(names(&[0xff, 0xff, 0xff], 14, 0, 0).is_empty());
+    }
+
+    #[test]
+    fn reads_road_lines_and_places() {
+        let t = tile(
+            "transportation_name",
+            &[("Fırın Sokak", "minor", &[(0, 0), (100, 0), (100, 100)])],
+        );
+        let l = locality(&t, 14, 9513, 6144);
+        assert_eq!(l.roads.len(), 1);
+        assert_eq!(l.roads[0].0, "Fırın Sokak");
+        assert_eq!(l.roads[0].1[0].len(), 3);
+        let p = tile("place", &[("Erenköy", "quarter", &[(10, 10)])]);
+        let l = locality(&p, 14, 9513, 6144);
+        assert_eq!(l.places[0].0, "Erenköy");
+        assert_eq!(l.places[0].1, "quarter");
     }
 }

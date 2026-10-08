@@ -11,7 +11,9 @@ ile yazılmıştır.
   topoğrafik ve uydu altlıkları.
 - İz üzerinde gezinince o noktanın tarihi ve saati görünür. Seçili izde
   mesafe, yükseklik, hız ve varsa nabız/kadans/güç/sıcaklık da gösterilir;
-  grafikteki imleç de aynı noktaya gider.
+  grafikteki imleç de aynı noktaya gider. Kutuda o an geçilen sokak ile
+  mahalle/ilçe de yazar (OpenStreetMap vektör karolarından; altlıktan
+  bağımsız, gezilen ya da indirilen yerlerde internetsiz).
 - Üst üste binen izlere tıklayınca hangisinin seçileceği sorulur.
 - Seçili iz hıza, yüksekliğe, nabza, kadansa ya da güce göre renklendirilebilir.
 - Tüm izler dosya rengiyle ya da tarihe göre (eskiden yeniye) renklenir;

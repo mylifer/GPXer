@@ -337,5 +337,7 @@ export const searchStreetsOffline = (query: string, lat: number | null, lon: num
 export const streetsInfo = () => invoke<[number, number]>("streets_info");
 /** z14 karolarını indirip sokak dizinine ekler: [işlenen karo, dizindeki ad]. */
 export const indexStreetTiles = (tiles: [number, number][]) => invoke<[number, number]>("index_street_tiles", { tiles });
+/** Noktadaki sokak ve mahalle/ilçe (vektör karolarından). */
+export const streetAt = (lon: number, lat: number) => invoke<{ street: string | null; area: string | null }>("street_at", { lon, lat });
 /** Son çevrimiçi aramanın adımları: [sorgu, satırlar]. */
 export const searchTrace = () => invoke<[string, string[]]>("search_trace");

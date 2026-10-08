@@ -1,6 +1,7 @@
 /** Haritadaki fare etkileşimleri: tıklama (seçim, duraklamaya ad verme,
  * üst üste binen izlerden seçim) ve üzerine gelince açılan bilgi kutuları. */
 import * as maplibregl from "maplibre-gl";
+import { streetLine } from "./streetAt";
 import { namedPlaceAt } from "../places";
 import type { MapRefs } from "./context";
 import { nearestDetail, timeAt } from "./geojson";
@@ -132,6 +133,8 @@ export function installInteractions(map: maplibregl.Map, r: MapRefs) {
       .addTo(map);
   });
 
+  /** Son hover kutusunun sırası (geç gelen sokak yanıtı eski kutuyu yazmasın). */
+  let hoverToken = 0;
   // Fare hareketi kare başına bir kez işlenir (yalnızca son olay); sorgular pahalı.
   const handleMove = (e: maplibregl.MapMouseEvent) => {
     const { files: fs, selected: sel, detail: d, heatmap: heatOn } = live.current;
@@ -194,16 +197,29 @@ export function installInteractions(map: maplibregl.Map, r: MapRefs) {
     }
     const s = entry.summary;
     let html: string;
+    // Sokak adı izin üzerindeki noktaya göre (seçili kayıtta en yakın nokta).
+    let at: [number, number] = [e.lngLat.lng, e.lngLat.lat];
     if (path === sel && d && d.lat.length) {
       const i = nearestDetail(d, e.lngLat.lng, e.lngLat.lat);
       mapHovering.current = true;
       live.current.onHoverIdx(i);
       html = detailPopupHtml(s, d, i);
+      at = [d.lon[i], d.lat[i]];
     } else {
       releaseHover();
       const t = timeAt(s, e.lngLat.lng, e.lngLat.lat);
       html = trackPopupHtml(s, t, hits.length);
     }
+    const base = html;
+    const lngLat = e.lngLat;
+    const token = ++hoverToken;
+    html += streetLine(at[0], at[1], () => {
+      // Yanıt gelince kutu hâlâ aynı noktadaysa satır eklenir (fare ilerlediyse
+      // yeni nokta kendi yanıtını bekler).
+      if (token !== hoverToken || hoverPath.current !== path || !hoverPopup.current?.isOpen()) return;
+      const line = streetLine(at[0], at[1], () => {});
+      if (line) hoverPopup.current.setLngLat(lngLat).setHTML(base + line);
+    });
     if (!hoverPopup.current) {
       hoverPopup.current = new maplibregl.Popup({
         closeButton: false,

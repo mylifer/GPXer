@@ -204,7 +204,7 @@ const STREET_ZOOM: u32 = 14;
 
 /// OpenFreeMap vektör karolarının güncel adres şablonu ("…/{z}/{x}/{y}.pbf");
 /// sürüm yolu değişebildiği için TileJSON'dan okunur.
-fn vector_template(cache: &TileCache) -> Result<String, String> {
+pub(crate) fn vector_template(cache: &TileCache) -> Result<String, String> {
     static TEMPLATE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
     if let Some(t) = TEMPLATE.lock().ok().and_then(|t| t.clone()) {
         return Ok(t);
