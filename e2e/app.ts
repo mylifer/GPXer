@@ -89,13 +89,27 @@ export const test = base.extend<AppOptions & { mock: Record<string, Handler>; ap
         if (c) localStorage.setItem("gpxer.ui", "classic");
         if (e) localStorage.setItem("gpxer.lang", "en");
         let id = 0;
+        const callbacks = new Map<number, (x: unknown) => void>();
+        const listeners = new Map<string, number[]>();
         const w = window as unknown as Record<string, unknown>;
         w.__TAURI_INTERNALS__ = {
           metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },
-          transformCallback: () => ++id,
-          unregisterCallback: () => {},
-          invoke: (cmd: string, args: unknown) => (w.__mock as (c: string, a: unknown) => Promise<unknown>)(cmd, args ?? {}),
+          transformCallback: (cb: (x: unknown) => void) => {
+            callbacks.set(++id, cb);
+            return id;
+          },
+          unregisterCallback: (i: number) => callbacks.delete(i),
+          invoke: (cmd: string, args: unknown) => {
+            // Arka uç olayları: dinleyiciler kaydedilir, testler `__emit` ile tetikler.
+            if (cmd === "plugin:event|listen") {
+              const { event, handler } = args as { event: string; handler: number };
+              listeners.set(event, [...(listeners.get(event) ?? []), handler]);
+              return Promise.resolve(handler);
+            }
+            return (w.__mock as (c: string, a: unknown) => Promise<unknown>)(cmd, args ?? {});
+          },
         };
+        w.__emit = (event: string, payload: unknown) => listeners.get(event)?.forEach((h) => callbacks.get(h)?.({ event, id: h, payload }));
         w.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
       },
       [classic, en] as const,
@@ -108,6 +122,10 @@ export const test = base.extend<AppOptions & { mock: Record<string, Handler>; ap
 });
 
 export { expect };
+
+/** Arka uçtan gelmiş gibi bir olay gönderir (`listen` dinleyicilerine). */
+export const emit = (page: Page, event: string, payload: unknown) =>
+  page.evaluate(([e, p]) => (window as unknown as { __emit(e: string, p: unknown): void }).__emit(e, p), [event, payload] as const);
 
 /** Gecikmeli yanıt (çevrimiçi aramayı taklit eder). */
 export const later = <T>(ms: number, v: T) => new Promise<T>((r) => setTimeout(() => r(v), ms));

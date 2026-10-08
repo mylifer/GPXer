@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readPhotos, type FileSummary, type PhotoInfo } from "../api";
+import { readPhotos, watchPhotoFolders, type FileSummary, type PhotoInfo } from "../api";
 import type { Prefs } from "../prefs";
 import type { FileEntry } from "../types";
 import { fmtNumber } from "../format";
@@ -101,6 +102,29 @@ export function usePhotos({
     up({ photos: [] });
     setPhotoInfo([]);
   }, [up]);
+  // Eklenmiş fotoğraf klasörleri izlenir: klasöre yeni fotoğraf düşünce
+  // (telefondan aktarma, bulut eşitlemesi) haritaya kendiliğinden eklenir.
+  const folderKey = prefs.photos.join("\n");
+  useEffect(() => {
+    watchPhotoFolders(folderKey ? folderKey.split("\n") : [])
+      .then((errors) => errors?.forEach(fail))
+      .catch(() => {});
+  }, [folderKey, fail]);
+  useEffect(() => {
+    const un = listen<PhotoInfo[]>("photos-added", ({ payload }) => {
+      if (!payload.length) return;
+      setPhotoInfo((prev) => {
+        const byPath = new Map(prev.map((x) => [x.path, x]));
+        for (const x of payload) byPath.set(x.path, x);
+        return [...byPath.values()];
+      });
+      const placed = placePhotos(payload, filesRef.current.map((f) => f.summary), prefsRef.current.photoOffsetH);
+      say(`Fotoğraf klasöründe ${fmtNumber(payload.length)} yeni fotoğraf; ${fmtNumber(placed.placed.length)} tanesi haritada.`);
+    });
+    return () => {
+      un.then((f) => f()).catch(() => {});
+    };
+  }, [say, filesRef, prefsRef]);
   const addPhotosRef = useRef(addPhotoPaths);
   addPhotosRef.current = addPhotoPaths;
 

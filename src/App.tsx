@@ -589,6 +589,7 @@ export default function App() {
             centerOn: (lonLat, zoom) => mapRef.current?.centerOn(lonLat, zoom),
             records: shown.map((f) => f.summary),
             selectAndZoom,
+            pickPhotos,
           })
         : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -610,6 +611,7 @@ export default function App() {
     openGoTo,
     pickFiles,
     pickFolder,
+    pickPhotos,
     rewrite,
     makeStory,
     selectAndZoom,

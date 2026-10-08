@@ -313,6 +313,8 @@ export const setPlaces = inOrder((places: NamedPlace[]) => invoke<void>("set_pla
 export const readPhotos = (paths: string[]) => invoke<PhotoInfo[] | null>("read_photos", { paths });
 /** Fotoğrafın küçük resmi (data: adresi); okunamazsa null. */
 export const photoThumb = (path: string) => invoke<string | null>("photo_thumb", { path });
+/** Fotoğraf klasörlerini izle: yeni fotoğraflar `photos-added` olayıyla gelir. */
+export const watchPhotoFolders = (folders: string[]) => invoke<string[]>("watch_photo_folders", { folders });
 /** Kayıtları tek dosyada dışa aktarır; `dest` pickSavePath'ten gelmeli. */
 export const exportMany = (paths: string[], dest: string, format: ExportFormat) =>
   invoke<void>("export_many", { paths, dest, format });

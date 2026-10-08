@@ -396,6 +396,7 @@ pub fn run() {
         .manage(PendingPaths::default())
         .manage(export::ApprovedPaths::default())
         .manage(photos::PhotoPaths::default())
+        .manage(photos::PhotoWatcher::default())
         .setup(|app| {
             let handle = app.handle();
             let root = app.path().app_data_dir()?;
@@ -509,6 +510,7 @@ pub fn run() {
             set_settings,
             photos::read_photos,
             photos::photo_thumb,
+            photos::watch_photo_folders,
             get_places,
             set_places
         ])

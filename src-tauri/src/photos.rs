@@ -4,12 +4,15 @@
 use crate::run_blocking;
 use base64::Engine;
 use exif::{In, Tag, Value};
+use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
+use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use rayon::prelude::*;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Bir seferde okunan en fazla fotoğraf sayısı.
 pub const MAX_PHOTOS: usize = 5000;
@@ -358,6 +361,75 @@ pub(crate) async fn photo_thumb(app: AppHandle, path: String) -> Result<Option<S
             return None;
         }
         thumb_data_url(Path::new(&path))
+    })
+    .await
+}
+
+/// Fotoğraf klasörlerinin dosya sistemi izleyicisi: klasöre yeni fotoğraf
+/// düşünce (telefondan aktarma, bulut eşitlemesi) okunup arayüze bildirilir.
+#[derive(Default)]
+pub(crate) struct PhotoWatcher(Mutex<Option<Debouncer<RecommendedWatcher>>>);
+
+/// Verilen yollardan klasör olanları izler (öncekilerin yerine); yeni ya da
+/// değişen fotoğraflar okunup `photos-added` olayıyla gönderilir. İzlenemeyen
+/// klasörlerin hata iletileri döner.
+#[tauri::command]
+pub(crate) async fn watch_photo_folders(
+    app: AppHandle,
+    folders: Vec<String>,
+) -> Result<Vec<String>, String> {
+    run_blocking(move || {
+        let dirs: Vec<PathBuf> = folders
+            .iter()
+            .map(PathBuf::from)
+            .filter(|p| p.is_dir())
+            .collect();
+        let state = app.state::<PhotoWatcher>();
+        let mut slot = state.0.lock().unwrap();
+        *slot = None;
+        if dirs.is_empty() {
+            return Vec::new();
+        }
+        let handle = app.clone();
+        // Telefon/bulut aktarmaları dosyayı parça parça yazabilir: birkaç
+        // saniyelik sessizlik beklenir.
+        let debouncer = new_debouncer(Duration::from_secs(4), move |res: DebounceEventResult| {
+            let Ok(events) = res else { return };
+            let mut paths: Vec<String> = events
+                .into_iter()
+                .map(|e| e.path)
+                .filter(|p| p.is_file() && is_photo(p))
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect();
+            paths.sort();
+            paths.dedup();
+            if paths.is_empty() {
+                return;
+            }
+            let list = read_all(&paths);
+            if list.is_empty() {
+                return;
+            }
+            handle
+                .state::<PhotoPaths>()
+                .0
+                .lock()
+                .unwrap()
+                .extend(list.iter().map(|p| p.path.clone()));
+            let _ = handle.emit("photos-added", list);
+        });
+        let mut debouncer = match debouncer {
+            Ok(d) => d,
+            Err(e) => return vec![format!("Fotoğraf klasörü izlenemiyor: {e}")],
+        };
+        let mut errors = Vec::new();
+        for d in &dirs {
+            if let Err(e) = debouncer.watcher().watch(d, RecursiveMode::Recursive) {
+                errors.push(format!("{} izlenemiyor: {e}", d.display()));
+            }
+        }
+        *slot = Some(debouncer);
+        errors
     })
     .await
 }

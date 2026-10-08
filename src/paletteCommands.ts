@@ -38,6 +38,8 @@ export interface PaletteContext {
   centerOn(lonLat: [number, number], zoom: number): void;
   records: FileSummary[];
   selectAndZoom(path: string): void;
+  /** Fotoğraf ekle (`true`: klasör seç; klasör izlenir). */
+  pickPhotos(folder: boolean): void;
 }
 
 export function paletteCommands(x: PaletteContext): Command[] {
@@ -47,6 +49,8 @@ export function paletteCommands(x: PaletteContext): Command[] {
   const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl";
   add("İşlem", "open", "Dosya aç…", x.pickFiles, `${MOD}+O`, "gpx fit tcx kml zip strava garmin takeout içe aktar");
   add("İşlem", "folder", "Klasör aç…", x.pickFolder, `${MOD}+Shift+O`);
+  add("İşlem", "photo-folder", "Fotoğraf klasörü ekle…", () => x.pickPhotos(true), undefined, "resim foto telefon izle");
+  add("İşlem", "photos", "Fotoğraf ekle…", () => x.pickPhotos(false), undefined, "resim foto jpg heic");
   add("İşlem", "summary", "Özet", () => x.setDialog("summary"), `${MOD}+I`, "istatistik yıl kartı hedef ülke il");
   add("İşlem", "settings", "Ayarlar", () => x.setDialog("settings"), `${MOD}+,`, "yakıt hedef katman gizlilik yedek");
   add("İşlem", "day", "Gün akışı", () => x.setDialog("day"), undefined, "zaman çizelgesi timeline");
