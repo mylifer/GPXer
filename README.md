@@ -88,7 +88,12 @@ ile yazılmıştır.
 - Özetler önbelleğe alınır: değişmemiş dosyalar yeniden okunmaz.
 - İzlenen klasörler: bu klasörlere eklenen yeni GPX/FIT/TCX/KML dosyaları kendiliğinden
   kütüphaneye girer.
-- Liste aya ya da yıla göre gruplanır; grupların toplamları görünür.
+- Liste aya, yıla ya da geziye göre gruplanır; grupların toplamları görünür.
+  Geziler kendiliğinden bulunur: evden (günlerin çoğunun başladığı yer) 50 km'den
+  fazla uzaklaşan, aralarında 48 saatten uzun boşluk olmayan kayıtlar bir gezi
+  olur ("Marmaris gezisi · 9–14.07"). Gezi başlığındaki *Seç* gezinin bütün
+  kayıtlarını seçer: tek dosyada dışa aktarılabilir ya da birleştirilip gezi
+  hikâyesi çıkarılabilir.
 - Her kaydın başlangıç ve bitiş yeri ("Kadıköy → Beşiktaş") çevrimdışı
   bulunur. Yer adları GeoNames verisinden gelir; Türkiye'deki yaklaşık 920
   yer adının Türkçe yazımı (ş, ç, ğ, ı, ö, ü) uygulamada bir tabloyla

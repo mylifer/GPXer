@@ -511,6 +511,12 @@ export default function App() {
     clearMulti,
   } = useListActions({ rows, selected, pick, setMulti, patchFiles, up, prefsRef, filesRef, shownRef, setDialog });
 
+  // Gezi grubunun bütün kayıtlarını seç ve haritada göster.
+  const onSelectGroup = useCallback((paths: string[]) => {
+    const set = new Set(paths);
+    setMulti(set);
+    mapRef.current?.fitFiles(filesRef.current.filter((f) => set.has(f.summary.path)));
+  }, []);
   // ---------- Haritada yer arama ----------
   // Gezilen ülkeler aramada öne alınır (ör. "Paris": Fransa'ya gidildiyse oradaki).
   const visitedCountries = useMemo(() => {
@@ -654,6 +660,7 @@ export default function App() {
           onFilters={setFilters}
           onGroupBy={onGroupBy}
           onToggleGroup={onToggleGroup}
+          onSelectGroup={onSelectGroup}
           onRowClick={onRowClick}
           onZoom={selectAndZoom}
           onToggle={toggle}

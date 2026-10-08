@@ -848,6 +848,21 @@ label.check.small {
   text-align: left;
 }
 
+.group-select {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.group-select:hover {
+  background: var(--hover);
+}
+
 .group-head .chev {
   width: 10px;
   color: var(--text-muted);

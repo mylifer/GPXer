@@ -90,11 +90,7 @@ const Row = memo(function Row({
         <div className="file-meta">
           <span
             className="when"
-            title={
-              days.length > 1
-                ? `${isoToTr(days[0].day)} – ${isoToTr(days[days.length - 1].day)} · ${fmtNumber(days.length)} gün`
-                : undefined
-            }
+            title={days.length > 1 ? `${isoToTr(days[0].day)} – ${isoToTr(days[days.length - 1].day)} · ${fmtNumber(days.length)} gün` : undefined}
           >
             {days.length > 1
               ? dayRangeTr(days[0].day, days[days.length - 1].day)
@@ -134,7 +130,6 @@ const Row = memo(function Row({
     </li>
   );
 });
-
 
 const hasSub = (f: FileEntry, tags: string[] | undefined, from: string, to: string) =>
   !!placeLabel(f.summary) || !!tags?.length || rangeShare(f.summary, from, to).partial;
@@ -244,14 +239,37 @@ export function FileList(p: SidebarProps) {
   const head = (g: Group, cls = "") => {
     const closed = p.collapsed.has(g.key);
     return (
-      <button className={`group-head${cls}`} onClick={() => p.onToggleGroup(g.key)} aria-expanded={!closed}>
+      <div
+        className={`group-head${cls}`}
+        role="button"
+        tabIndex={0}
+        onClick={() => p.onToggleGroup(g.key)}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+          e.preventDefault();
+          p.onToggleGroup(g.key);
+        }}
+        aria-expanded={!closed}
+      >
         <span className="chev">{closed ? "▸" : "▾"}</span>
         <span className="group-label">{g.label}</span>
         <span className="group-meta">
           {fmtNumber(g.items.length)} · {fmtDistance(g.distanceM)}
           {g.movingMs > 0 && ` · ${fmtDurationShort(g.movingMs)}`}
         </span>
-      </button>
+        {g.key.startsWith("trip:") && (
+          <button
+            className="group-select"
+            title="Gezinin bütün kayıtlarını seç: tek dosyada dışa aktarma, birleştirme ve haritada gösterme için"
+            onClick={(e) => {
+              e.stopPropagation();
+              p.onSelectGroup(g.items.map((f) => f.summary.path));
+            }}
+          >
+            Seç
+          </button>
+        )}
+      </div>
     );
   };
 
@@ -295,7 +313,8 @@ export function FileList(p: SidebarProps) {
       </ul>
       {p.files.length === 0 && !p.loading && (
         <div className="empty-hint">
-          GPX, FIT, TCX, KML dosyalarını, Google konum geçmişini (Takeout JSON) ya da klasörleri pencereye sürükleyip bırakın veya yukarıdaki düğmeleri kullanın.
+          GPX, FIT, TCX, KML dosyalarını, Google konum geçmişini (Takeout JSON) ya da klasörleri pencereye sürükleyip bırakın veya yukarıdaki düğmeleri
+          kullanın.
         </div>
       )}
       {p.files.length > 0 && p.shown.length === 0 && (

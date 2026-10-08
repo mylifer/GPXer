@@ -200,3 +200,17 @@ export function detail(s: FileSummary): Detail {
 }
 
 export const SUMMARIES: FileSummary[] = TRIPS.map(summary);
+
+/** Evden (Kadıköy) her gün başlayan kısa işe gidişler: gezi algılamasında
+ * "ev" bunlardan çıkar. */
+export const COMMUTES: FileSummary[] = [20, 21, 24, 25, 26, 27].map((d, i) =>
+  summary(
+    {
+      name: `İşe gidiş ${d} Nisan`,
+      stops: [PLACES.kadikoy, [29.1, 41.0]],
+      start: `2023-04-${d}T05:30:00Z`,
+      visits: [["TR", "Kadıköy"]],
+    },
+    100 + i,
+  ),
+);

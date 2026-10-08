@@ -38,6 +38,8 @@ export interface SidebarProps {
   onFilters(f: Filters): void;
   onGroupBy(g: GroupBy): void;
   onToggleGroup(key: string): void;
+  /** Grubun bütün kayıtlarını seç (gezi grupları). */
+  onSelectGroup(paths: string[]): void;
   onRowClick(path: string, mods: RowModifiers): void;
   onZoom(path: string): void;
   onToggle(path: string): void;
@@ -252,6 +254,7 @@ export const Sidebar = memo(function Sidebar(p: SidebarProps) {
             <select value={p.groupBy} onChange={(e) => p.onGroupBy(e.target.value as GroupBy)} title="Gruplama">
               <option value="month">Aya göre</option>
               <option value="year">Yıla göre</option>
+              <option value="trip">Geziye göre</option>
               <option value="none">Gruplama yok</option>
             </select>
           </div>

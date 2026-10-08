@@ -204,7 +204,7 @@ export const ModernSidebar = memo(function ModernSidebar(p: SidebarProps) {
               allowDeselect={false}
               value={p.groupBy}
               onChange={(v) => v && p.onGroupBy(v as GroupBy)}
-              data={[opt("month", "Aya göre"), opt("year", "Yıla göre"), opt("none", "Gruplama yok")]}
+              data={[opt("month", "Aya göre"), opt("year", "Yıla göre"), opt("trip", "Geziye göre"), opt("none", "Gruplama yok")]}
               style={{ flex: 1 }}
             />
           </Group>

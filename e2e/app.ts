@@ -2,7 +2,7 @@
  * `mock` ile komut yanıtlarını değiştirebilir. */
 import { test as base, expect, type Page } from "@playwright/test";
 import type { FileSummary } from "../src/api";
-import { detail, SUMMARIES } from "./fixtures";
+import { COMMUTES, detail, SUMMARIES } from "./fixtures";
 
 type Handler = (args: Record<string, unknown>) => unknown;
 
@@ -13,6 +13,8 @@ export interface AppOptions {
   en: boolean;
   /** Kayıt sayısı: 0 yapay örnekler, fazlası `many(n)`. */
   records: number;
+  /** Evden başlayan işe gidiş kayıtları da eklensin (gezi algılaması için). */
+  commutes: boolean;
 }
 
 /** Çok sayıda kayıt: örnekler ayrı aylara yayılır (gruplama, kaydırma). */
@@ -60,10 +62,11 @@ export const test = base.extend<AppOptions & { mock: Record<string, Handler>; ap
   classic: [false, { option: true }],
   en: [false, { option: true }],
   records: [0, { option: true }],
+  commutes: [false, { option: true }],
   mock: async ({}, use) => use({ ...DEFAULTS }),
   errors: async ({}, use) => use([]),
-  app: async ({ page, classic, en, records, mock, errors }, use) => {
-    const summaries = records ? many(records) : SUMMARIES;
+  app: async ({ page, classic, en, records, commutes, mock, errors }, use) => {
+    const summaries = [...(records ? many(records) : SUMMARIES), ...(commutes ? COMMUTES : [])];
     const byPath = new Map(summaries.map((s) => [s.path, s]));
     mock.library_files ??= () => summaries.map((s) => s.path);
     mock.load_files ??= (a) =>

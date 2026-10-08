@@ -9,6 +9,7 @@ import { dayBuckets, dedupedTotals, touchesRange } from "../days";
 import { dayKey, monthLabel, searchKey, tzOf } from "../format";
 import { findOverlaps } from "../overlaps";
 import { flightsOf, uniqueFlights, type Flight } from "../flights";
+import { detectTrips, type Trip } from "../trips";
 
 /**
  * Dosya listesinden türetilen veriler: renkler, güzergâhlar, çakışmalar,
@@ -34,9 +35,7 @@ export function useFilteredFiles({
   /** Tarihe göre renk kipinde her dosyanın rengi. */
   const colored = useMemo(() => {
     if (prefs.colorMode !== "date") return files;
-    const dated = files
-      .filter((f) => f.summary.stats.startTime != null)
-      .sort((a, b) => a.summary.stats.startTime! - b.summary.stats.startTime!);
+    const dated = files.filter((f) => f.summary.stats.startTime != null).sort((a, b) => a.summary.stats.startTime! - b.summary.stats.startTime!);
     const rank = new Map(dated.map((f, i) => [f.summary.path, dated.length > 1 ? i / (dated.length - 1) : 1]));
     const ramp = dark ? SEQ_DARK : SEQ_LIGHT;
     return files.map((f) => {
@@ -107,16 +106,27 @@ export function useFilteredFiles({
     }
   }, [colored, prefs.filters, meta, routeInfo, activeRoute, prefs.tzMode, overlapInfo, places]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Geziye göre gruplamada geziler bütün kütüphaneden çıkarılır (filtre bir
+  // gezinin yalnızca bir kısmını gösterse de gezi aynı kalır).
+  const tripOf = useMemo(() => {
+    if (prefs.groupBy !== "trip") return null;
+    const m = new Map<string, Trip>();
+    for (const t of detectTrips(files.map((f) => f.summary))) for (const p of t.paths) m.set(p, t);
+    return m;
+  }, [files, prefs.groupBy]);
+
   const groups = useMemo<Group[]>(() => {
     if (prefs.groupBy === "none") return [];
     const map = new Map<string, Group>();
     for (const f of shown) {
       const t = f.summary.stats.startTime;
-      const key =
-        t == null ? "undated" : prefs.groupBy === "month" ? dayKey(t, tzOf(f.summary)).slice(0, 7) : dayKey(t, tzOf(f.summary)).slice(0, 4);
+      const trip = tripOf?.get(f.summary.path);
+      // Gezi dışındaki kayıtlar geziye göre gruplamada ay ay.
+      const byMonth = prefs.groupBy === "month" || (prefs.groupBy === "trip" && !trip);
+      const key = trip ? trip.key : t == null ? "undated" : byMonth ? dayKey(t, tzOf(f.summary)).slice(0, 7) : dayKey(t, tzOf(f.summary)).slice(0, 4);
       let g = map.get(key);
       if (!g) {
-        const label = key === "undated" ? "Tarihsiz" : prefs.groupBy === "month" ? monthLabel(key) : key;
+        const label = trip ? trip.label : key === "undated" ? "Tarihsiz" : byMonth ? monthLabel(key) : key;
         g = { key, label, items: [], distanceM: 0, movingMs: 0 };
         map.set(key, g);
       }
@@ -133,14 +143,13 @@ export function useFilteredFiles({
       g.movingMs = t.movingMs;
     }
     return [...map.values()];
-  }, [shown, prefs.groupBy, prefs.tzMode, prefs.filters.from, prefs.filters.to]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shown, tripOf, prefs.groupBy, prefs.tzMode, prefs.filters.from, prefs.filters.to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const collapsed = useMemo(() => new Set(prefs.collapsed), [prefs.collapsed]);
 
   /** Listede görünen satırlar, ekrandaki sırayla (klavye ve Shift+tık için). */
   const rows = useMemo(
-    () =>
-      prefs.groupBy === "none" ? shown : groups.flatMap((g) => (collapsed.has(g.key) ? [] : g.items)),
+    () => (prefs.groupBy === "none" ? shown : groups.flatMap((g) => (collapsed.has(g.key) ? [] : g.items))),
     [shown, groups, collapsed, prefs.groupBy],
   );
 
@@ -176,10 +185,7 @@ export function useFilteredFiles({
     }
     return uniqueFlights(out);
   }, [onMap, prefs.flightsLayer, dateWindow, prefs.tzMode]); // eslint-disable-line react-hooks/exhaustive-deps
-  const selectedEntry = useMemo(
-    () => (selected ? (colored.find((f) => f.summary.path === selected) ?? null) : null),
-    [colored, selected],
-  );
+  const selectedEntry = useMemo(() => (selected ? (colored.find((f) => f.summary.path === selected) ?? null) : null), [colored, selected]);
 
   const dateLegend = useMemo(() => {
     if (prefs.colorMode !== "date") return null;

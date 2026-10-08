@@ -8,7 +8,7 @@ import { DEFAULT_FUEL, isFuelPrefs, type FuelPrefs } from "./fuel";
 import type { TzMode } from "./format";
 
 export type SortKey = "date-desc" | "date-asc" | "name" | "distance";
-export type GroupBy = "none" | "month" | "year";
+export type GroupBy = "none" | "month" | "year" | "trip";
 type ColorMode = "file" | "date";
 export type Metric = "ele" | "speed" | "hr" | "cad" | "power" | "temp";
 export type TrackColorBy = "none" | Metric;
@@ -210,7 +210,7 @@ export function sanitizePrefs(raw: unknown): Prefs {
   const series = Array.isArray(s.series) ? s.series.filter(isMetric) : D.series;
   return {
     filters,
-    groupBy: pick(s.groupBy, oneOf<GroupBy>("none", "month", "year"), D.groupBy),
+    groupBy: pick(s.groupBy, oneOf<GroupBy>("none", "month", "year", "trip"), D.groupBy),
     collapsed: strings(s.collapsed) ?? D.collapsed,
     hidden: strings(s.hidden) ?? D.hidden,
     selected: pick(s.selected, nullable(isStr), D.selected),
