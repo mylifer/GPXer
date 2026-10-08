@@ -400,7 +400,11 @@ fn get_json(req: ureq::Request) -> Result<serde_json::Value, String> {
 
 /// Photon araması; haritanın ortası verilirse yakın sonuçlar belirgin biçimde
 /// öne alınır (aynı adlı cadde her şehirde var).
-fn photon(query: &str, at: Option<(f64, f64)>) -> Result<Vec<PlaceHit>, String> {
+fn photon(
+    query: &str,
+    at: Option<(f64, f64)>,
+    trace: &mut Vec<String>,
+) -> Result<Vec<PlaceHit>, String> {
     let base = |strong: bool| {
         let mut req = agent()
             .get("https://photon.komoot.io/api/")
@@ -419,9 +423,57 @@ fn photon(query: &str, at: Option<(f64, f64)>) -> Result<Vec<PlaceHit>, String> 
     // Eski sürüm sunucu ek parametreleri tanımazsa yalın istek.
     match get_json(base(true)) {
         Ok(v) => Ok(parse_photon(&v)),
-        Err(_) if at.is_some() => get_json(base(false)).map(|v| parse_photon(&v)),
+        Err(e) if at.is_some() => {
+            trace.push(format!(
+                "Photon yakınlık ayarıyla hata verdi ({e}); yalın istek deneniyor"
+            ));
+            get_json(base(false)).map(|v| parse_photon(&v))
+        }
         Err(e) => Err(e),
     }
+}
+
+/// Bir arama adımının tanılama satırı: süre, sonuç ve uyan sayısı, ilk adlar.
+fn step_line(
+    service: &str,
+    query: &str,
+    started: std::time::Instant,
+    r: &Result<Vec<PlaceHit>, String>,
+    q: &str,
+) -> String {
+    let ms = started.elapsed().as_millis();
+    match r {
+        Ok(hits) => {
+            let good = hits.iter().filter(|h| hit_fits(h, q)).count();
+            let names: Vec<String> = hits
+                .iter()
+                .take(5)
+                .map(|h| {
+                    if h.detail.is_empty() {
+                        h.name.clone()
+                    } else {
+                        format!("{} ({})", h.name, h.detail)
+                    }
+                })
+                .collect();
+            format!(
+                "{service} “{query}”: {} sonuç, {good} uyan, {ms} ms{}{}",
+                hits.len(),
+                if names.is_empty() { "" } else { " — " },
+                names.join("; ")
+            )
+        }
+        Err(e) => format!("{service} “{query}”: hata, {ms} ms — {e}"),
+    }
+}
+
+/// Son çevrimiçi aramanın adımları (arama panelindeki tanılama için).
+static TRACE: std::sync::Mutex<(String, Vec<String>)> =
+    std::sync::Mutex::new((String::new(), Vec::new()));
+
+#[tauri::command]
+pub(crate) fn search_trace() -> (String, Vec<String>) {
+    TRACE.lock().map(|t| t.clone()).unwrap_or_default()
 }
 
 /// Nominatim araması (Photon'un bulamadığı adresler için); haritanın
@@ -459,12 +511,26 @@ pub(crate) async fn search_places_online(
     run_blocking(move || {
         let q = expand_query(query.trim());
         let at = lat.zip(lon);
+        let mut trace = vec![
+            if q == query.trim() {
+                format!("Sorgu: “{q}”")
+            } else {
+                format!("Sorgu: “{}” → kısaltmalar açıldı: “{q}”", query.trim())
+            },
+            match at {
+                Some((la, lo)) => format!("Yakınlık önceliği: harita ortası {la:.4}, {lo:.4}"),
+                None => "Yakınlık önceliği: yok".to_owned(),
+            },
+        ];
         let fits = |r: &[PlaceHit]| r.iter().any(|h| hit_fits(h, &q));
         // Önce Photon (yazım çeşitleriyle), uyan yoksa Nominatim.
         let mut found: Vec<PlaceHit> = Vec::new();
         let mut last_err = None;
         for v in variants(&q) {
-            match photon(&v, at) {
+            let t = std::time::Instant::now();
+            let r = photon(&v, at, &mut trace);
+            trace.push(step_line("Photon", &v, t, &r, &q));
+            match r {
                 Ok(r) => {
                     let ok = fits(&r);
                     found.extend(r);
@@ -475,13 +541,18 @@ pub(crate) async fn search_places_online(
                 Err(e) => last_err = Some(e),
             }
         }
-        if !fits(&found) {
+        if fits(&found) {
+            trace.push("Photon'da uyan sonuç var; Nominatim'e sorulmadı".to_owned());
+        } else {
             for (i, v) in variants(&q).into_iter().enumerate() {
                 // Nominatim kullanım koşulu: saniyede en çok bir istek.
                 if i > 0 {
                     std::thread::sleep(std::time::Duration::from_millis(1100));
                 }
-                match nominatim(&v, at) {
+                let t = std::time::Instant::now();
+                let r = nominatim(&v, at);
+                trace.push(step_line("Nominatim", &v, t, &r, &q));
+                match r {
                     Ok(r) => {
                         // Uyanlar en öne.
                         let (good, rest): (Vec<_>, Vec<_>) =
@@ -496,6 +567,9 @@ pub(crate) async fn search_places_online(
                     Err(e) => last_err = Some(e),
                 }
             }
+        }
+        if let Ok(mut t) = TRACE.lock() {
+            *t = (query.trim().to_owned(), trace);
         }
         match (found.is_empty(), last_err) {
             (true, Some(e)) => Err(e),

@@ -335,3 +335,5 @@ export const searchStreetsOffline = (query: string, lat: number | null, lon: num
   invoke<PlaceHit[]>("search_streets_offline", { query, lat, lon });
 /** Çevrimdışı arama dizinindeki ad ve karo sayısı. */
 export const streetsInfo = () => invoke<[number, number]>("streets_info");
+/** Son çevrimiçi aramanın adımları: [sorgu, satırlar]. */
+export const searchTrace = () => invoke<[string, string[]]>("search_trace");

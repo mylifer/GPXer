@@ -14,7 +14,10 @@ test.describe("İngilizce", () => {
   test.use({ en: true });
   test("arayüz ve bölge adları İngilizce", async ({ app }) => {
     await expect(app.getByText("Kayıtlar", { exact: true })).toHaveCount(0);
-    await app.getByRole("button", { name: /^Summary/ }).first().click();
+    await app
+      .getByRole("button", { name: /^Summary/ })
+      .first()
+      .click();
     const sum = app.locator(".abroad-regions");
     await expect(sum.first()).toBeVisible({ timeout: 15_000 });
     const text = (await sum.allInnerTexts()).join(" ");

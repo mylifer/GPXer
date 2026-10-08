@@ -50,13 +50,71 @@ const PLACES: Record<string, Pt> = {
 };
 
 export const TRIPS: Trip[] = [
-  { name: "İstanbul → Ankara", stops: [PLACES.kadikoy, PLACES.izmit, PLACES.ankara], start: "2023-05-01T06:00:00Z", visits: [["TR", "Kadıköy"], ["TR", "İzmit"], ["TR", "Ankara"]] },
-  { name: "Ankara → Eskişehir", stops: [PLACES.ankara, PLACES.eskisehir], start: "2023-05-03T08:00:00Z", visits: [["TR", "Ankara"], ["TR", "Eskişehir"]] },
-  { name: "Bodrum → Marmaris", stops: [PLACES.bodrum, PLACES.marmaris], start: "2024-07-09T07:00:00Z", visits: [["TR", "Bodrum"], ["TR", "Marmaris"]] },
-  { name: "Marmaris → Datça", stops: [PLACES.marmaris, PLACES.datca], start: "2024-07-10T09:00:00Z", visits: [["TR", "Marmaris"], ["TR", "Datça"]] },
-  { name: "Datça → Bodrum", stops: [PLACES.datca, PLACES.bodrum], start: "2024-07-12T10:00:00Z", visits: [["TR", "Datça"], ["TR", "Bodrum"]] },
-  { name: "Edirne → Selanik", stops: [PLACES.edirne, PLACES.plovdiv, PLACES.selanik], start: "2025-08-14T05:00:00Z", visits: [["TR", "Edirne"], ["BG", "Plovdiv"], ["GR", "Selanik"]] },
-  { name: "Münih → Augsburg", stops: [PLACES.munih, PLACES.augsburg], start: "2025-09-20T09:00:00Z", visits: [["DE", "Münih"], ["DE", "Augsburg"]] },
+  {
+    name: "İstanbul → Ankara",
+    stops: [PLACES.kadikoy, PLACES.izmit, PLACES.ankara],
+    start: "2023-05-01T06:00:00Z",
+    visits: [
+      ["TR", "Kadıköy"],
+      ["TR", "İzmit"],
+      ["TR", "Ankara"],
+    ],
+  },
+  {
+    name: "Ankara → Eskişehir",
+    stops: [PLACES.ankara, PLACES.eskisehir],
+    start: "2023-05-03T08:00:00Z",
+    visits: [
+      ["TR", "Ankara"],
+      ["TR", "Eskişehir"],
+    ],
+  },
+  {
+    name: "Bodrum → Marmaris",
+    stops: [PLACES.bodrum, PLACES.marmaris],
+    start: "2024-07-09T07:00:00Z",
+    visits: [
+      ["TR", "Bodrum"],
+      ["TR", "Marmaris"],
+    ],
+  },
+  {
+    name: "Marmaris → Datça",
+    stops: [PLACES.marmaris, PLACES.datca],
+    start: "2024-07-10T09:00:00Z",
+    visits: [
+      ["TR", "Marmaris"],
+      ["TR", "Datça"],
+    ],
+  },
+  {
+    name: "Datça → Bodrum",
+    stops: [PLACES.datca, PLACES.bodrum],
+    start: "2024-07-12T10:00:00Z",
+    visits: [
+      ["TR", "Datça"],
+      ["TR", "Bodrum"],
+    ],
+  },
+  {
+    name: "Edirne → Selanik",
+    stops: [PLACES.edirne, PLACES.plovdiv, PLACES.selanik],
+    start: "2025-08-14T05:00:00Z",
+    visits: [
+      ["TR", "Edirne"],
+      ["BG", "Plovdiv"],
+      ["GR", "Selanik"],
+    ],
+  },
+  {
+    name: "Münih → Augsburg",
+    stops: [PLACES.munih, PLACES.augsburg],
+    start: "2025-09-20T09:00:00Z",
+    visits: [
+      ["DE", "Münih"],
+      ["DE", "Augsburg"],
+    ],
+  },
 ];
 
 const STEP_MS = 60_000;

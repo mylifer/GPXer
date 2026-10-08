@@ -6,7 +6,8 @@ export default defineConfig({
   testDir: "e2e",
   timeout: 60_000,
   retries: 0,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
+  // CI'da başarısızlıklar GitHub'da doğrudan not olarak da görünür.
+  reporter: process.env.CI ? [["list"], ["github"]] : "list",
   use: {
     baseURL: "http://localhost:4183",
     viewport: { width: 1440, height: 900 },
@@ -14,7 +15,11 @@ export default defineConfig({
     timezoneId: "Europe/Istanbul",
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
-    launchOptions: process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {},
+    launchOptions: {
+      executablePath: process.env.PW_CHROMIUM || undefined,
+      // Harita WebGL ister; ekran kartı olmayan makinede yazılımsal çizim.
+      args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
+    },
   },
   webServer: {
     command: "npx vite preview --port 4183 --strictPort",

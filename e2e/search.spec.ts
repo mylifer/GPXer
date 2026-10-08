@@ -38,3 +38,16 @@ test("eski sorgunun sonucu yeni sorguya seçilmez", async ({ app, mock }) => {
   await app.keyboard.press("Enter");
   await expect(app.locator(".search-pin")).toHaveAttribute("title", "Kemer");
 });
+
+test("tanılama her kaynağın sonucunu gösterir", async ({ app, mock }) => {
+  mock.streets_info = () => [1200, 40];
+  mock.search_places_online = () => [];
+  mock.search_trace = () => ["fırın sokak", ["Sorgu: “fırın sokak”", "Photon “fırın sokak”: 0 sonuç, 0 uyan, 120 ms"]];
+  await app.keyboard.press("Control+f");
+  await app.keyboard.type("fırın sokak");
+  await app.getByRole("button", { name: /Tanılama/ }).click();
+  const diag = app.locator(".map-search-diag");
+  await expect(diag).toContainText("Çevrimdışı yerleşim listesi: 0 sonuç");
+  await expect(diag).toContainText("dizinde 1200 ad, 40 karo");
+  await expect(diag).toContainText("Photon “fırın sokak”: 0 sonuç");
+});

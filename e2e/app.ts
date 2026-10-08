@@ -49,6 +49,7 @@ const DEFAULTS: Record<string, Handler> = {
   get_bookmarks: () => [],
   get_places: () => [],
   streets_info: () => [0, 0],
+  search_trace: () => ["", []],
   search_places_offline: () => [],
   search_streets_offline: () => [],
   search_places_online: () => [],

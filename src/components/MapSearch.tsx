@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActionIcon, TextInput, Tooltip } from "@mantine/core";
 import { IconSearch } from "@tabler/icons-react";
-import { searchPlacesOffline, searchPlacesOnline, searchStreetsOffline, type Bookmark, type NamedPlace, type PlaceHit } from "../api";
+import { searchPlacesOffline, searchPlacesOnline, searchStreetsOffline, searchTrace, streetsInfo, type Bookmark, type NamedPlace, type PlaceHit } from "../api";
 import { isModern } from "../ui/mode";
 import { t } from "../i18n";
 import { LOCALE, searchKey as foldText } from "../format";
@@ -144,6 +144,10 @@ export function MapSearch({
   const [online, setOnline] = useState<Got>({ q: "", hits: [] });
   const [onlineState, setOnlineState] = useState<"idle" | "busy" | "error">("idle");
   const [active, setActive] = useState(0);
+  /** Tanılama açık mı; açıksa son çevrimiçi aramanın adımları ve sokak dizini. */
+  const [diag, setDiag] = useState(false);
+  const [trace, setTrace] = useState<[string, string[]] | null>(null);
+  const [index, setIndex] = useState<[number, number] | null>(null);
   /** Enter'a sonuçlar gelmeden basıldı: gelince ilk sonuç seçilir. */
   const [waiting, setWaiting] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -151,12 +155,17 @@ export function MapSearch({
 
   const show = () => {
     setOpen(true);
-    // Panel çizildikten sonra odaklanır.
-    requestAnimationFrame(() => {
-      input.current?.focus();
-      input.current?.select();
-    });
+    // Panel zaten açıksa hemen; değilse çizilir çizilmez (aşağıda) odaklanır.
+    input.current?.focus();
+    input.current?.select();
   };
+  // Panel açılınca kutu aynı karede odaklanır: Ctrl/⌘+F'nin hemen ardından
+  // yazılan harfler kaybolmaz.
+  useLayoutEffect(() => {
+    if (!open) return;
+    input.current?.focus();
+    input.current?.select();
+  }, [open]);
   // Ctrl/⌘+F: aramayı aç.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -226,6 +235,22 @@ export function MapSearch({
       clearTimeout(timer);
     };
   }, [query, prefer, center]);
+
+  // Tanılama: çevrimiçi arama bitince adımları al.
+  useEffect(() => {
+    if (!diag || !open) return;
+    let live = true;
+    streetsInfo()
+      .then((r) => live && setIndex(r))
+      .catch(() => {});
+    if (onlineState !== "busy")
+      searchTrace()
+        .then((r) => live && setTrace(r))
+        .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [diag, open, onlineState, query]);
 
   /** Çevrimdışı sonuçlar henüz bu sorgu için gelmedi. */
   const pending = query.length >= 2 && (offline.q !== query || streets.q !== query);
@@ -307,6 +332,33 @@ export function MapSearch({
       e.preventDefault();
       setOpen(false);
     }
+  };
+
+  /** Tanılama satırları: her kaynağın bu sorgu için ne döndürdüğü. */
+  const diagLines = (): string[] => {
+    const count = (g: Got) =>
+      g.q === query
+        ? `${g.hits.length} sonuç${
+            g.hits.length
+              ? ` (${g.hits
+                  .slice(0, 3)
+                  .map((h) => h.name)
+                  .join(", ")})`
+              : ""
+          }`
+        : "aranıyor…";
+    const out = [
+      `Çevrimdışı yerleşim listesi: ${count(offline)}`,
+      `Çevrimdışı sokak dizini: ${count(streets)}${index ? ` · dizinde ${index[0]} ad, ${index[1]} karo` : ""}`,
+    ];
+    if (index && index[0] === 0)
+      out.push("  Sokak dizini boş: Sade ya da Koyu haritada bölgeyi yakınlaştırarak gezin ya da Katmanlar → çevrimdışı için indirin.");
+    if (query.length < 3) out.push("Çevrimiçi: en az 3 harf gerekir");
+    else if (onlineState === "busy") out.push("Çevrimiçi: aranıyor…");
+    else if (trace && trace[0] === query) out.push(...trace[1].map((l) => `Çevrimiçi · ${l}`));
+    else if (onlineState === "error") out.push("Çevrimiçi: arama yapılamadı (internet yok ya da servis yanıt vermedi)");
+    else out.push("Çevrimiçi: bu sorgu için kayıt yok");
+    return out;
   };
 
   const placeholder = "Yer, adres ya da sokak ara…";
@@ -393,8 +445,37 @@ export function MapSearch({
             </ul>
           )}
           {query.length < 2 && <div className="hit-note map-search-hint">Şehir, semt, cadde, mekân ya da adres yazın; Enter ilk sonuca gider.</div>}
+          {query.length >= 2 && (
+            <div className="map-search-foot">
+              <button className="link-btn" onClick={() => setDiag((d) => !d)} aria-expanded={diag}>
+                {diag ? "Tanılamayı gizle" : "Aradığınız çıkmadı mı? Tanılama"}
+              </button>
+            </div>
+          )}
+          {diag && query.length >= 2 && <Diagnostics lines={diagLines()} />}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Arama tanılaması: satırlar ve panoya kopyalama (hata bildirirken yapıştırmak için). */
+function Diagnostics({ lines }: { lines: string[] }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="map-search-diag">
+      <pre data-no-i18n>{lines.join("\n")}</pre>
+      <button
+        className="link-btn"
+        onClick={() =>
+          navigator.clipboard
+            ?.writeText(lines.join("\n"))
+            .then(() => setCopied(true))
+            .catch(() => {})
+        }
+      >
+        {copied ? "Kopyalandı" : "Kopyala"}
+      </button>
     </div>
   );
 }

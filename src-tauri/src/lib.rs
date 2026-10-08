@@ -463,6 +463,7 @@ pub fn run() {
             weather::weather_at,
             search::search_places_offline,
             search::search_places_online,
+            search::search_trace,
             streets::search_streets_offline,
             streets::streets_info,
             sync::sync_now,
