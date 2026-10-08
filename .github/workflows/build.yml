@@ -78,6 +78,13 @@ jobs:
       # Uygulama crate'i derlenirken arayüz paketinin (dist) var olması gerekir.
       - run: npm run build
       - run: npm test
+      # Uçtan uca arayüz testleri: derlenmiş arayüz sahte arka uçla tarayıcıda
+      # açılır (liste, arama, Özet, dil, klasik görünüm).
+      - run: npx tsc -p e2e
+      - name: Arayüz testleri
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test -p gpx-core -p gpxer
 

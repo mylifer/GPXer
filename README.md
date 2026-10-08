@@ -235,7 +235,13 @@ npm run tauri dev      # geliştirme modunda çalıştır
 npm run tauri build    # bu işletim sistemi için kurulum dosyası üret
 cargo test -p gpx-core -p gpxer # çekirdek ve uygulama testleri
 npm test               # arayüz birim testleri (Vitest, src/**/*.test.ts)
+npm run build && npm run e2e # uçtan uca arayüz testleri (Playwright, e2e/)
 ```
+
+Uçtan uca testler derlenmiş arayüzü tarayıcıda, Tauri yerine sahte bir arka
+uçla (`e2e/app.ts`) ve yapay kayıtlarla (`e2e/fixtures.ts`) açar; ilk seferde
+`npx playwright install chromium` gerekir. Yeni bir arayüz hatası
+düzeltildiğinde aynı hatayı yakalayan bir test de eklenmesi iyi olur.
 
 CI'daki *Testler* işi ayrıca `cargo fmt --all --check` ve
 `cargo clippy --workspace --all-targets -- -D warnings` çalıştırır; push'lamadan
