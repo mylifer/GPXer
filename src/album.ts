@@ -33,9 +33,27 @@ export function albumData(
   photos: readonly PlacedPhoto[],
   zones: Zone[] = [],
 ): AlbumMonth[] {
+  const keys = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`);
+  return albumMonths(files, keys, notes, meta, photos, zones);
+}
+
+/** Kayıtların geçtiği bütün aylar ("2019-06"), eskiden yeniye. */
+export function monthsOf(files: readonly FileEntry[]): string[] {
+  return [...new Set(files.flatMap((f) => dayBuckets(f.summary).map((d) => d.day.slice(0, 7))))].sort();
+}
+
+/** Verilen ayların (kaydı olanların) albüm sayfaları. */
+export function albumMonths(
+  files: FileEntry[],
+  keys: readonly string[],
+  notes: Record<string, string>,
+  meta: Record<string, FileMeta>,
+  photos: readonly PlacedPhoto[],
+  zones: Zone[] = [],
+): AlbumMonth[] {
   const out: AlbumMonth[] = [];
-  for (let m = 1; m <= 12; m++) {
-    const key = `${year}-${String(m).padStart(2, "0")}`;
+  for (const key of keys) {
+    const m = Number(key.slice(5, 7));
     const from = `${key}-01`;
     const to = `${key}-31`;
     const inMonth = files.filter((f) => dayBuckets(f.summary).some((d) => d.day.startsWith(key)));
@@ -120,12 +138,13 @@ function cover(ctx: CanvasRenderingContext2D, img: CanvasImageSource & { width: 
 /** Bir ayın albüm sayfası (A4, 150 dpi). */
 export function drawAlbumPage(
   ctx: CanvasRenderingContext2D,
-  year: string,
+  label: string,
   m: AlbumMonth,
   thumbs: ((CanvasImageSource & { width: number; height: number }) | null)[],
   page: number,
 ) {
   const W = PAGE_W;
+  const year = m.key.slice(0, 4);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, W, PAGE_H);
   ctx.textBaseline = "alphabetic";
@@ -221,6 +240,6 @@ export function drawAlbumPage(
   ctx.fillStyle = "#a0a6ac";
   ctx.font = `500 20px ${FONT}`;
   ctx.textAlign = "right";
-  ctx.fillText(`GPXer · ${year} · ${page}`, W - M, PAGE_H - 40);
+  ctx.fillText(`GPXer · ${label} · ${page}`, W - M, PAGE_H - 40);
   ctx.textAlign = "left";
 }

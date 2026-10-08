@@ -24,3 +24,29 @@ test("kişiler: kayda eklenir, Özet'te listelenir, ada tıklanınca liste süz�
   await table.getByRole("button", { name: /Babam/ }).click();
   await expect(rows).toHaveCount(2);
 });
+
+test("kişi albümü: kişiyle yapılan yolculuklar PDF olarak kaydedilir", async ({ app, mock }) => {
+  let saved = "";
+  let name = "";
+  mock.get_meta = () => ({
+    "/kutuphane/kayit-3.gpx": { tags: [], note: "", activity: null, people: ["Babam"] },
+    "/kutuphane/kayit-7.gpx": { tags: [], note: "", activity: null, people: ["Babam"] },
+  });
+  mock.pick_save_path = (a) => {
+    name = a.defaultName as string;
+    return `/Belgeler/${name}`;
+  };
+  mock.write_base64_file = (a) => {
+    saved = a.data as string;
+    return null;
+  };
+  await app.reload();
+  await app.locator(".file-row").first().waitFor({ state: "attached" });
+  await app.getByRole("button", { name: /^Özet/ }).first().click();
+  await app.getByTestId("people").getByRole("button", { name: "📖 Albüm" }).click();
+  await expect.poll(() => saved.length, { timeout: 20_000 }).toBeGreaterThan(1000);
+  expect(name).toBe("GPXer-Babam-albumu.pdf");
+  const pdf = Buffer.from(saved, "base64").toString("latin1");
+  // Kapak + Temmuz 2024 + Eylül 2025.
+  expect(pdf).toContain("/Count 3");
+});

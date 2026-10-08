@@ -1,12 +1,24 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { FileMeta } from "../api";
 import { fmtDistance, fmtNumber, isoToTr } from "../format";
 import { peopleStats } from "../people";
 import type { FileEntry } from "../types";
 
 /** Özet'te kimlerle ne kadar yol gidildiği; ada tıklanınca liste o kişiye süzülür. */
-export function PeopleSection({ files, meta, onPerson }: { files: FileEntry[]; meta: Record<string, FileMeta>; onPerson(name: string): void }) {
+export function PeopleSection({
+  files,
+  meta,
+  onPerson,
+  onAlbum,
+}: {
+  files: FileEntry[];
+  meta: Record<string, FileMeta>;
+  onPerson(name: string): void;
+  /** Kişiyle yapılan yolculukların albümü (PDF); ilerleme bildirilir. */
+  onAlbum?(name: string, progress: (done: number, total: number) => void): Promise<void>;
+}) {
   const rows = useMemo(() => peopleStats(files, meta), [files, meta]);
+  const [busy, setBusy] = useState<{ name: string; at: string } | null>(null);
   if (!rows.length) return null;
   return (
     <>
@@ -20,6 +32,7 @@ export function PeopleSection({ files, meta, onPerson }: { files: FileEntry[]; m
             <th>Mesafe</th>
             <th>İlk</th>
             <th>Son</th>
+            {onAlbum && <th />}
           </tr>
         </thead>
         <tbody>
@@ -35,6 +48,25 @@ export function PeopleSection({ files, meta, onPerson }: { files: FileEntry[]; m
               <td>{fmtDistance(p.distanceM)}</td>
               <td>{isoToTr(p.first)}</td>
               <td>{isoToTr(p.last)}</td>
+              {onAlbum && (
+                <td>
+                  <button
+                    className="link"
+                    disabled={busy != null}
+                    title="Bu kişiyle yapılan bütün yolculukların albümü: kapakta ortak harita, ardından birlikte olunan her ay"
+                    onClick={async () => {
+                      setBusy({ name: p.name, at: "…" });
+                      try {
+                        await onAlbum(p.name, (d, n) => setBusy({ name: p.name, at: `${d}/${n}` }));
+                      } finally {
+                        setBusy(null);
+                      }
+                    }}
+                  >
+                    {busy?.name === p.name ? `📖 ${busy.at}` : "📖 Albüm"}
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

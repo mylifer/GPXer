@@ -18,6 +18,7 @@ import { Modal } from "./Modal";
 import { CalendarHeatmap } from "./CalendarHeatmap";
 import { CoverageSection, type CoverageFill } from "./CoverageSection";
 import { PeopleSection } from "./PeopleSection";
+import { buildPersonAlbumPdf } from "../albumPdf";
 import { LifePeriodsSection } from "./LifePeriodsSection";
 import { VenueSection } from "./VenueSection";
 import { ACTIVITIES, placeLabel } from "../types";
@@ -588,7 +589,17 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes,
 
         <ProvinceSection files={files} from={from} to={to} />
 
-        {meta && onPerson && <PeopleSection files={files} meta={meta} onPerson={onPerson} />}
+        {meta && onPerson && (
+          <PeopleSection
+            files={files}
+            meta={meta}
+            onPerson={onPerson}
+            onAlbum={async (name, progress) => {
+              const pdf = await buildPersonAlbumPdf(files, name, notes ?? {}, meta, photos ?? [], privacyZones(places), progress);
+              onSaveImage(`GPXer-${name}-albumu.pdf`, pdf);
+            }}
+          />
+        )}
 
         <VenueSection files={files} />
 
