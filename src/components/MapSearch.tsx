@@ -452,7 +452,15 @@ export function MapSearch({
               </button>
             </div>
           )}
-          {diag && query.length >= 2 && <Diagnostics lines={diagLines()} />}
+          {diag && query.length >= 2 && (
+            <Diagnostics
+              lines={diagLines()}
+              onStreets={() => {
+                setOpen(false);
+                window.dispatchEvent(new Event("gpxer:open-streets"));
+              }}
+            />
+          )}
         </div>
       )}
     </div>
@@ -460,7 +468,7 @@ export function MapSearch({
 }
 
 /** Arama tanılaması: satırlar ve panoya kopyalama (hata bildirirken yapıştırmak için). */
-function Diagnostics({ lines }: { lines: string[] }) {
+function Diagnostics({ lines, onStreets }: { lines: string[]; onStreets(): void }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="map-search-diag">
@@ -475,6 +483,10 @@ function Diagnostics({ lines }: { lines: string[] }) {
         }
       >
         {copied ? "Kopyalandı" : "Kopyala"}
+      </button>{" "}
+      ·{" "}
+      <button className="link-btn" onClick={onStreets}>
+        Bir bölgenin sokaklarını çevrimdışı aramaya ekle…
       </button>
     </div>
   );

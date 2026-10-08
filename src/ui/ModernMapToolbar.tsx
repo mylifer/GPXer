@@ -9,6 +9,7 @@ import {
   IconMapPinPause,
   IconPlane,
   IconRoute,
+  IconSearch,
   IconSparkles,
   IconStack2,
   IconZoomScan,
@@ -195,6 +196,9 @@ export function ModernMapToolbar(p: Props) {
             </Menu.Item>
             <Menu.Item closeMenuOnClick leftSection={<IconDownload size={16} />} onClick={p.downloadArea}>
               Görünen alanı çevrimdışı için indir
+            </Menu.Item>
+            <Menu.Item closeMenuOnClick leftSection={<IconSearch size={16} />} onClick={p.openStreets}>
+              Sokakları çevrimdışı aramaya ekle
             </Menu.Item>
           </Menu.Dropdown>
         </Menu>

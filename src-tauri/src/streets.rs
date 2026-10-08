@@ -171,6 +171,16 @@ pub(crate) fn index_tile(url: &str, bytes: &[u8]) {
     add_names(&mut ix, names);
 }
 
+/// Bu karo dizinde mi (yeniden indirilmesin).
+pub(crate) fn has_tile(z: u32, x: u32, y: u32) -> bool {
+    let Some(s) = STREETS.get() else {
+        return false;
+    };
+    let mut ix = s.index.lock().unwrap_or_else(|e| e.into_inner());
+    load(s, &mut ix);
+    ix.tiles.contains(&(z, x, y))
+}
+
 /// Dizinde arama: ad eşleşmesine, sonra haritanın ortasına uzaklığa göre.
 /// Aynı adlı, birbirine yakın parçalar (bir caddenin karolara bölünmüş
 /// kısımları) tek sonuçta birleşir; kutusu bütün parçaları kapsar.

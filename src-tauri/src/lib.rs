@@ -464,6 +464,7 @@ pub fn run() {
             search::search_places_offline,
             search::search_places_online,
             search::search_trace,
+            tiles::index_street_tiles,
             streets::search_streets_offline,
             streets::streets_info,
             sync::sync_now,

@@ -2671,6 +2671,17 @@ td.down {
   text-decoration: underline;
 }
 
+.streets-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.streets-progress progress {
+  flex: 1;
+}
+
 .map-search-foot {
   display: flex;
   justify-content: flex-end;

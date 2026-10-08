@@ -118,6 +118,11 @@ function regionsOf(fc: ProvinceFC): RegionIndex {
   return r;
 }
 
+/** Nokta çokgenin (MultiPolygon koordinatları) içinde mi; delikler hesaba katılır. */
+export function inPolygon(lon: number, lat: number, polys: number[][][][]): boolean {
+  return polys.some(([outer, ...holes]) => inRing(lon, lat, outer) && !holes.some((h) => inRing(lon, lat, h)));
+}
+
 /** Işın atma: halka içinde mi. */
 function inRing(x: number, y: number, ring: number[][]): boolean {
   let inside = false;

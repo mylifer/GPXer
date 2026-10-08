@@ -198,6 +198,81 @@ pub(crate) async fn prefetch_tiles(app: AppHandle, urls: Vec<String>) -> Result<
     .await?
 }
 
+/// Sokak dizini için karoların düzeyi: OpenFreeMap'in en ayrıntılı düzeyi
+/// (bütün sokak adları burada).
+const STREET_ZOOM: u32 = 14;
+
+/// OpenFreeMap vektör karolarının güncel adres şablonu ("…/{z}/{x}/{y}.pbf");
+/// sürüm yolu değişebildiği için TileJSON'dan okunur.
+fn vector_template(cache: &TileCache) -> Result<String, String> {
+    static TEMPLATE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    if let Some(t) = TEMPLATE.lock().ok().and_then(|t| t.clone()) {
+        return Ok(t);
+    }
+    let body = cache
+        .agent
+        .get("https://tiles.openfreemap.org/planet")
+        .call()
+        .map_err(|e| format!("Harita sunucusuna ulaşılamadı: {e}"))?
+        .into_string()
+        .map_err(|e| e.to_string())?;
+    let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let t = v["tiles"][0]
+        .as_str()
+        .filter(|t| t.contains("{z}") && t.starts_with("https://"))
+        .ok_or("Harita sunucusu beklenmeyen yanıt verdi")?
+        .to_owned();
+    if let Ok(mut g) = TEMPLATE.lock() {
+        *g = Some(t.clone());
+    }
+    Ok(t)
+}
+
+/// Verilen z14 karolarını (x, y) indirip sokak dizinine ekler; dizinde
+/// olanlar atlanır. Dönüş: (işlenen karo, dizindeki toplam ad).
+#[tauri::command]
+pub(crate) async fn index_street_tiles(
+    app: AppHandle,
+    tiles: Vec<(u32, u32)>,
+) -> Result<(usize, usize), String> {
+    if tiles.len() > 500 {
+        return Err("Bir seferde en çok 500 karo".into());
+    }
+    run_blocking(move || {
+        use rayon::prelude::*;
+        let cache = app.state::<TileCache>();
+        let todo: Vec<(u32, u32)> = tiles
+            .into_iter()
+            .filter(|&(x, y)| !crate::streets::has_tile(STREET_ZOOM, x, y))
+            .collect();
+        let mut done = 0;
+        if !todo.is_empty() {
+            let template = vector_template(&cache)?;
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(4)
+                .build()
+                .map_err(|e| e.to_string())?;
+            done = pool.install(|| {
+                todo.par_iter()
+                    .filter(|&&(x, y)| {
+                        let url = template
+                            .replace("{z}", &STREET_ZOOM.to_string())
+                            .replace("{x}", &x.to_string())
+                            .replace("{y}", &y.to_string());
+                        // Önbelleğe giren vektör karo kendiliğinden dizine eklenir.
+                        cache.get(&url).is_ok()
+                    })
+                    .count()
+            });
+            if done == 0 {
+                return Err("Karolar indirilemedi (internet bağlantısını denetleyin)".into());
+            }
+        }
+        Ok((done, crate::streets::stats().0))
+    })
+    .await?
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TileCacheInfo {

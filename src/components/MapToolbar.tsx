@@ -24,6 +24,7 @@ export function MapToolbar({
   clearPhotos,
   photoTrack,
   downloadArea,
+  openStreets,
   openBookmarks,
   openPlan,
   search,
@@ -43,6 +44,8 @@ export function MapToolbar({
   clearPhotos(): void;
   photoTrack(): void;
   downloadArea(): void;
+  /** Sokakları çevrimdışı aramaya ekleme penceresi. */
+  openStreets(): void;
   openBookmarks(): void;
   openPlan(): void;
   /** Haritada yer arama kutusu. */
@@ -177,6 +180,11 @@ export function MapToolbar({
             title:
               "Açık katmanların bu alandaki karolarını 3 yakınlaştırma düzeyi ötesine kadar indirir; internet yokken de açılır (gezilen yerler zaten kendiliğinden saklanır)",
             run: downloadArea,
+          },
+          {
+            label: "🔎 Sokakları çevrimdışı aramaya ekle",
+            title: "Bir ilin ya da görünen alanın bütün sokak, semt ve mekân adlarını indirir; internet yokken de aranır",
+            run: openStreets,
           },
         ]}
         items={[

@@ -62,6 +62,7 @@ import { Rail } from "./ui/Rail";
 import { ModernSidebar } from "./ui/ModernSidebar";
 import { ModernMapToolbar } from "./ui/ModernMapToolbar";
 import { MapSearch } from "./components/MapSearch";
+import { StreetsDialog } from "./components/StreetsDialog";
 import { MapLegends } from "./components/MapLegends";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
@@ -374,6 +375,12 @@ export default function App() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [editMode, editIdx, detail, selected, editPoints]);
+  // Arama tanılamasından: sokakları aramaya ekleme penceresi.
+  useEffect(() => {
+    const open = () => setDialog("streets");
+    window.addEventListener("gpxer:open-streets", open);
+    return () => window.removeEventListener("gpxer:open-streets", open);
+  }, []);
   // ---------- Çevrimdışı harita: görünen alanı indir ----------
   const downloadArea = useCallback(async () => {
     const r = mapRef.current?.offlineTileUrls(3);
@@ -755,6 +762,7 @@ ${pts}
     add("İşlem", "plan", "Rota planla", () => openPlan(), undefined, "yol tarifi güzergah");
     add("İşlem", "bookmarks", "Yer imleri listesi", () => setDialog("bookmarks"), undefined, "gitmek istediklerim");
     add("İşlem", "offline", "Görünen alanı çevrimdışı için indir", downloadArea, undefined, "offline karo");
+    add("İşlem", "streets", "Sokakları çevrimdışı aramaya ekle", () => setDialog("streets"), undefined, "il sokak indir arama offline");
     add("İşlem", "fit", "Tümüne yakınlaştır", fitAll, `${MOD}+0`);
     add("İşlem", "png", "Harita görüntüsünü kaydet (PNG)", exportPng, `${MOD}+Shift+E`);
     add("İşlem", "csv", "Özet tablosunu dışa aktar (CSV)", exportCsv, `${MOD}+E`);
@@ -1006,6 +1014,7 @@ ${pts}
             clearPhotos={clearPhotos}
             photoTrack={makePhotoTracks}
             downloadArea={downloadArea}
+            openStreets={() => setDialog("streets")}
             openBookmarks={() => setDialog("bookmarks")}
             openPlan={openPlan}
             search={
@@ -1264,6 +1273,16 @@ ${pts}
                   setEditMark(null);
                 }
           }
+        />
+      )}
+      {dialog === "streets" && (
+        <StreetsDialog
+          bounds={() => mapRef.current?.bounds() ?? null}
+          onClose={() => setDialog(null)}
+          onDone={(m) => {
+            setDialog(null);
+            say(m);
+          }}
         />
       )}
       {dialog === "bookmarks" && (

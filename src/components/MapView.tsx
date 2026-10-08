@@ -39,6 +39,8 @@ export interface MapHandle {
   showPlace(p: { lat: number; lon: number; bbox?: [number, number, number, number] | null; zoom: number; label: string }): void;
   /** Haritanın ortası [boylam, enlem]. */
   center(): [number, number] | null;
+  /** Görünen alan [batı, güney, doğu, kuzey]. */
+  bounds(): [number, number, number, number] | null;
 }
 
 export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(props, ref) {
@@ -116,6 +118,10 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
       el.title = label;
       el.dataset.noI18n = "";
       searchPin.current = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([lon, lat]).addTo(map);
+    },
+    bounds() {
+      const b = mapRef.current?.getBounds();
+      return b ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()] : null;
     },
     center() {
       const c = mapRef.current?.getCenter();

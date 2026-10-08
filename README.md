@@ -154,6 +154,9 @@ ile yazılmıştır.
   Cadde ve sokaklar da aranır: haritada gezilen ya da çevrimdışı için indirilen
   bölgelerdeki cadde, sokak, mahalle, mekân ve zirve adları (Sade/Koyu altlık,
   yakınlaştırma 13 ve üstü) otomatik dizine eklenir ve internetsiz bulunur.
+  Bir ilin ya da görünen alanın bütün sokakları *Katmanlar → Sokakları
+  çevrimdışı aramaya ekle* ile önceden indirilebilir. Aranan çıkmazsa arama
+  panelindeki *Tanılama* her kaynağın ne döndürdüğünü gösterir.
 - Cihazlar arası eşitleme (Ayarlar → Cihazlar arası eşitleme): Drive, iCloud,
   Dropbox ya da OneDrive klasörü üzerinden kayıtlar, etiket/notlar, yerler ve
   yer imleri; açılışta ve 15 dakikada bir. Bir kayıt yalnızca öbür cihazda
