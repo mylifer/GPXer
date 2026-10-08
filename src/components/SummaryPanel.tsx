@@ -18,6 +18,7 @@ import { Modal } from "./Modal";
 import { CalendarHeatmap } from "./CalendarHeatmap";
 import { CoverageSection, type CoverageFill } from "./CoverageSection";
 import { PeopleSection } from "./PeopleSection";
+import { LifePeriodsSection } from "./LifePeriodsSection";
 import { VenueSection } from "./VenueSection";
 import { ACTIVITIES, placeLabel } from "../types";
 import type { Route } from "../routes";
@@ -346,6 +347,8 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes,
         <CalendarHeatmap files={files} from={from} to={to} onDay={(iso) => onPeriod(iso, iso)} />
 
         <CoverageSection files={files} onPeriod={onPeriod} fill={coverageFill} />
+
+        <LifePeriodsSection files={files} onPeriod={onPeriod} />
 
         <div className="filter-row summary-controls">
           <div className="segmented small">

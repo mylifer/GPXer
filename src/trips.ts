@@ -2,6 +2,7 @@
  * evden belirgin biçimde uzaklaşan ve aralarında uzun boşluk olmayan ardışık
  * kayıtlar bir gezi sayılır. Her gün evden başlayan işe gidiş-gelişler gezi
  * olmaz. */
+import { homeAt, lifePeriods } from "./lifePeriods";
 import type { FileSummary } from "./api";
 import { dayKey, dayRangeTr, tzOf } from "./format";
 
@@ -107,8 +108,11 @@ export function tripName(list: FileSummary[], home: Pt | null = null): string {
 
 /** Kütüphanedeki geziler (tarih sırasıyla). */
 export function detectTrips(list: FileSummary[]): Trip[] {
-  const home = homeOf(list);
-  if (!home) return [];
+  // Ev taşındıysa her kayıt o dönemin evine göre değerlendirilir.
+  const periods = lifePeriods(list);
+  const fixed = periods.length ? null : homeOf(list);
+  if (!periods.length && !fixed) return [];
+  const homeFor = (s: FileSummary): Pt => (periods.length ? homeAt(periods, s.stats.startTime!)! : fixed!);
   const dated = list.filter((s) => s.stats.startTime != null).sort((a, b) => a.stats.startTime! - b.stats.startTime!);
   const trips: Trip[] = [];
   let cur: FileSummary[] = [];
@@ -117,12 +121,12 @@ export function detectTrips(list: FileSummary[]): Trip[] {
     if (cur.length) {
       const start = cur[0].stats.startTime!;
       const end = Math.max(...cur.map((s) => s.stats.endTime ?? s.stats.startTime!));
-      trips.push({ key: `trip:${start}`, label: tripName(cur, home), paths: cur.map((s) => s.path), start, end });
+      trips.push({ key: `trip:${start}`, label: tripName(cur, homeFor(cur[0])), paths: cur.map((s) => s.path), start, end });
     }
     cur = [];
   };
   for (const s of dated) {
-    const away = farthest(s, home).d >= AWAY_M;
+    const away = farthest(s, homeFor(s)).d >= AWAY_M;
     if (!away) {
       flush();
       continue;

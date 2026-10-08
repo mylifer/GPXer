@@ -2983,3 +2983,14 @@ table.coverage th {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.life-periods {
+  margin: 0;
+  padding-left: 20px;
+}
+.life-periods li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 2px 0;
+}

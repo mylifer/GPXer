@@ -1057,11 +1057,17 @@ export const EN: Record<string, string> = {
   "Yedek doğrulaması:": "Backup verification:",
   "kayıt bilgileri okunamadı": "recording details could not be read",
   "Yedek doğrulanamadı:": "Backup could not be verified:",
+  "Yaşam dönemleri": "Life periods",
+  "Listeyi bu döneme süz": "Filter the list to this period",
+  "Günlerin çoğunun başladığı yere göre; geziler ve “evden uzak” hesapları dönemin evine göre yapılır.": "Based on where most days started; trips and “away from home” use the home of each period.",
 };
 
 /** Değişken içeren iletiler: `{0}`, `{1}`… yer tutucuları (İngilizcede sırası
  * değişebilir). */
 export const EN_T: [string, string][] = [
+  ["{0} yıl {1} ay", "{0} yr {1} mo"],
+  ["{0} ay", "{0} mo"],
+  ["{0} yıl", "{0} yr"],
   ["Yedek açılabiliyor: {0}, {1} kaydın hepsi sağlam.", "Backup opens: {0}, all {1} recordings intact."],
   ["{0} kayıt yedekte yok", "{0} recordings missing from the backup"],
   ["{0} kayıt bozuk ({1})", "{0} recordings corrupted ({1})"],
