@@ -1,28 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
-  backupLibrary,
-  getBookmarks,
-  syncNow,
   fixElevation,
   getMeta,
-  getPlaces,
   pickSavePath,
-  restoreLibrary,
   snapToRoads,
   undoRewrite,
   deletePoints,
   movePoint,
   type RewriteResult,
-  NEED_PASSWORD,
   type Bookmark,
   writeBase64File,
-  writeTextFile,
   prefetchTiles,
-  planRoute,
   addGpxRecord,
   timeZoneAt,
-  photoThumb,
   type LoadResult,
   type RewriteKind,
 } from "./api";
@@ -45,19 +36,16 @@ import { RouteSearchDialog } from "./components/RouteSearchDialog";
 import { BookmarkEditor, BookmarkList } from "./components/BookmarkDialogs";
 import { useBookmarks } from "./hooks/useBookmarks";
 import { PlanPanel, type PlanState } from "./components/PlanPanel";
-import { PasswordModal, type PasswordAsk } from "./components/PasswordModal";
+import { PasswordModal } from "./components/PasswordModal";
 import { CommandPalette, type Command } from "./components/CommandPalette";
-import { BASE_LAYERS } from "./map/style";
+import { paletteCommands } from "./paletteCommands";
 import { explorerGeoJSON, explorerStats } from "./explorer";
-import { inZone, privacyZones } from "./privacy";
+import { privacyZones } from "./privacy";
 import { blobToBase64 } from "./lib/blob";
-import { storyHtml, type StoryPhoto } from "./story";
-import { nightsOf } from "./nights";
 import { dayBuckets } from "./days";
 import { HoverDetailPanel, HoverMapView } from "./components/HoverViews";
 import { MapToolbar as ClassicMapToolbar } from "./components/MapToolbar";
 import { isModern } from "./ui/mode";
-import { t } from "./i18n";
 import { Rail } from "./ui/Rail";
 import { ModernSidebar } from "./ui/ModernSidebar";
 import { ModernMapToolbar } from "./ui/ModernMapToolbar";
@@ -66,7 +54,7 @@ import { StreetsDialog } from "./components/StreetsDialog";
 import { MapLegends } from "./components/MapLegends";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
-import { fmtBytes, fmtDate, fmtDistance, fmtElevation, fmtNumber, isoOf, isoToTr, tzOf } from "./format";
+import { fmtDistance, fmtElevation, fmtNumber, isoOf, isoToTr, tzOf } from "./format";
 import { photoTrips, tripGpx } from "./photos";
 import { createIdxStore } from "./lib/idxStore";
 import type { Dialog } from "./hooks/dialog";
@@ -85,6 +73,10 @@ import { useStartup } from "./hooks/useStartup";
 import { useMenuHandlers } from "./hooks/useMenuHandlers";
 import { useListActions } from "./hooks/useListActions";
 import { useKeyboard } from "./hooks/useKeyboard";
+import { useSync } from "./hooks/useSync";
+import { useBackup } from "./hooks/useBackup";
+import { usePlanRoute } from "./hooks/usePlanRoute";
+import { useStory } from "./hooks/useStory";
 
 /*
  * Uygulama: durum ve iş mantığı src/hooks altındaki kancalarda; burada
@@ -429,167 +421,13 @@ export default function App() {
       fail(`Fotoğraflardan iz oluşturulamadı: ${e}`);
     }
   }, [photoInfo, prefs.photoOffsetH, addResults, say, fail]);
-  // ---------- Gezi hikâyesi (tek sayfalık HTML) ----------
-  const makeStory = useCallback(async () => {
-    const entry = selectedEntry;
-    if (!entry) return;
-    const s = entry.summary;
-    try {
-      say("Gezi hikâyesi hazırlanıyor…");
-      mapRef.current?.fitFiles([entry]);
-      await new Promise((r) => setTimeout(r, 1500));
-      const mapPng = await mapRef.current?.exportPng().catch(() => null);
-      const own = placedPhotos.placed.filter((ph) => ph.record === s.path && !inZone([ph.lon, ph.lat], zones)).slice(0, 40);
-      const photos = (
-        await Promise.all(
-          own.map(async (ph) => {
-            const src = await photoThumb(ph.path).catch(() => null);
-            return src ? { name: ph.name, time: ph.at, src } : null;
-          }),
-        )
-      ).filter((x): x is StoryPhoto => !!x);
-      const html = storyHtml({ s, detail, mapPng: mapPng ?? null, nights: nightsOf(s, places), photos });
-      const stem = (s.name || s.fileName).replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]+/g, "_");
-      const path = await pickSavePath(`${stem}.html`, [{ name: "HTML", extensions: ["html"] }]);
-      if (!path) return;
-      await writeTextFile(path, html);
-      say("Gezi hikâyesi kaydedildi; tarayıcıda açılabilir.");
-    } catch (e) {
-      fail(`Gezi hikâyesi oluşturulamadı: ${e}`);
-    }
-  }, [selectedEntry, detail, placedPhotos, places, zones, say, fail]);
-  const saveImage = useCallback(
-    async (name: string, data: string) => {
-      try {
-        const path = await pickSavePath(name, [{ name: "PNG", extensions: ["png"] }]);
-        if (!path) return;
-        await writeBase64File(path, data);
-        say("Görüntü kaydedildi.");
-      } catch (e) {
-        fail(`Görüntü kaydedilemedi: ${e}`);
-      }
-    },
-    [say, fail],
-  );
-  const [pwAsk, setPwAsk] = useState<PasswordAsk | null>(null);
-  const askPassword = useCallback(
-    (a: Omit<PasswordAsk, "resolve">) => new Promise<string | null>((resolve) => setPwAsk({ ...a, resolve })),
-    [],
-  );
-  const backup = useCallback(async () => {
-    try {
-      const pw = await askPassword({
-        title: "Yedek parolası",
-        message:
-          "İsterseniz yedeği parolayla şifreleyin (AES-256): parolasız açılamaz. Parolayı unutursanız yedek kurtarılamaz. Şifresiz yedek için boş bırakın.",
-        create: true,
-      });
-      if (pw == null) return;
-      const day = new Date().toISOString().slice(0, 10);
-      const dest = await pickSavePath(`GPXer-yedek-${day}.zip`, [{ name: "GPXer yedeği", extensions: ["zip"] }]);
-      if (!dest) return;
-      const path = /\.zip$/i.test(dest) ? dest : `${dest}.zip`;
-      // Uzantı eklenen yol onaylı değilse seçilen yol denenir; hata olursa ilk hata gösterilir.
-      const r = await backupLibrary(path, pw || null).catch((e) =>
-        path === dest
-          ? Promise.reject(e)
-          : backupLibrary(dest, pw || null).catch(() => Promise.reject(e)),
-      );
-      say(`${fmtNumber(r.records)} kayıt ${pw ? "parolayla şifrelenerek " : ""}yedeklendi (${fmtBytes(r.bytes)}).`);
-    } catch (e) {
-      fail(String(e));
-    }
-  }, [say, fail, askPassword]);
-  const restore = useCallback(async () => {
-    try {
-      const src = await open({ multiple: false, filters: [{ name: "GPXer yedeği", extensions: ["zip"] }] });
-      if (typeof src !== "string") return;
-      setDialog(null);
-      say("Yedek geri yükleniyor…");
-      // Şifreli yedekte parola sorulur; yanlışsa yeniden.
-      let r: Awaited<ReturnType<typeof restoreLibrary>> | null = null;
-      let pw: string | null = null;
-      let error: string | undefined;
-      for (;;) {
-        try {
-          r = await restoreLibrary(src, pw);
-          break;
-        } catch (e) {
-          const msg = String(e);
-          if (msg !== NEED_PASSWORD && msg !== "Parola yanlış") throw e;
-          if (msg === "Parola yanlış") error = "Parola yanlış; yeniden deneyin.";
-          pw = await askPassword({ title: "Yedek parolası", message: "Bu yedek parolayla şifrelenmiş.", create: false, error });
-          if (pw == null) return;
-        }
-      }
-      const added = addResults(r.results);
-      const dup = r.results.filter((x) => x.status === "duplicate").length;
-      await refreshMeta();
-      getPlaces()
-        .then((p) => Array.isArray(p) && setPlacesState(p))
-        .catch(() => {});
-      say(
-        `Yedekten ${fmtNumber(added.length)} kayıt eklendi` +
-          (dup ? `, ${fmtNumber(dup)} kayıt zaten kütüphanedeydi` : "") +
-          (r.metaMerged ? `; ${fmtNumber(r.metaMerged)} kaydın etiket ve notları aktarıldı` : "") +
-          (r.placesAdded ? `; ${fmtNumber(r.placesAdded)} yer eklendi` : "") +
-          ".",
-      );
-    } catch (e) {
-      fail(String(e));
-    }
-  }, [say, fail, addResults, refreshMeta, setPlacesState]);
+  // ---------- Gezi hikâyesi, görüntü kaydetme ----------
+  const { makeStory, saveImage } = useStory({ selectedEntry, detail, placedPhotos, places, zones, mapRef, say, fail });
+  // ---------- Yedek ve geri yükleme ----------
+  const { pwAsk, setPwAsk, backup, restore } = useBackup({ addResults, refreshMeta, setPlacesState, setDialog, say, fail });
   // ---------- Cihazlar arası eşitleme ----------
-  const syncing = useRef(false);
-  /** Eşitler ve sonucu ekrana uygular. `manual`: değişiklik yoksa da bildirilir. */
-  const runSync = useCallback(
-    async (manual: boolean) => {
-      if (syncing.current) return;
-      syncing.current = true;
-      try {
-        const r = await syncNow();
-        addResults(r.added);
-        for (const u of r.updated) replaceSummary(u);
-        forgetPaths(r.removed);
-        if (r.metaChanged) await refreshMeta();
-        if (r.placesChanged) getPlaces().then((p) => Array.isArray(p) && setPlacesState(p)).catch(() => {});
-        if (r.bookmarksChanged) getBookmarks().then((b) => Array.isArray(b) && bookmarks.setMarks(b)).catch(() => {});
-        const parts = [
-          r.pulled && `${fmtNumber(r.pulled)} kayıt alındı`,
-          r.pushed && `${fmtNumber(r.pushed)} kayıt gönderildi`,
-          r.removedLocal && `${fmtNumber(r.removedLocal)} kayıt öbür cihazda silindiği için çöp kutusuna taşındı`,
-          r.removedRemote && `${fmtNumber(r.removedRemote)} silme öbür cihazlara bildirildi`,
-          (r.metaChanged || r.placesChanged || r.bookmarksChanged) && "etiket, not, yer ya da yer imleri güncellendi",
-          r.waiting && `${fmtNumber(r.waiting)} dosya bulut klasörüne henüz inmedi (sonraki eşitlemede)`,
-        ]
-          .filter((x): x is string => !!x)
-          .map(t);
-        if (r.conflicts.length)
-          fail(`Eşitleme: ${r.conflicts.length} kayıt iki cihazda aynı adla farklı içerikte; dokunulmadı (${r.conflicts.slice(0, 3).join(", ")}${r.conflicts.length > 3 ? "…" : ""}).`);
-        if (parts.length) say(`${t("Eşitleme:")} ${parts.join("; ")}.`);
-        else if (manual) say("Eşitleme: her şey güncel.");
-      } catch (e) {
-        if (manual) fail(String(e));
-        else console.warn("Eşitleme yapılamadı:", e);
-      } finally {
-        syncing.current = false;
-      }
-    },
-    [addResults, replaceSummary, forgetPaths, refreshMeta, setPlacesState, bookmarks.setMarks, say, fail],
-  );
-  // Klasör seçiliyse açılıştan biraz sonra ve 15 dakikada bir kendiliğinden.
   const syncFolder = settings?.syncFolder ?? null;
-  const runSyncRef = useRef(runSync);
-  runSyncRef.current = runSync;
-  useEffect(() => {
-    if (!syncFolder) return;
-    const first = setTimeout(() => runSyncRef.current(false), 8000);
-    const every = setInterval(() => runSyncRef.current(false), 15 * 60_000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(every);
-    };
-  }, [syncFolder]);
+  const runSync = useSync({ syncFolder, addResults, replaceSummary, forgetPaths, refreshMeta, setPlacesState, setMarks: bookmarks.setMarks, say, fail });
 
   const { trim, split, merge, openMerge } = useTrackEdits({
     selected,
@@ -619,57 +457,7 @@ export default function App() {
     setSeek,
   });
   // ---------- Rota planlama ----------
-  const planKey = plan ? JSON.stringify([plan.profile, plan.points]) : "";
-  useEffect(() => {
-    if (!plan) return;
-    if (plan.points.length < 2) {
-      setPlan((s) => s && { ...s, route: null, busy: false, error: null });
-      return;
-    }
-    setPlan((s) => s && { ...s, busy: true, error: null });
-    let live = true;
-    const t = setTimeout(() => {
-      planRoute(
-        plan.profile,
-        plan.points.map(([lon, lat]) => [lat, lon]),
-      )
-        .then((route) => live && setPlan((s) => s && { ...s, route, busy: false }))
-        .catch((e) => live && setPlan((s) => s && { ...s, route: null, busy: false, error: String(e) }));
-    }, 300);
-    return () => {
-      live = false;
-      clearTimeout(t);
-    };
-  }, [planKey]);
-  const savePlan = useCallback(async () => {
-    const r = plan?.route;
-    if (!plan || !r || plan.busy) return;
-    // Kaydedilirken düğme kapalı: çift tıklama iki kayıt eklemesin.
-    setPlan((s) => s && { ...s, busy: true });
-    const label = { car: "araç", bike: "bisiklet", foot: "yaya" }[plan.profile];
-    const name = `Plan (${label}) ${fmtDistance(r.distanceM)} · ${isoToTr(isoOf(new Date()))}`;
-    const pts = r.coords.map(([lat, lon]) => `<trkpt lat="${lat.toFixed(6)}" lon="${lon.toFixed(6)}"/>`).join("\n");
-    const gpx = `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="GPXer" xmlns="http://www.topografix.com/GPX/1/1">
-<metadata><name>${name}</name></metadata>
-${plan.points.map(([lon, lat], i) => `<wpt lat="${lat.toFixed(6)}" lon="${lon.toFixed(6)}"><name>${i + 1}</name></wpt>`).join("\n")}
-<trk><name>${name}</name><type>plan</type><trkseg>
-${pts}
-</trkseg></trk>
-</gpx>`;
-    try {
-      const added = addResults([await addGpxRecord(name, gpx)]);
-      if (added[0]) {
-        say("Plan kütüphaneye eklendi; GPX olarak dışa aktarılabilir ya da gerçek kayıtla karşılaştırılabilir.");
-        setPlan(null);
-        selectAndZoom(added[0].summary.path);
-        return;
-      }
-    } catch (e) {
-      fail(String(e));
-    }
-    setPlan((s) => s && { ...s, busy: false });
-  }, [plan, addResults, say, fail, selectAndZoom]);
+  const savePlan = usePlanRoute({ plan, setPlan, addResults, say, fail, selectAndZoom });
 
   // ---------- Başlangıç, sürükle-bırak, menü, klavye ----------
 
@@ -745,72 +533,44 @@ ${pts}
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const commands = useMemo<Command[]>(() => {
-    if (!palette) return [];
-    const c: Command[] = [];
-    const add = (group: string, id: string, label: string, run: () => void, hint?: string, keywords?: string) =>
-      c.push({ group, id, label, run, hint, keywords });
-    const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl";
-    add("İşlem", "open", "Dosya aç…", pickFiles, `${MOD}+O`, "gpx fit tcx kml zip strava garmin takeout içe aktar");
-    add("İşlem", "folder", "Klasör aç…", pickFolder, `${MOD}+Shift+O`);
-    add("İşlem", "summary", "Özet", () => setDialog("summary"), `${MOD}+I`, "istatistik yıl kartı hedef ülke il");
-    add("İşlem", "settings", "Ayarlar", () => setDialog("settings"), `${MOD}+,`, "yakıt hedef katman gizlilik yedek");
-    add("İşlem", "day", "Gün akışı", () => setDialog("day"), undefined, "zaman çizelgesi timeline");
-    add("İşlem", "goto", "Tarihe git (neredeydim?)", openGoTo, "G");
-    if (duplicateGroups.length) add("İşlem", "dups", `Kopya kayıtlar (${duplicateGroups.length})`, () => setDialog("duplicates"));
-    add("İşlem", "search", "Haritada ara", () => window.dispatchEvent(new Event("gpxer:open-search")), `${MOD}+F`, "yer adres şehir bul");
-    add("İşlem", "plan", "Rota planla", () => openPlan(), undefined, "yol tarifi güzergah");
-    add("İşlem", "bookmarks", "Yer imleri listesi", () => setDialog("bookmarks"), undefined, "gitmek istediklerim");
-    add("İşlem", "offline", "Görünen alanı çevrimdışı için indir", downloadArea, undefined, "offline karo");
-    add("İşlem", "streets", "Sokakları çevrimdışı aramaya ekle", () => setDialog("streets"), undefined, "il sokak indir arama offline");
-    add("İşlem", "fit", "Tümüne yakınlaştır", fitAll, `${MOD}+0`);
-    add("İşlem", "png", "Harita görüntüsünü kaydet (PNG)", exportPng, `${MOD}+Shift+E`);
-    add("İşlem", "csv", "Özet tablosunu dışa aktar (CSV)", exportCsv, `${MOD}+E`);
-    add("İşlem", "backup", "Yedek al…", backup, undefined, "zip parola");
-    if (syncFolder) add("İşlem", "sync", "Şimdi eşitle", () => void runSync(true), undefined, "drive icloud dropbox onedrive bulut");
-    add("İşlem", "restore", "Yedekten geri yükle…", restore);
-    add("İşlem", "sidebar", "Kenar çubuğunu aç/kapat", () => up({ sidebarOpen: !prefs.sidebarOpen }), `${MOD}+B`);
-    add("İşlem", "help", "Yardım ve kısayollar", () => setDialog("help"), "?");
-    const toggle = (id: string, label: string, on: boolean, patch: Partial<typeof prefs>) =>
-      add("Katman", id, `${label}: ${on ? "kapat" : "aç"}`, () => up(patch));
-    toggle("heat", "Isı haritası", prefs.heatmap, { heatmap: !prefs.heatmap });
-    toggle("regions", "Gezilen il ve ülkeler", prefs.regionsLayer, { regionsLayer: !prefs.regionsLayer });
-    toggle("terrain", "3B arazi", prefs.terrain3d, { terrain3d: !prefs.terrain3d });
-    toggle("explorer", "Keşif kareleri", prefs.explorerLayer, { explorerLayer: !prefs.explorerLayer });
-    toggle("bm", "Yer imleri", prefs.bookmarksLayer, { bookmarksLayer: !prefs.bookmarksLayer });
-    toggle("flights", "Uçuşlar", prefs.flightsLayer, { flightsLayer: !prefs.flightsLayer });
-    toggle("stops", "Duraklamalar", prefs.stopsLayer, { stopsLayer: !prefs.stopsLayer });
-    for (const l of BASE_LAYERS) add("Altlık", `base-${l.id}`, `Altlık: ${l.label}`, () => setBaseLayer(l.id));
-    if (selectedEntry) {
-      const s = selectedEntry.summary;
-      const nm = s.name || s.fileName;
-      add("Seçili", "sel-zoom", `Yakınlaştır: ${nm}`, () => zoomTo(s.path));
-      add("Seçili", "sel-save", "Farklı kaydet…", exportSelectedGpx, `${MOD}+S`);
-      add("Seçili", "sel-video", "Yolculuk videosu…", () => setDialog("video"));
-      add("Seçili", "sel-story", "Gezi hikâyesi (HTML)…", makeStory);
-      add("Seçili", "sel-ele", "Yüksekliği düzelt", () => rewrite(s.path, "elevation"), undefined, "dem arazi");
-      add("Seçili", "sel-snap", "Yola oturt", () => rewrite(s.path, "snap"), undefined, "harita eşleştirme");
-      add("Seçili", "sel-edit", "Noktaları düzenle", () => {
-        setPlan(null);
-        setEditMode(true);
-      });
-    }
-    for (const p of places) add("Yer", `place-${p.id}`, p.name, () => mapRef.current?.centerOn([p.lon, p.lat], 14), "adlandırılmış yer");
-    for (const b of bookmarks.marks)
-      add("Yer", `bm-${b.id}`, `${b.wish ? "⭐" : "📌"} ${b.name}`, () => mapRef.current?.centerOn([b.lon, b.lat], 13), "yer imi", b.note);
-    for (const f of shown) {
-      const s = f.summary;
-      add(
-        "Kayıt",
-        `rec-${s.path}`,
-        s.name || s.fileName,
-        () => selectAndZoom(s.path),
-        s.stats.startTime != null ? fmtDate(s.stats.startTime, tzOf(s)) : undefined,
-        `${s.fileName} ${s.startPlace ?? ""} ${s.endPlace ?? ""}`,
-      );
-    }
-    return c;
-  }, [
+  const commands = useMemo<Command[]>(
+    () =>
+      palette
+        ? paletteCommands({
+            pickFiles,
+            pickFolder,
+            setDialog,
+            openGoTo,
+            duplicates: duplicateGroups.length,
+            openPlan,
+            downloadArea,
+            fitAll,
+            exportPng,
+            exportCsv,
+            backup,
+            restore,
+            sync: syncFolder ? () => void runSync(true) : null,
+            prefs,
+            up,
+            setBaseLayer,
+            selected: selectedEntry?.summary ?? null,
+            zoomTo,
+            exportSelectedGpx,
+            makeStory,
+            rewrite,
+            editPoints: () => {
+              setPlan(null);
+              setEditMode(true);
+            },
+            places,
+            bookmarks: bookmarks.marks,
+            centerOn: (lonLat, zoom) => mapRef.current?.centerOn(lonLat, zoom),
+            records: shown.map((f) => f.summary),
+            selectAndZoom,
+          })
+        : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
     palette,
     prefs,
     selectedEntry,
