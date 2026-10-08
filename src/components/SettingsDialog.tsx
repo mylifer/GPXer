@@ -5,7 +5,7 @@ import { saveUiMode, uiMode, type UiMode } from "../ui/mode";
 import { CustomLayersEditor } from "./CustomLayersEditor";
 import { FUEL_KINDS, type FuelKind, type FuelPrefs } from "../fuel";
 import type { Goals, Prefs } from "../prefs";
-import { archiveCheck, archiveInfo, backupNow, clearTileCache, streetsInfo, syncInfo, tileCacheInfo, type ArchiveReport, type NamedPlace, type Settings } from "../api";
+import { archiveCheck, archiveInfo, backupNow, exportOpenArchive, clearTileCache, streetsInfo, syncInfo, tileCacheInfo, type ArchiveReport, type NamedPlace, type Settings } from "../api";
 import { fmtBytes, fmtNumber, fmtTimestamp, type TzMode } from "../format";
 import { Modal } from "./Modal";
 
@@ -430,6 +430,22 @@ export function SettingsDialog({
               }}
             >
               {archive.busy === "check" ? "Denetleniyor…" : "Arşivi denetle"}
+            </button>
+            <button
+              className="btn small"
+              disabled={!!archive.busy}
+              title="Bütün arşivi GPXer olmadan da okunabilecek biçimde bir klasöre çıkarır: orijinal kayıt dosyaları, kayıt listesi (CSV), etiket ve notlar, yerler (JSON) ve tarayıcıda açılan dizin sayfası"
+              onClick={async () => {
+                setArchive((a) => ({ ...a, busy: "export", msg: undefined }));
+                try {
+                  const r = await exportOpenArchive();
+                  setArchive((a) => ({ ...a, busy: undefined, msg: r ? t(`${fmtNumber(r.records)} kayıt açık arşiv olarak yazıldı: ${r.folder}`) : undefined }));
+                } catch (e) {
+                  setArchive((a) => ({ ...a, busy: undefined, msg: String(e) }));
+                }
+              }}
+            >
+              {archive.busy === "export" ? "Yazılıyor…" : "Açık arşiv olarak dışa aktar…"}
             </button>
           </div>
           {archive.report && (

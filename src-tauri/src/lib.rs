@@ -11,6 +11,7 @@ mod links;
 mod menu;
 mod meta;
 mod mvt;
+mod openexport;
 mod photos;
 mod places;
 mod rewrite;
@@ -479,6 +480,7 @@ pub fn run() {
             health::archive_check,
             health::archive_info,
             health::backup_now,
+            openexport::export_open_archive,
             streets::search_streets_offline,
             streets::streets_info,
             sync::sync_now,

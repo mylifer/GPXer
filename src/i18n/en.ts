@@ -713,6 +713,10 @@ export const EN: Record<string, string> = {
   "Şimdi yedekle": "Back up now",
   "Denetleniyor…": "Checking…",
   "Arşivi denetle": "Check archive",
+  "Yazılıyor…": "Writing…",
+  "Açık arşiv olarak dışa aktar…": "Export as open archive…",
+  "Bütün arşivi GPXer olmadan da okunabilecek biçimde bir klasöre çıkarır: orijinal kayıt dosyaları, kayıt listesi (CSV), etiket ve notlar, yerler (JSON) ve tarayıcıda açılan dizin sayfası":
+    "Writes the whole archive to a folder that stays readable without GPXer: original recording files, a list of recordings (CSV), tags and notes, places (JSON) and an index page for the browser",
   "Yedek alındı:": "Backup written:",
   "Otomatik yedek alındı:": "Automatic backup written:",
   "Son yedek:": "Last backup:",
@@ -1078,6 +1082,7 @@ export const EN_T: [string, string][] = [
   ["{0} / {1} bölge", "{0} / {1} regions"],
   ["{0} gezisi · {1}", "Trip to {0} · {1}"],
   ["{0} yol", "{0} roads"],
+  ["{0} kayıt açık arşiv olarak yazıldı: {1}", "{0} recordings written as an open archive: {1}"],
   ["{0} kayıt diskte bulunamadı", "{0} recordings are missing from disk"],
   ["{0} kaydın içeriği bozulmuş olabilir", "{0} recordings may be corrupted"],
   ["{0} kayıt okunamadı", "{0} recordings could not be read"],

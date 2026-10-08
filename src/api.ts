@@ -180,6 +180,8 @@ export interface ArchiveReport {
 }
 export const archiveCheck = () => invoke<ArchiveReport>("archive_check");
 export const archiveInfo = () => invoke<{ lastBackup: number | null; lastAutoBackup: number | null; lastCheck: number | null }>("archive_info");
+/** Uygulamadan bağımsız açık arşiv (klasör seçilir); vazgeçilirse null. */
+export const exportOpenArchive = () => invoke<{ folder: string; records: number } | null>("export_open_archive");
 /** Otomatik yedeği şimdi alır; yazılan dosyanın yolu. */
 export const backupNow = () => invoke<string>("backup_now");
 

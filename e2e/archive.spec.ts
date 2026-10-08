@@ -33,3 +33,13 @@ test("Ayarlar → Arşiv: denetim sorunları gösterir, yedek klasörü kaydedil
   expect(saved!.backupDays).toBe(30);
   expect((saved!.stats as Record<string, unknown>).cleanSpikes).toBe(true);
 });
+
+test("açık arşiv olarak dışa aktarma", async ({ app, mock }) => {
+  mock.archive_info = () => ({ lastBackup: null, lastAutoBackup: null, lastCheck: null });
+  mock.export_open_archive = () => ({ folder: "/Volumes/Yedek/GPXer-arsiv-2025-07-09", records: 7 });
+  await app.keyboard.press("Control+k");
+  await app.locator(".palette input").fill("Ayarlar");
+  await app.keyboard.press("Enter");
+  await app.getByRole("button", { name: "Açık arşiv olarak dışa aktar…" }).click();
+  await expect(app.getByText("7 kayıt açık arşiv olarak yazıldı: /Volumes/Yedek/GPXer-arsiv-2025-07-09")).toBeVisible();
+});

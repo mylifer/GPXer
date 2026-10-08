@@ -16,6 +16,7 @@ import {
   timeZoneAt,
   type LoadResult,
   type RewriteKind,
+  exportOpenArchive,
 } from "./api";
 import type { MapHandle } from "./components/MapView";
 import { Sidebar as ClassicSidebar } from "./components/Sidebar";
@@ -76,6 +77,7 @@ import { useListActions } from "./hooks/useListActions";
 import { useKeyboard } from "./hooks/useKeyboard";
 import { useSync } from "./hooks/useSync";
 import { useArchive } from "./hooks/useArchive";
+import { t } from "./i18n";
 import { useBackup } from "./hooks/useBackup";
 import { usePlanRoute } from "./hooks/usePlanRoute";
 import { useStory } from "./hooks/useStory";
@@ -558,6 +560,10 @@ export default function App() {
             exportCsv,
             backup,
             restore,
+            openArchive: () =>
+              void exportOpenArchive()
+                .then((r) => r && say(t(`${fmtNumber(r.records)} kayıt açık arşiv olarak yazıldı: ${r.folder}`)))
+                .catch((e) => fail(String(e))),
             sync: syncFolder ? () => void runSync(true) : null,
             prefs,
             up,

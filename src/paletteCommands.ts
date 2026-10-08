@@ -20,6 +20,7 @@ export interface PaletteContext {
   exportPng(): void;
   exportCsv(): void;
   backup(): void;
+  openArchive(): void;
   restore(): void;
   /** Eşitleme klasörü seçiliyse elle eşitleme. */
   sync: (() => void) | null;
@@ -62,6 +63,7 @@ export function paletteCommands(x: PaletteContext): Command[] {
   add("İşlem", "backup", "Yedek al…", x.backup, undefined, "zip parola");
   if (x.sync) add("İşlem", "sync", "Şimdi eşitle", x.sync, undefined, "drive icloud dropbox onedrive bulut");
   add("İşlem", "restore", "Yedekten geri yükle…", x.restore);
+  add("İşlem", "open-archive", "Açık arşiv olarak dışa aktar…", x.openArchive, undefined, "csv html klasör arşiv bağımsız");
   add("İşlem", "sidebar", "Kenar çubuğunu aç/kapat", () => x.up({ sidebarOpen: !x.prefs.sidebarOpen }), `${MOD}+B`);
   add("İşlem", "help", "Yardım ve kısayollar", () => x.setDialog("help"), "?");
   const toggle = (id: string, label: string, on: boolean, patch: Partial<Prefs>) => add("Katman", id, `${label}: ${on ? "kapat" : "aç"}`, () => x.up(patch));
