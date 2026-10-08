@@ -99,6 +99,69 @@ async fn load_files(
 
 /// [`load_files`]'ın işi (yedekten geri yükleme de kullanır).
 pub(crate) fn load_many(app: &AppHandle, paths: Vec<String>, explicit: bool) -> Vec<LoadResult> {
+    let tmp = app
+        .path()
+        .app_data_dir()
+        .map(|d| {
+            // Eşzamanlı yüklemeler birbirinin klasörünü silmesin: her çağrıya ayrı ad.
+            static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            d.join(format!("konum-gecmisi-{}-{n}", std::process::id()))
+        })
+        .ok();
+    let paths = match &tmp {
+        Some(dir) => split_histories(&app.state::<Library>(), paths, dir),
+        None => paths,
+    };
+    let out = load_parsed(app, paths, explicit);
+    if let Some(dir) = tmp {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    out
+}
+
+/// Birden çok aya yayılan Google konum geçmişi (Records.json, telefonun
+/// Timeline.json'ı) tek dev kayıt yerine aylık GPX kayıtlarına bölünür: aylar
+/// `dir` altına yazılıp onların yolları döner. Kütüphanedeki dosyalar ve tek
+/// aylık geçmişler olduğu gibi kalır.
+fn split_histories(library: &Library, paths: Vec<String>, dir: &std::path::Path) -> Vec<String> {
+    let mut out = Vec::with_capacity(paths.len());
+    for p in paths {
+        let path = std::path::Path::new(&p);
+        let json = path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("json"));
+        if !json || library.contains(path) {
+            out.push(p);
+            continue;
+        }
+        let months = std::fs::read(path)
+            .ok()
+            .and_then(|b| gpx_core::google::parse_google(&b).ok())
+            .map(gpx_core::google::split_by_month)
+            .unwrap_or_default();
+        if months.len() < 2 || std::fs::create_dir_all(dir).is_err() {
+            out.push(p);
+            continue;
+        }
+        let written: Option<Vec<String>> = months
+            .into_iter()
+            .map(|(key, gpx)| {
+                let file = dir.join(format!("Google konum geçmişi {key}.gpx"));
+                std::fs::write(&file, gpx_core::write::write_gpx(&gpx)).ok()?;
+                Some(file.to_string_lossy().into_owned())
+            })
+            .collect();
+        match written {
+            Some(files) => out.extend(files),
+            None => out.push(p),
+        }
+    }
+    out.dedup();
+    out
+}
+
+fn load_parsed(app: &AppHandle, paths: Vec<String>, explicit: bool) -> Vec<LoadResult> {
     {
         let library = app.state::<Library>();
         let meta = app.state::<MetaStore>();
@@ -529,4 +592,39 @@ pub fn run() {
             queue_paths(_app, paths);
         }
     });
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::*;
+
+    #[test]
+    fn long_location_history_becomes_monthly_files() {
+        let root = std::env::temp_dir().join(format!("gpxer-split-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let lib = Library::open(&root.join("lib")).unwrap();
+        let src = root.join("Timeline.json");
+        std::fs::write(
+            &src,
+            r#"{"semanticSegments":[
+              {"startTime":"2024-05-03T08:00:00Z","endTime":"2024-05-03T09:00:00Z","activity":{"start":{"latLng":"41.0°, 29.0°"},"end":{"latLng":"41.1°, 29.1°"}}},
+              {"startTime":"2024-07-03T08:00:00Z","endTime":"2024-07-03T09:00:00Z","activity":{"start":{"latLng":"40.0°, 30.0°"},"end":{"latLng":"40.1°, 30.1°"}}}
+            ]}"#,
+        )
+        .unwrap();
+        let other = root.join("a.gpx");
+        let dir = root.join("tmp");
+        let out = split_histories(
+            &lib,
+            vec![src.to_string_lossy().into(), other.to_string_lossy().into()],
+            &dir,
+        );
+        assert_eq!(out.len(), 3, "{out:?}");
+        assert!(out[0].ends_with("Google konum geçmişi 2024-05.gpx"));
+        assert!(out[1].ends_with("Google konum geçmişi 2024-07.gpx"));
+        assert!(std::fs::read_to_string(&out[1]).unwrap().contains("<trkpt"));
+        assert_eq!(out[2], other.to_string_lossy());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

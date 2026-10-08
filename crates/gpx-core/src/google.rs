@@ -146,6 +146,36 @@ pub fn parse_google(bytes: &[u8]) -> Result<Gpx, ParseError> {
     })
 }
 
+/// Konum geçmişini (tek iz) UTC aylarına böler: ("2019-06", ayın kaydı).
+/// Yıllara yayılan geçmiş tek dev kayıt yerine aylık kayıtlar olarak
+/// eklenir; tek aylık geçmiş için tek öğe döner.
+pub fn split_by_month(gpx: Gpx) -> Vec<(String, Gpx)> {
+    let mut out: Vec<(String, Vec<Point>)> = Vec::new();
+    for p in gpx.tracks.into_iter().flat_map(|t| t.segments).flatten() {
+        let Some(t) = p.time else { continue };
+        let key = crate::write::format_time(t)[..7].to_owned();
+        match out.last_mut() {
+            Some((k, pts)) if *k == key => pts.push(p),
+            _ => out.push((key, vec![p])),
+        }
+    }
+    out.into_iter()
+        .map(|(key, pts)| {
+            let name = Some(format!("Google konum geçmişi {key}"));
+            let g = Gpx {
+                name: name.clone(),
+                time: pts.first().and_then(|p| p.time),
+                tracks: vec![Track {
+                    name,
+                    segments: vec![pts],
+                }],
+                ..Default::default()
+            };
+            (key, g)
+        })
+        .collect()
+}
+
 fn e7(v: i64) -> f64 {
     v as f64 / 1e7
 }

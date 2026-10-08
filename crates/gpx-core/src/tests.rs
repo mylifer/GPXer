@@ -1596,6 +1596,29 @@ fn reads_google_location_history_formats() {
 }
 
 #[test]
+fn splits_location_history_by_month() {
+    use crate::google::{parse_google, split_by_month};
+    // Telefonun yeni dışa aktarımı (Android 2024+ ve iOS aynı biçim): durak ve yol.
+    let json = r#"{"semanticSegments":[
+        {"startTime":"2024-05-31T20:00:00+00:00","endTime":"2024-05-31T22:00:00+00:00",
+         "visit":{"topCandidate":{"placeLocation":{"latLng":"41.0°, 29.0°"}}}},
+        {"startTime":"2024-06-01T08:00:00+00:00","endTime":"2024-06-01T09:00:00+00:00",
+         "timelinePath":[{"point":"41.01°, 29.01°","time":"2024-06-01T08:10:00+00:00"},
+                         {"point":"41.02°, 29.02°","time":"2024-06-01T08:20:00+00:00"}]},
+        {"startTime":"2024-08-02T08:00:00+00:00","endTime":"2024-08-02T09:00:00+00:00",
+         "activity":{"start":{"latLng":"40.0°, 30.0°"},"end":{"latLng":"40.1°, 30.1°"}}}
+    ],"userLocationProfile":{}}"#;
+    let months = split_by_month(parse_google(json.as_bytes()).unwrap());
+    let keys: Vec<&str> = months.iter().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(keys, ["2024-05", "2024-06", "2024-08"]);
+    assert_eq!(months[1].1.tracks[0].segments[0].len(), 2);
+    assert_eq!(
+        months[2].1.name.as_deref(),
+        Some("Google konum geçmişi 2024-08")
+    );
+}
+
+#[test]
 fn dem_replaces_and_interpolates_elevation() {
     // 1 km düz yol, GPS yüksekliği gürültülü; arazi 100 m'den 200 m'ye çıkıyor.
     let seg: Vec<Point> = (0..=100)
