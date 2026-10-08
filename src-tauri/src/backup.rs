@@ -64,7 +64,7 @@ pub(crate) async fn backup_library(
 ) -> Result<BackupInfo, String> {
     run_blocking(move || {
         export::take_approved(&app, &dest)?;
-        write_backup(
+        let r = write_backup(
             Path::new(&dest),
             &app.state::<Library>().files(),
             &app.state::<MetaStore>().all(),
@@ -72,12 +72,14 @@ pub(crate) async fn backup_library(
             &app.state::<BookmarkStore>().all(),
             password.as_deref().filter(|p| !p.is_empty()),
         )
-        .map_err(|e| format!("Yedek yazılamadı: {e}"))
+        .map_err(|e| format!("Yedek yazılamadı: {e}"))?;
+        app.state::<crate::health::Health>().note_backup(false);
+        Ok(r)
     })
     .await?
 }
 
-fn write_backup(
+pub(crate) fn write_backup(
     dest: &Path,
     files: &[String],
     meta: &HashMap<String, FileMeta>,

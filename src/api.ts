@@ -162,7 +162,26 @@ export interface Settings {
   watchedFolders: string[];
   /** Cihazlar arası eşitleme klasörü (yoksa eşitleme kapalı). */
   syncFolder?: string | null;
+  /** Otomatik yedek klasörü (yoksa otomatik yedek kapalı). */
+  backupFolder?: string | null;
+  /** Otomatik yedek aralığı (gün; 0 → 7). */
+  backupDays?: number;
 }
+
+/** Arşiv sağlık denetiminin sonucu. */
+export interface ArchiveReport {
+  total: number;
+  ok: number;
+  missing: string[];
+  corrupted: string[];
+  unreadable: string[];
+  checkedAt: number;
+  lastBackup: number | null;
+}
+export const archiveCheck = () => invoke<ArchiveReport>("archive_check");
+export const archiveInfo = () => invoke<{ lastBackup: number | null; lastAutoBackup: number | null; lastCheck: number | null }>("archive_info");
+/** Otomatik yedeği şimdi alır; yazılan dosyanın yolu. */
+export const backupNow = () => invoke<string>("backup_now");
 
 export const expandPaths = (paths: string[]) => invoke<string[]>("expand_paths", { paths });
 /** `explicit`: kullanıcı dosyaları kendisi açtı (Dosya Aç, Klasör Aç, sürükle-bırak,

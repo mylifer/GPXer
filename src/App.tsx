@@ -75,6 +75,7 @@ import { useMenuHandlers } from "./hooks/useMenuHandlers";
 import { useListActions } from "./hooks/useListActions";
 import { useKeyboard } from "./hooks/useKeyboard";
 import { useSync } from "./hooks/useSync";
+import { useArchive } from "./hooks/useArchive";
 import { useBackup } from "./hooks/useBackup";
 import { usePlanRoute } from "./hooks/usePlanRoute";
 import { useStory } from "./hooks/useStory";
@@ -428,6 +429,7 @@ export default function App() {
   const { pwAsk, setPwAsk, backup, restore } = useBackup({ addResults, refreshMeta, setPlacesState, setDialog, say, fail });
   // ---------- Cihazlar arası eşitleme ----------
   const syncFolder = settings?.syncFolder ?? null;
+  useArchive({ settings, records: files.length, say, fail });
   const runSync = useSync({ syncFolder, addResults, replaceSummary, forgetPaths, refreshMeta, setPlacesState, setMarks: bookmarks.setMarks, say, fail });
 
   const { trim, split, merge, openMerge } = useTrackEdits({

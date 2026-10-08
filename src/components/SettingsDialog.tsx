@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { lang, saveLang, type Lang } from "../i18n";
+import { lang, saveLang, t, type Lang } from "../i18n";
+import { reportProblems } from "../hooks/useArchive";
 import { saveUiMode, uiMode, type UiMode } from "../ui/mode";
 import { CustomLayersEditor } from "./CustomLayersEditor";
 import { FUEL_KINDS, type FuelKind, type FuelPrefs } from "../fuel";
 import type { Goals, Prefs } from "../prefs";
-import { clearTileCache, streetsInfo, syncInfo, tileCacheInfo, type NamedPlace, type Settings } from "../api";
+import { archiveCheck, archiveInfo, backupNow, clearTileCache, streetsInfo, syncInfo, tileCacheInfo, type ArchiveReport, type NamedPlace, type Settings } from "../api";
 import { fmtBytes, fmtNumber, fmtTimestamp, type TzMode } from "../format";
 import { Modal } from "./Modal";
 
@@ -60,6 +61,14 @@ export function SettingsDialog({
   const [eleM, setEleM] = useState(settings.stats.elevationThresholdM);
   const [folders, setFolders] = useState(settings.watchedFolders);
   const [syncFolder, setSyncFolder] = useState<string | null>(settings.syncFolder ?? null);
+  const [backupFolder, setBackupFolder] = useState<string | null>(settings.backupFolder ?? null);
+  const [backupDays, setBackupDays] = useState(settings.backupDays || 7);
+  const [archive, setArchive] = useState<{ busy?: string; report?: ArchiveReport; msg?: string; lastBackup?: number | null; lastCheck?: number | null }>({});
+  useEffect(() => {
+    archiveInfo()
+      .then((i) => setArchive((a) => ({ ...a, lastBackup: i.lastBackup, lastCheck: i.lastCheck })))
+      .catch(() => {});
+  }, []);
   const [syncLast, setSyncLast] = useState<number | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   useEffect(() => {
@@ -86,7 +95,9 @@ export function SettingsDialog({
     if (ui !== uiMode) saveUiMode(ui);
     const saved = onSave(
       {
+        ...settings,
         stats: {
+          ...settings.stats,
           movingSpeedMs: Math.max(0, movingKmh) / 3.6,
           elevationThresholdM: Math.max(0, eleM),
           cleanSpikes: clean,
@@ -95,6 +106,8 @@ export function SettingsDialog({
         },
         watchedFolders: folders,
         syncFolder,
+        backupFolder,
+        backupDays,
       },
       { tzMode: tz, customLayers: layers, goals: { km: Math.max(0, goals.km || 0), days: Math.max(0, goals.days || 0) }, fuel: { ...fuel, per100: Math.max(0, fuel.per100 || 0), price: Math.max(0, fuel.price || 0) } },
       places
@@ -348,6 +361,87 @@ export function SettingsDialog({
             </button>
           </div>
           {syncLast != null && <small>Son eşitleme: {fmtTimestamp(syncLast, undefined)}</small>}
+        </fieldset>
+
+        <fieldset>
+          <legend>Arşiv</legend>
+          <small>
+            Kayıtlarınızın içerik parmak izi saklanır; haftada bir (ya da “Arşivi denetle” ile) kaybolan ve bozulan dosyalar
+            aranır. Bir klasör seçerseniz (harici disk, bulut klasörü) seçtiğiniz aralıkla otomatik yedek alınır; son 5 yedek
+            kalır. Otomatik yedekler şifresizdir; şifreli yedek için Dosya menüsündeki Yedek al… kullanılır.
+          </small>
+          {backupFolder ? (
+            <ul className="folder-list">
+              <li>
+                <span title={backupFolder}>{backupFolder}</span>
+                <button className="icon-btn" onClick={() => setBackupFolder(null)} title="Otomatik yedeği kapat">
+                  ×
+                </button>
+              </li>
+            </ul>
+          ) : (
+            <span className="muted small-note">Otomatik yedek kapalı.</span>
+          )}
+          <div className="form-actions" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
+            <button
+              className="btn small"
+              onClick={async () => {
+                const f = await onPickFolder();
+                if (f) setBackupFolder(f);
+              }}
+            >
+              {backupFolder ? "Klasörü değiştir…" : "Yedek klasörü seç…"}
+            </button>
+            <label className="inline-field">
+              <span>Aralık</span>
+              <select value={backupDays} onChange={(e) => setBackupDays(Number(e.target.value))} aria-label="Yedek aralığı">
+                <option value={1}>Her gün</option>
+                <option value={7}>Haftada bir</option>
+                <option value={30}>Ayda bir</option>
+              </select>
+            </label>
+            <button
+              className="btn small"
+              disabled={!settings.backupFolder || backupFolder !== (settings.backupFolder ?? null) || !!archive.busy}
+              title={backupFolder !== (settings.backupFolder ?? null) ? "Önce ayarları kaydedin" : undefined}
+              onClick={async () => {
+                setArchive((a) => ({ ...a, busy: "backup", msg: undefined }));
+                try {
+                  const path = await backupNow();
+                  setArchive((a) => ({ ...a, busy: undefined, lastBackup: Date.now(), msg: `${t("Yedek alındı:")} ${path}` }));
+                } catch (e) {
+                  setArchive((a) => ({ ...a, busy: undefined, msg: String(e) }));
+                }
+              }}
+            >
+              {archive.busy === "backup" ? "Yedekleniyor…" : "Şimdi yedekle"}
+            </button>
+            <button
+              className="btn small"
+              disabled={!!archive.busy}
+              onClick={async () => {
+                setArchive((a) => ({ ...a, busy: "check", msg: undefined }));
+                try {
+                  const report = await archiveCheck();
+                  setArchive((a) => ({ ...a, busy: undefined, report, lastCheck: report.checkedAt }));
+                } catch (e) {
+                  setArchive((a) => ({ ...a, busy: undefined, msg: String(e) }));
+                }
+              }}
+            >
+              {archive.busy === "check" ? "Denetleniyor…" : "Arşivi denetle"}
+            </button>
+          </div>
+          {archive.report && (
+            <div className={`hint${reportProblems(archive.report) ? " error" : ""}`} data-testid="archive-report">
+              {reportProblems(archive.report) ?? t(`${fmtNumber(archive.report.total)} kaydın hepsi sağlam.`)}
+            </div>
+          )}
+          {archive.msg && <div className="hint">{archive.msg}</div>}
+          <small>
+            {`${t("Son yedek:")} ${archive.lastBackup != null ? fmtTimestamp(archive.lastBackup, undefined) : t("hiç")}`}
+            {archive.lastCheck != null && ` · ${t("Son denetim:")} ${fmtTimestamp(archive.lastCheck, undefined)}`}
+          </small>
         </fieldset>
 
         <fieldset>

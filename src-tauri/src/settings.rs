@@ -17,6 +17,10 @@ pub struct Settings {
     pub watched_folders: Vec<String>,
     /// Cihazlar arası eşitleme için bulut klasörü (Drive, iCloud, Dropbox…).
     pub sync_folder: Option<String>,
+    /// Otomatik yedeklerin yazıldığı klasör (yoksa otomatik yedek kapalı).
+    pub backup_folder: Option<String>,
+    /// Otomatik yedek aralığı (gün); 0 ise 7.
+    pub backup_days: u32,
 }
 
 /// İzlenen klasör: kullanıcının seçtiği yol ve gerçek (kanonik) yolu. macOS
@@ -94,6 +98,11 @@ impl SettingsStore {
             current: Mutex::new(current),
             watcher: Mutex::new(None),
         }
+    }
+
+    /// Geçerli ayarların kopyası.
+    pub fn current(&self) -> Settings {
+        self.current.lock().unwrap().clone()
     }
 
     pub fn stats(&self) -> StatsConfig {

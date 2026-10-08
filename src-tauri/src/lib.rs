@@ -5,6 +5,7 @@ mod dem;
 mod edit;
 mod export;
 mod geo;
+mod health;
 mod library;
 mod links;
 mod menu;
@@ -402,6 +403,7 @@ pub fn run() {
             meta.prune(&library.trash_dir);
             app.manage(library);
             app.manage(SettingsStore::open(&root));
+            app.manage(health::Health::open(&root));
             app.manage(meta);
             app.manage(PlacesStore::open(&root));
             app.manage(bookmarks::BookmarkStore::open(&root));
@@ -426,6 +428,8 @@ pub fn run() {
                     eprintln!("{e}");
                 }
             });
+            // Arşiv: süresi geldiyse otomatik yedek ve haftalık sağlık denetimi.
+            health::on_startup(handle);
             // Göreli yollar (terminalden "gpxer iz.gpx") mutlak yola çevrilir.
             let cwd = std::env::current_dir().ok();
             let initial = paths_from_args(std::env::args().skip(1), cwd.as_deref());
@@ -472,6 +476,9 @@ pub fn run() {
             roads::record_roads,
             roads::prepare_roads,
             roads::road_stats,
+            health::archive_check,
+            health::archive_info,
+            health::backup_now,
             streets::search_streets_offline,
             streets::streets_info,
             sync::sync_now,
