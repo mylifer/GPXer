@@ -337,6 +337,27 @@ export const searchStreetsOffline = (query: string, lat: number | null, lon: num
 export const streetsInfo = () => invoke<[number, number]>("streets_info");
 /** z14 karolarını indirip sokak dizinine ekler: [işlenen karo, dizindeki ad]. */
 export const indexStreetTiles = (tiles: [number, number][]) => invoke<[number, number]>("index_street_tiles", { tiles });
+/** Güzergâh dökümünde bir yol bölümü (`from`/`to`: ayrıntı örneği sırası). */
+export interface RoadSeg {
+  name: string | null;
+  small: string | null;
+  big: string | null;
+  from: number;
+  to: number;
+  distM: number;
+}
+/** Kaydın geçtiği yollar sırayla (önbellekte yoksa hesaplanır; karo indirebilir). */
+export const recordRoads = (path: string) => invoke<RoadSeg[]>("record_roads", { path });
+/** Kayıtların dökümlerini hazırlar; hazır olan sayısı. */
+export const prepareRoads = (paths: string[]) => invoke<number>("prepare_roads", { paths });
+export interface RoadStats {
+  ready: number;
+  /** (ad, ilçe, toplam m, kayıt sayısı) */
+  roads: [string, string | null, number, number][];
+  /** (ilçe, [(mahalle, kayıt sayısı)]) */
+  hoods: [string, [string, number][]][];
+}
+export const roadStats = (paths: string[]) => invoke<RoadStats>("road_stats", { paths });
 /** Noktadaki sokak ve mahalle/ilçe (vektör karolarından). */
 export const streetAt = (lon: number, lat: number) => invoke<{ street: string | null; area: string | null }>("street_at", { lon, lat });
 /** Son çevrimiçi aramanın adımları: [sorgu, satırlar]. */

@@ -344,7 +344,7 @@ fn layer_locality(b: &[u8], z: u32, x: u32, y: u32, out: &mut Locality) -> Optio
         return Some(());
     }
     let key_ix = |k: &str| keys.iter().position(|x| x == k);
-    let (k_name, k_class) = (key_ix("name"), key_ix("class"));
+    let (k_name, k_class, k_ref) = (key_ix("name"), key_ix("class"), key_ix("ref"));
     for fb in features {
         let mut fr = Reader::new(fb);
         let (mut tags, mut geom) = (Vec::new(), Vec::new());
@@ -364,7 +364,14 @@ fn layer_locality(b: &[u8], z: u32, x: u32, y: u32, out: &mut Locality) -> Optio
                 .find(|p| p[0] == k)
                 .and_then(|p| values.get(p[1] as usize)?.clone())
         };
-        let Some(n) = tag(k_name).filter(|n| !n.trim().is_empty()) else {
+        // Adı olmayan otoyol ve devlet yolları numarasıyla ("D-100", "O-4").
+        let n = tag(k_name).filter(|n| !n.trim().is_empty());
+        let n = if name == "transportation_name" {
+            n.or_else(|| tag(k_ref).filter(|r| !r.trim().is_empty()))
+        } else {
+            n
+        };
+        let Some(n) = n else {
             continue;
         };
         let ll = |(px, py): (i64, i64)| to_lonlat(px, py, extent, z, x, y);

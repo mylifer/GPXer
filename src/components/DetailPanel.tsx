@@ -20,7 +20,7 @@ import { Btn, IconBtn } from "../ui/primitives";
 import { weatherDays, weatherFor, weatherLabel, type WeatherDay } from "../weather";
 import { fmtCo2, fmtFuel, fmtMoney, fuelFor, type FuelPrefs } from "../fuel";
 import { nightsOf, type Night } from "../nights";
-import type { Detail, FileMeta, FileSummary, NamedPlace, RewriteKind, Stats, Stop } from "../api";
+import { recordRoads, type Detail, type FileMeta, type FileSummary, type NamedPlace, type RewriteKind, type RoadSeg, type Stats, type Stop } from "../api";
 import { namedPlaceAt } from "../places";
 import { METRICS, PALETTE, placeLabel, type FileEntry } from "../types";
 import { MetaEditor } from "./MetaEditor";
@@ -202,6 +202,68 @@ function NightList({ nights, tz, onFocusPoint }: { nights: Night[]; tz: string |
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+/** Güzergâh dökümü: geçilen yollar sırayla (istek üzerine; karolar gerekirse indirilir). */
+function RouteList({ path, detail, onRange, onFocusPoint }: { path: string; detail: Detail | null; onRange(r: [number, number]): void; onFocusPoint(lonLat: [number, number]): void }) {
+  const [state, setState] = useState<{ path: string; segs?: RoadSeg[]; error?: string; loading?: boolean } | null>(null);
+  const cur = state?.path === path ? state : null;
+  const load = async () => {
+    setState({ path, loading: true });
+    const mine = (next: NonNullable<typeof state>) => setState((s) => (s?.path === path ? next : s));
+    try {
+      mine({ path, segs: await recordRoads(path) });
+    } catch (e) {
+      mine({ path, error: String(e) });
+    }
+  };
+  const named = cur?.segs?.filter((x) => x.name) ?? [];
+  return (
+    <div className="stop-list route-list">
+      <button
+        className="stat stat-btn"
+        onClick={() => (cur?.segs ? setState(null) : load())}
+        disabled={cur?.loading}
+        title="Kaydın geçtiği yollar sırayla, mesafeleri ve mahalle/ilçeleriyle (OpenStreetMap; gezilmemiş bölgelerde internet gerekir)"
+      >
+        <span>Güzergâh {cur?.segs ? "▾" : "▸"}</span>
+        <strong>{cur?.loading ? "çıkarılıyor…" : cur?.segs ? `${fmtNumber(named.length)} yol` : "göster"}</strong>
+      </button>
+      {cur?.error && <div className="error small-note">{cur.error}</div>}
+      {cur?.segs && !cur.segs.length && <div className="muted small-note">Yol bilgisi bulunamadı (internet yok ve bölge önbellekte değil).</div>}
+      {cur?.segs && cur.segs.length > 0 && (
+        <ol>
+          {cur.segs.map((g, k) => {
+            const area = [g.small, g.big].filter(Boolean).join(", ");
+            return (
+              <li key={k}>
+                <button
+                  className="link route-seg"
+                  title="Bu bölümü grafikte ve haritada seç"
+                  onClick={() => {
+                    onRange([g.from, g.to]);
+                    const mid = detail ? Math.round((g.from + g.to) / 2) : -1;
+                    if (detail && mid >= 0 && mid < detail.lat.length) onFocusPoint([detail.lon[mid], detail.lat[mid]]);
+                  }}
+                >
+                  <span className="route-name" data-no-i18n>
+                    {g.name ?? <em className="muted">adsız yol</em>}
+                  </span>
+                  {area && (
+                    <span className="muted" data-no-i18n>
+                      {" "}
+                      · {area}
+                    </span>
+                  )}
+                </button>
+                <span className="route-dist">{fmtDistance(g.distM)}</span>
+              </li>
+            );
+          })}
+        </ol>
       )}
     </div>
   );
@@ -627,6 +689,7 @@ export function DetailPanel(p: Props) {
             />
           )}
           {nights.length > 0 && <NightList nights={nights} tz={tz} onFocusPoint={p.onFocusPoint} />}
+          <RouteList path={s.path} detail={d} onRange={p.onRange} onFocusPoint={p.onFocusPoint} />
           {s.stats.startTime != null && <WeatherList path={s.path} detail={d} tz={tz} />}
           {s.activity === "car" && st.distanceM > 0 && (() => {
             const u = fuelFor(st.distanceM, p.fuel);

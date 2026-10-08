@@ -15,6 +15,8 @@ export interface AppOptions {
   records: number;
   /** Evden başlayan işe gidiş kayıtları da eklensin (gezi algılaması için). */
   commutes: boolean;
+  /** Sayfanın saati (ISO); boşsa gerçek saat. */
+  now: string;
 }
 
 /** Çok sayıda kayıt: örnekler ayrı aylara yayılır (gruplama, kaydırma). */
@@ -63,9 +65,11 @@ export const test = base.extend<AppOptions & { mock: Record<string, Handler>; ap
   en: [false, { option: true }],
   records: [0, { option: true }],
   commutes: [false, { option: true }],
+  now: ["", { option: true }],
   mock: async ({}, use) => use({ ...DEFAULTS }),
   errors: async ({}, use) => use([]),
-  app: async ({ page, classic, en, records, commutes, mock, errors }, use) => {
+  app: async ({ page, classic, en, records, commutes, now, mock, errors }, use) => {
+    if (now) await page.clock.setFixedTime(new Date(now));
     const summaries = [...(records ? many(records) : SUMMARIES), ...(commutes ? COMMUTES : [])];
     const byPath = new Map(summaries.map((s) => [s.path, s]));
     mock.library_files ??= () => summaries.map((s) => s.path);

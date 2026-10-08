@@ -24,7 +24,7 @@ pub(crate) struct StreetAt {
     area: Option<String>,
 }
 
-fn tile_xy(lon: f64, lat: f64, z: u32) -> (u32, u32) {
+pub(crate) fn tile_xy(lon: f64, lat: f64, z: u32) -> (u32, u32) {
     let n = 2f64.powi(z as i32);
     let x = ((lon + 180.0) / 360.0 * n).floor().clamp(0.0, n - 1.0) as u32;
     let r = lat.clamp(-85.0, 85.0).to_radians();
@@ -63,8 +63,12 @@ fn dist_to_line(line: &[(f64, f64)], at: (f64, f64)) -> f64 {
     best
 }
 
-/// Karolardan yer bilgisi (saf: denenebilir).
-pub(crate) fn describe(fine: &Locality, coarse: &Locality, at: (f64, f64)) -> StreetAt {
+/// Noktadaki yer: (sokak, mahalle/semt, ilçe ya da büyük semt).
+pub(crate) type Located = (Option<String>, Option<String>, Option<String>);
+
+/// Karolardan sokak, mahalle ve ilçe (saf: denenebilir). `area`: mahalle ve
+/// ilçe de bulunsun mu (güzergâh dökümünde her noktada gerekmez).
+pub(crate) fn locate(fine: &Locality, coarse: &Locality, at: (f64, f64), area: bool) -> Located {
     let street = fine
         .roads
         .iter()
@@ -72,9 +76,13 @@ pub(crate) fn describe(fine: &Locality, coarse: &Locality, at: (f64, f64)) -> St
         .filter(|(_, d)| *d <= STREET_M)
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(n, _)| n.clone());
-    let near = |places: &[(String, String, f64, f64)], classes: &[&str], max: f64| {
-        places
+    if !area {
+        return (street, None, None);
+    }
+    let near = |classes: &[&str], max: f64| {
+        fine.places
             .iter()
+            .chain(coarse.places.iter())
             .filter(|p| classes.contains(&p.1.as_str()))
             .map(|p| {
                 let (x, y) = local(p.2, p.3, at);
@@ -84,14 +92,7 @@ pub(crate) fn describe(fine: &Locality, coarse: &Locality, at: (f64, f64)) -> St
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(n, _)| n)
     };
-    let all: Vec<_> = fine
-        .places
-        .iter()
-        .chain(coarse.places.iter())
-        .cloned()
-        .collect();
     let small = near(
-        &all,
         &[
             "quarter",
             "neighbourhood",
@@ -101,15 +102,17 @@ pub(crate) fn describe(fine: &Locality, coarse: &Locality, at: (f64, f64)) -> St
         ],
         SMALL_M,
     );
-    let big = near(&all, &["suburb", "town"], BIG_M)
-        .or_else(|| near(&all, &["city"], BIG_M * 2.0))
-        .or_else(|| crate::geo::place_at(at.0, at.1));
-    let mut parts: Vec<String> = Vec::new();
-    for p in [small, big].into_iter().flatten() {
-        if !parts.contains(&p) {
-            parts.push(p);
-        }
-    }
+    let big = near(&["suburb", "town"], BIG_M)
+        .or_else(|| near(&["city"], BIG_M * 2.0))
+        .or_else(|| crate::geo::place_at(at.0, at.1))
+        .filter(|b| Some(b) != small.as_ref());
+    (street, small, big)
+}
+
+/// Karolardan yer bilgisi (saf: denenebilir).
+pub(crate) fn describe(fine: &Locality, coarse: &Locality, at: (f64, f64)) -> StreetAt {
+    let (street, small, big) = locate(fine, coarse, at, true);
+    let parts: Vec<String> = [small, big].into_iter().flatten().collect();
     StreetAt {
         street,
         area: (!parts.is_empty()).then(|| parts.join(", ")),
@@ -122,7 +125,7 @@ struct Memo {
     order: VecDeque<(u32, u32, u32)>,
 }
 
-fn decoded(cache: &TileCache, z: u32, x: u32, y: u32) -> Result<Arc<Locality>, String> {
+pub(crate) fn decoded(cache: &TileCache, z: u32, x: u32, y: u32) -> Result<Arc<Locality>, String> {
     static MEMO: Mutex<Option<Memo>> = Mutex::new(None);
     if let Some(hit) = MEMO
         .lock()

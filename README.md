@@ -15,6 +15,11 @@ ile yazılmıştır.
   mahalle/ilçe de yazar (OpenStreetMap vektör karolarından; altlıktan
   bağımsız, gezilen ya da indirilen yerlerde internetsiz).
 - Üst üste binen izlere tıklayınca hangisinin seçileceği sorulur.
+- *Güzergâh* (ayrıntı paneli): kaydın geçtiği yollar sırayla, mesafeleri ve
+  mahalle/ilçeleriyle; bir yola tıklayınca o bölüm seçilir. Özet'te en çok
+  geçilen yollar ve ilçe ilçe geçilen mahalleler.
+- *Geçmiş yıllarda bugün*: açılışta günde bir kez "1 yıl önce bugün…" kartı;
+  Özet'te bütün yıllar.
 - Seçili iz hıza, yüksekliğe, nabza, kadansa ya da güce göre renklendirilebilir.
 - Tüm izler dosya rengiyle ya da tarihe göre (eskiden yeniye) renklenir;
   dosya rengi değiştirilebilir ve kalıcıdır.

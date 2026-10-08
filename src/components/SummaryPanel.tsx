@@ -25,6 +25,8 @@ import { countryName, flagOf } from "../visits";
 import { timeAtPlaces, visitedPlaces } from "../summary";
 import { YearCardSection } from "./YearCardSection";
 import { ProvinceSection } from "./ProvinceSection";
+import { RoadsSection } from "./RoadsSection";
+import { OnThisDaySection } from "./OnThisDay";
 import { GoalsSection } from "./GoalsSection";
 import { HabitsSection } from "./HabitsSection";
 import { PlaceStatsSection } from "./PlaceStatsSection";
@@ -572,6 +574,8 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
         <HabitsSection files={files} from={from} to={to} onOpen={onOpen} />
 
         <PlaceStatsSection files={files} places={places} from={from} to={to} />
+        <RoadsSection files={files} />
+        <OnThisDaySection files={files} onOpen={onOpen} />
 
         <YearCompareSection files={files} />
 

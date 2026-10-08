@@ -52,6 +52,7 @@ import { ModernMapToolbar } from "./ui/ModernMapToolbar";
 import { MapSearch } from "./components/MapSearch";
 import { StreetsDialog } from "./components/StreetsDialog";
 import { MapLegends } from "./components/MapLegends";
+import { OnThisDayCard } from "./components/OnThisDay";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
 import { fmtDistance, fmtElevation, fmtNumber, isoOf, isoToTr, tzOf } from "./format";
@@ -806,6 +807,10 @@ export default function App() {
               onSave={savePlan}
             />
           )}
+          <OnThisDayCard
+            files={files}
+            onShow={(paths) => (paths.length === 1 ? selectAndZoom(paths[0]) : onSelectGroup(paths))}
+          />
           <MapLegends
             explorer={explorer ? { tiles: explorer.st.tiles.size, square: explorer.st.maxSquare } : null}
             regions={regions}

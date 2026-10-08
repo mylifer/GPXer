@@ -13,6 +13,7 @@ mod mvt;
 mod photos;
 mod places;
 mod rewrite;
+mod roads;
 mod search;
 mod settings;
 mod snap;
@@ -411,6 +412,7 @@ pub fn run() {
                 .unwrap_or_else(|_| root.join("cache"))
                 .join("karolar");
             streets::init(&root);
+            roads::init(&root);
             let tiles = tiles::TileCache::new(cache_dir);
             app.manage(tiles);
             let h = handle.clone();
@@ -467,6 +469,9 @@ pub fn run() {
             search::search_trace,
             tiles::index_street_tiles,
             streetat::street_at,
+            roads::record_roads,
+            roads::prepare_roads,
+            roads::road_stats,
             streets::search_streets_offline,
             streets::streets_info,
             sync::sync_now,
