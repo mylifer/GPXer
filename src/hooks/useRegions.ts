@@ -6,13 +6,16 @@ import {
   loadCountries,
   loadProvinces,
   loadWorldRegions,
+  keyOf,
   regionCounts,
-  visitedProvinces,
+  regionName,
   type CountryFC,
   type ProvinceFC,
   type ProvinceVisit,
 } from "../regions";
 import { visitedPlaces } from "../summary";
+import { getTzMode } from "../format";
+import { visitedRegions } from "../regionsClient";
 
 /** Bir ülkede gezilen bölgeler (Türkiye dışı). */
 export interface AbroadRegions {
@@ -74,28 +77,44 @@ export function useRegions(files: FileEntry[], from: string, to: string, on: boo
     };
   }, [on, abroad, world]);
   const counts = useMemo(() => (world ? regionCounts(world) : null), [world]);
-  return useMemo(() => {
-    if (!on || !fc) return null;
-    const regionsFc = abroad && world ? world : fc.provinces;
-    const all = visitedProvinces(
+  // Bölge hesabı arka planda; yenisi gelene kadar öncekisi gösterilir.
+  const useWorld = abroad && world != null;
+  const [all, setAll] = useState<ProvinceVisit[] | null>(null);
+  const tzMode = getTzMode();
+  useEffect(() => {
+    if (!on || !fc) return;
+    let live = true;
+    visitedRegions(
       files.map((f) => f.summary),
-      regionsFc,
+      useWorld,
       from,
       to,
-    );
-    const provinceVisits = all.filter((v) => v.cc === "TR");
+    )
+      .then((v) => live && setAll(v))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [on, fc, useWorld, files, from, to, tzMode]);
+  return useMemo(() => {
+    if (!on || !fc || !all) return null;
+    const regionsFc = useWorld ? world! : fc.provinces;
+    // Adlar işçide Türkçe; arayüz dilindeki ad sınır verisinden.
+    const names = new Map(regionsFc.features.map((f) => [keyOf(f.properties), regionName(f.properties)]));
+    const visits = all.map((v) => ({ ...v, name: names.get(v.key) ?? v.name }));
+    const provinceVisits = visits.filter((v) => v.cc === "TR");
     const codes = [...countryCodes];
     // Kayıtta yer dökümü yoksa (eski önbellek) bölge geçişi de ülkeyi gösterir.
-    for (const v of all) if (!codes.includes(v.cc)) codes.push(v.cc);
+    for (const v of visits) if (!codes.includes(v.cc)) codes.push(v.cc);
     const byCc = new Map<string, ProvinceVisit[]>();
-    for (const v of all) {
+    for (const v of visits) {
       if (v.cc === "TR") continue;
       const list = byCc.get(v.cc);
       if (list) list.push(v);
       else byCc.set(v.cc, [v]);
     }
     const cc = new Set(codes);
-    const seen = new Set(all.map((v) => v.key));
+    const seen = new Set(visits.map((v) => v.key));
     return {
       countries: { type: "FeatureCollection", features: fc.countries.features.filter((f) => cc.has(f.properties.cc)) },
       provinces: {
@@ -105,12 +124,12 @@ export function useRegions(files: FileEntry[], from: string, to: string, on: boo
           .filter((f) => ccOf(f.properties) === "TR" || cc.has(ccOf(f.properties)))
           .map((f) => ({
             ...f,
-            properties: { name: f.properties.name, visited: seen.has(`${ccOf(f.properties)}|${f.properties.name}`) ? 1 : 0 },
+            properties: { name: f.properties.name, visited: seen.has(keyOf(f.properties)) ? 1 : 0 },
           })),
       },
       provinceVisits,
-      abroad: [...byCc].map(([c, visits]) => ({ cc: c, total: counts?.get(c) ?? visits.length, visits })),
+      abroad: [...byCc].map(([c, v]) => ({ cc: c, total: counts?.get(c) ?? v.length, visits: v })),
       countryCodes: codes,
     };
-  }, [on, fc, world, counts, abroad, countryCodes, files, from, to]);
+  }, [on, fc, world, useWorld, counts, countryCodes, all]);
 }

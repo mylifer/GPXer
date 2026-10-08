@@ -53,7 +53,7 @@ export function loadWorldRegions(): Promise<ProvinceFC> {
 export const ccOf = (p: { cc?: string }) => p.cc ?? "TR";
 /** Bölgenin arayüz dilindeki adı. */
 export const regionName = (p: { name: string; en?: string }) => (lang === "en" && p.en) || p.name;
-const keyOf = (p: { name: string; cc?: string }) => `${ccOf(p)}|${p.name}`;
+export const keyOf = (p: { name: string; cc?: string }) => `${ccOf(p)}|${p.name}`;
 
 /** Ülke başına bölge sayısı (aynı adlı parçalar tek bölge sayılır). */
 export function regionCounts(fc: ProvinceFC): Map<string, number> {

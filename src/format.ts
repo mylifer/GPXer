@@ -27,6 +27,8 @@ export function setTzMode(m: TzMode) {
   tzMode = m;
 }
 
+export const getTzMode = () => tzMode;
+
 /** Kaydın saatleri hangi saat diliminde gösterilecek. */
 export function tzOf(s: { timeZone: string | null } | null | undefined): string | undefined {
   return tzMode === "record" ? (s?.timeZone ?? undefined) : undefined;
