@@ -422,7 +422,7 @@ export default function App() {
     }
   }, [photoInfo, prefs.photoOffsetH, addResults, say, fail]);
   // ---------- Gezi hikâyesi, görüntü kaydetme ----------
-  const { makeStory, saveImage } = useStory({ selectedEntry, detail, placedPhotos, places, zones, mapRef, say, fail });
+  const { makeStory, makeTripStory, saveImage } = useStory({ selectedEntry, detail, placedPhotos, places, zones, mapRef, say, fail });
   // ---------- Yedek ve geri yükleme ----------
   const { pwAsk, setPwAsk, backup, restore } = useBackup({ addResults, refreshMeta, setPlacesState, setDialog, say, fail });
   // ---------- Cihazlar arası eşitleme ----------
@@ -693,6 +693,7 @@ export default function App() {
           onDuplicates={() => setDialog("duplicates")}
           onExportFiltered={exportFiltered}
           onExportMulti={exportMulti}
+          onTripStory={() => void makeTripStory(files.filter((f) => multi.has(f.summary.path)))}
         />
       )}
       <main className="main">

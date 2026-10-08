@@ -77,6 +77,8 @@ export interface SidebarProps {
   onDuplicates(): void;
   onExportFiltered(): void;
   onExportMulti(): void;
+  /** Seçili kayıtların (bir gezinin) tek sayfalık hikâyesi. */
+  onTripStory(): void;
 }
 
 export const Sidebar = memo(function Sidebar(p: SidebarProps) {
@@ -286,6 +288,9 @@ export const Sidebar = memo(function Sidebar(p: SidebarProps) {
             </button>
             <button className="btn small" onClick={p.onExportMulti} title="Seçili kayıtları tek dosyada dışa aktar (GPX, KML, TCX, FIT)">
               Dışa aktar…
+            </button>
+            <button className="btn small" onClick={p.onTripStory} title="Seçili kayıtları tek sayfalık gezi hikâyesinde birleştir (HTML: harita, günler, geceler, fotoğraflar)">
+              Gezi hikâyesi…
             </button>
             <button className="btn small" onClick={() => p.onSetVisible(multi, true)}>
               Göster

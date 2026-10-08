@@ -92,8 +92,9 @@ ile yazılmıştır.
   Geziler kendiliğinden bulunur: evden (günlerin çoğunun başladığı yer) 50 km'den
   fazla uzaklaşan, aralarında 48 saatten uzun boşluk olmayan kayıtlar bir gezi
   olur ("Marmaris gezisi · 9–14.07"). Gezi başlığındaki *Seç* gezinin bütün
-  kayıtlarını seçer: tek dosyada dışa aktarılabilir ya da birleştirilip gezi
-  hikâyesi çıkarılabilir.
+  kayıtlarını seçer: tek dosyada dışa aktarılabilir ya da *Gezi hikâyesi…* ile
+  bütün gezi tek sayfalık bir HTML'de (harita, günler, geceler, fotoğraflar)
+  paylaşılabilir.
 - Her kaydın başlangıç ve bitiş yeri ("Kadıköy → Beşiktaş") çevrimdışı
   bulunur. Yer adları GeoNames verisinden gelir; Türkiye'deki yaklaşık 920
   yer adının Türkçe yazımı (ş, ç, ğ, ı, ö, ü) uygulamada bir tabloyla

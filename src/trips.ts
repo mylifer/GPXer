@@ -93,6 +93,18 @@ function tripPlace(items: FileSummary[], home: Pt): string | null {
   return best?.name ?? null;
 }
 
+/** Seçili kayıtlar için gezi adı: evden en uzak yer ve tarih aralığı. Ev
+ * bilinmiyorsa ilk kaydın başladığı yerden en uzak yer. */
+export function tripName(list: FileSummary[], home: Pt | null = null): string {
+  const dated = list.filter((s) => s.stats.startTime != null).sort((a, b) => a.stats.startTime! - b.stats.startTime!);
+  const from = home ?? dated[0]?.start ?? list[0]?.start;
+  const place = from ? tripPlace(list, from) : null;
+  if (!dated.length) return place ? `${place} gezisi` : "Gezi";
+  const tz = tzOf(dated[0]);
+  const end = Math.max(...dated.map((s) => s.stats.endTime ?? s.stats.startTime!));
+  return `${place ? `${place} gezisi` : "Gezi"} · ${dayRangeTr(dayKey(dated[0].stats.startTime!, tz), dayKey(end, tz))}`;
+}
+
 /** Kütüphanedeki geziler (tarih sırasıyla). */
 export function detectTrips(list: FileSummary[]): Trip[] {
   const home = homeOf(list);
@@ -105,10 +117,7 @@ export function detectTrips(list: FileSummary[]): Trip[] {
     if (cur.length) {
       const start = cur[0].stats.startTime!;
       const end = Math.max(...cur.map((s) => s.stats.endTime ?? s.stats.startTime!));
-      const place = tripPlace(cur, home);
-      const tz = tzOf(cur[0]);
-      const range = dayRangeTr(dayKey(start, tz), dayKey(end, tz));
-      trips.push({ key: `trip:${start}`, label: `${place ? `${place} gezisi` : "Gezi"} · ${range}`, paths: cur.map((s) => s.path), start, end });
+      trips.push({ key: `trip:${start}`, label: tripName(cur, home), paths: cur.map((s) => s.path), start, end });
     }
     cur = [];
   };

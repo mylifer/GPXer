@@ -16,6 +16,24 @@ test("geziye göre gruplama ve gezinin kayıtlarını seçme", async ({ app }) =
   await expect(app.getByText("2 kayıt seçili")).toBeVisible();
 });
 
+test("seçilen gezinin hikâyesi tek HTML sayfası olarak kaydedilir", async ({ app, mock }) => {
+  let html = "";
+  mock.pick_save_path = () => "/tmp/gezi.html";
+  mock.write_text_file = (a) => {
+    html = a.contents as string;
+    return null;
+  };
+  await app.locator('input[aria-label="Gruplama"]').click();
+  await app.getByRole("option", { name: "Geziye göre" }).click();
+  const head = app.locator(".file-list .group-head", { hasText: "Ankara gezisi" }).first();
+  await head.getByRole("button", { name: "Seç" }).click();
+  await app.getByRole("button", { name: "Gezi hikâyesi…" }).click();
+  await expect.poll(() => html, { timeout: 20_000 }).toContain("Ankara gezisi");
+  // İki kaydın toplamı (~350 km + ~200 km) ve harita görüntüsü.
+  expect(html).toMatch(/5\d\d(,\d)? km/);
+  expect(html).toContain("data:image/png;base64");
+});
+
 test.describe("klasik", () => {
   test.use({ classic: true });
   test("geziye göre gruplama", async ({ app }) => {

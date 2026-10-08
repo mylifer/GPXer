@@ -699,6 +699,9 @@ export const EN: Record<string, string> = {
   "Tanılamayı gizle": "Hide diagnostics",
   "Kopyalandı": "Copied",
   "Geziye göre": "By trip",
+  "Gezi hikâyesi…": "Trip story…",
+  "Seçili kayıtları tek sayfalık gezi hikâyesinde birleştir (HTML: harita, günler, geceler, fotoğraflar)":
+    "Combine the selected recordings into a one-page trip story (HTML: map, days, nights, photos)",
   "Seç": "Select",
   "Gezinin bütün kayıtlarını seç: tek dosyada dışa aktarma, birleştirme ve haritada gösterme için":
     "Select all recordings of the trip: to export as one file, merge or show on the map",

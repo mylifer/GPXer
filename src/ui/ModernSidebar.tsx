@@ -4,6 +4,7 @@ import {
   IconArrowsDiff,
   IconCalendarEvent,
   IconCopy,
+  IconBook,
   IconDownload,
   IconEye,
   IconEyeOff,
@@ -234,6 +235,9 @@ export const ModernSidebar = memo(function ModernSidebar(p: SidebarProps) {
             </Button>
             <Button size="compact-xs" variant="default" leftSection={<IconDownload size={14} />} onClick={p.onExportMulti}>
               Dışa aktar…
+            </Button>
+            <Button size="compact-xs" variant="default" leftSection={<IconBook size={14} />} onClick={p.onTripStory}>
+              Gezi hikâyesi…
             </Button>
             <Button size="compact-xs" variant="default" leftSection={<IconEye size={14} />} onClick={() => p.onSetVisible(multi, true)}>
               Göster
