@@ -62,6 +62,8 @@ pub(crate) fn esc(s: &str) -> String {
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
+            // XML 1.0'da geçersiz denetim karakterleri yazılmaz.
+            c if (c as u32) < 0x20 && !matches!(c, '\t' | '\n' | '\r') => {}
             _ => out.push(c),
         }
     }

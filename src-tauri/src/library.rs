@@ -990,7 +990,7 @@ impl Library {
                 if self
                     .known
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(PoisonError::into_inner)
                     .contains_key(&gpx_core::fingerprint(&gpx))
                 {
                     continue;

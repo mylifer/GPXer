@@ -276,22 +276,7 @@ pub fn parse_gpx(bytes: &[u8]) -> Result<Gpx, ParseError> {
             }
             Event::GeneralRef(r) => {
                 if text_field.is_some() {
-                    match r.as_ref() {
-                        b"amp" => text.push('&'),
-                        b"lt" => text.push('<'),
-                        b"gt" => text.push('>'),
-                        b"quot" => text.push('"'),
-                        b"apos" => text.push('\''),
-                        other => {
-                            if let Ok(Some(c)) = r.resolve_char_ref() {
-                                text.push(c);
-                            } else {
-                                text.push('&');
-                                text.push_str(&String::from_utf8_lossy(other));
-                                text.push(';');
-                            }
-                        }
-                    }
+                    push_ref(&mut text, &r);
                 }
             }
             Event::End(_) => {
@@ -432,5 +417,26 @@ fn close_element(
             }
         }
         _ => {}
+    }
+}
+
+/// Varlık başvurusunu (&amp;, &#233;…) metne ekler; bilinmeyen başvuru
+/// olduğu gibi kalır.
+pub(crate) fn push_ref(text: &mut String, r: &quick_xml::events::BytesRef<'_>) {
+    match r.as_ref() {
+        b"amp" => text.push('&'),
+        b"lt" => text.push('<'),
+        b"gt" => text.push('>'),
+        b"quot" => text.push('"'),
+        b"apos" => text.push('\''),
+        other => {
+            if let Ok(Some(c)) = r.resolve_char_ref() {
+                text.push(c);
+            } else {
+                text.push('&');
+                text.push_str(&String::from_utf8_lossy(other));
+                text.push(';');
+            }
+        }
     }
 }

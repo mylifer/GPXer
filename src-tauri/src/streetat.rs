@@ -239,8 +239,11 @@ fn tile_names(cache: &TileCache, x: u32, y: u32) -> Arc<Vec<crate::mvt::Named>> 
                 .replace("{y}", &y.to_string());
             cache.get(&url)
         })
-        .map(|b| crate::mvt::names(&b, 14, x, y))
-        .unwrap_or_default();
+        .map(|b| crate::mvt::names(&b, 14, x, y));
+    // İndirilemeyen karo (internet yok) belleğe alınmaz: sonra yeniden denenir.
+    let Ok(names) = names else {
+        return Arc::new(Vec::new());
+    };
     let names = Arc::new(names);
     if let Ok(mut g) = MEMO.lock() {
         let (map, order) = g.get_or_insert_with(Default::default);

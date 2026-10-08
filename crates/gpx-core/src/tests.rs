@@ -1589,6 +1589,12 @@ fn reads_google_location_history_formats() {
     assert_eq!(g.tracks[0].segments[0].len(), 2);
 
     assert!(parse_google(br#"{"name":"baska bir json"}"#).is_err());
+    // Bozuk zaman damgaları çökertmez, atılır.
+    let bad = br#"{"locations":[{"latitudeE7":410000000,"longitudeE7":290000000,"timestampMs":"99999999999999999"},
+        {"latitudeE7":410000000,"longitudeE7":290000000,"timestamp":"2019-06-04T08:00:00Z"}]}"#;
+    assert_eq!(parse_google(bad).unwrap().tracks[0].segments[0].len(), 1);
+    let huge = br#"[{"startTime":"2024-05-01T10:00:00Z","timelinePath":[{"point":"geo:41,29","durationMinutesOffsetFromStartTime":"153722867280912930"}]}]"#;
+    assert!(parse_google(huge).is_err());
     assert!(is_google_file_name("Records.json"));
     assert!(is_google_file_name("2019_JUNE.json"));
     assert!(is_google_file_name("location-history.json"));
@@ -1752,4 +1758,15 @@ fn mask_zones_cuts_segments_around_private_places() {
     assert_eq!(segs.len(), 2);
     assert_eq!(segs[0].len() + segs[1].len(), 6);
     assert_eq!(ops::mask_zones(&mut gpx, &[]), 0);
+}
+
+#[test]
+fn kml_tcx_entities_and_spaced_coordinates() {
+    use crate::formats::parse_any;
+    let kml = br#"<kml><Document><Placemark><name>Fish &amp; Chips</name><LineString><coordinates>29.0, 41.0, 10 29.1, 41.1, 12</coordinates></LineString></Placemark></Document></kml>"#;
+    let g = parse_any("kml", kml).unwrap();
+    assert_eq!(g.tracks[0].name.as_deref(), Some("Fish & Chips"));
+    assert_eq!(g.tracks[0].segments[0].len(), 2);
+    // Denetim karakteri yazılan GPX'e geçmez.
+    assert_eq!(crate::write::esc("a\u{1}b & c"), "ab &amp; c");
 }

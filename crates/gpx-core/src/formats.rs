@@ -207,6 +207,8 @@ pub fn parse_tcx(bytes: &[u8]) -> Result<Gpx, ParseError> {
                     text.push_str(&s);
                 }
             }
+            Event::GeneralRef(r) => crate::parse::push_ref(&mut text, &r),
+            Event::CData(t) => text.push_str(&String::from_utf8_lossy(&t)),
             Event::End(_) => {
                 let n = stack.pop().unwrap_or_default();
                 let parent = stack.last().map(|v| v.as_slice());
@@ -348,6 +350,8 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
                     text.push_str(&s);
                 }
             }
+            Event::GeneralRef(r) => crate::parse::push_ref(&mut text, &r),
+            Event::CData(t) => text.push_str(&String::from_utf8_lossy(&t)),
             // Boş sensör değeri (<gx:value/>): sıra kaymasın diye yer tutar.
             Event::Empty(e)
                 if e.local_name().as_ref() == b"value"
@@ -372,7 +376,10 @@ pub fn parse_kml(bytes: &[u8]) -> Result<Gpx, ParseError> {
                         gpx.name = Some(v.to_owned()).filter(|s| !s.is_empty())
                     }
                     b"coordinates" => {
-                        let pts: Vec<Point> = v.split_whitespace().filter_map(kml_point).collect();
+                        // "29.0, 41.0, 10" gibi virgülden sonra boşluklu yazımlar da okunur.
+                        let tidy = v.replace(", ", ",").replace(" ,", ",");
+                        let pts: Vec<Point> =
+                            tidy.split_whitespace().filter_map(kml_point).collect();
                         match parent {
                             Some(b"Point") => {
                                 if let Some(p) = pts.first() {
@@ -815,8 +822,11 @@ impl FitType {
                     .to_le_bytes(),
             ),
             FitType::S32 => out.extend(
-                v.filter(|x| (-2_147_483_647.0..2_147_483_647.0).contains(x))
-                    .map_or(0x7FFF_FFFF, |x| x as i32)
+                // ±180° tam 2^31'e denk gelir; geçersiz değer sayılmasın diye kırpılır.
+                v.filter(|x| x.is_finite() && (-2_147_483_648.0..=2_147_483_648.0).contains(x))
+                    .map_or(0x7FFF_FFFF, |x| {
+                        x.clamp(-2_147_483_646.0, 2_147_483_646.0) as i32
+                    })
                     .to_le_bytes(),
             ),
             FitType::U32 => out.extend(

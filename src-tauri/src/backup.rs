@@ -110,6 +110,10 @@ pub(crate) fn write_backup(
         attachments,
     } = *data;
     use zip::write::SimpleFileOptions;
+    // Aynı anda iki yedek (açılıştaki otomatik yedek ve "Şimdi yedekle")
+    // aynı dosyaya karışık yazmasın: yedekler sırayla alınır.
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     // Yarım yedek kalmasın: geçici dosyaya yazılıp yerine taşınır.
     let tmp = dest.with_extension("zip.tmp");
     let res = (|| {
@@ -136,7 +140,11 @@ pub(crate) fn write_backup(
         if let Some(dir) = attachments {
             let mut done = std::collections::HashSet::new();
             for name in meta.values().flat_map(|m| m.attachments.iter()) {
-                let p = dir.join(name);
+                // Yalnızca ekler klasöründeki düz dosya adları (yabancı bir
+                // yedekten gelen "../x" ya da mutlak yol okunmaz).
+                let Some(p) = crate::attachments::path_in(dir, name) else {
+                    continue;
+                };
                 if done.insert(name.clone()) && p.is_file() {
                     zip.start_file(format!("{ATTACH_DIR}{name}"), opts)?;
                     std::io::copy(&mut std::fs::File::open(&p)?, &mut zip)?;

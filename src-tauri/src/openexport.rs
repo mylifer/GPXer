@@ -265,7 +265,9 @@ pub(crate) fn write_open_archive(
     if let Some(dir) = attach_dir {
         let mut done = HashSet::new();
         for name in records.iter().flat_map(|(_, r)| r.attachments.iter()) {
-            let src = dir.join(name);
+            let Some(src) = crate::attachments::path_in(dir, name) else {
+                continue;
+            };
             if done.insert(name.clone()) && src.is_file() {
                 let out = dest.join("ekler");
                 std::fs::create_dir_all(&out)?;
@@ -353,13 +355,30 @@ pub(crate) async fn export_open_archive(app: AppHandle) -> Result<Option<OpenExp
         let mut records = Vec::new();
         for path in library.files() {
             let m = meta.get(&path).unwrap_or(&empty);
-            let Ok((s, _)) = library.summarize(&path, &cfg, m.activity) else {
-                continue;
-            };
             let file = Path::new(&path)
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
+            // Okunamayan (bozuk) kayıt da arşive girer: orijinal baytlar
+            // kopyalanır, satırında yalnızca bilinenler olur.
+            let Ok((s, _)) = library.summarize(&path, &cfg, m.activity) else {
+                if meta.contains_key(&path) {
+                    by_name.insert(file.clone(), m);
+                }
+                records.push((
+                    PathBuf::from(&path),
+                    Row {
+                        name: format!("{file} (okunamadı)"),
+                        file,
+                        tags: m.tags.clone(),
+                        people: m.people.clone(),
+                        note: m.note.clone(),
+                        attachments: m.attachments.clone(),
+                        ..Row::default()
+                    },
+                ));
+                continue;
+            };
             if meta.contains_key(&path) {
                 by_name.insert(file.clone(), m);
             }
@@ -400,6 +419,12 @@ pub(crate) async fn export_open_archive(app: AppHandle) -> Result<Option<OpenExp
             (
                 "yerler.json",
                 json(serde_json::to_vec_pretty(&app.state::<PlacesStore>().all()))?,
+            ),
+            (
+                "gunluk.json",
+                json(serde_json::to_vec_pretty(
+                    &app.state::<crate::journal::JournalStore>().all(),
+                ))?,
             ),
             (
                 "yer-imleri.json",

@@ -126,8 +126,11 @@ pub(crate) fn load_many(app: &AppHandle, paths: Vec<String>, explicit: bool) -> 
 /// `dir` altına yazılıp onların yolları döner. Kütüphanedeki dosyalar ve tek
 /// aylık geçmişler olduğu gibi kalır.
 fn split_histories(library: &Library, paths: Vec<String>, dir: &std::path::Path) -> Vec<String> {
-    let mut out = Vec::with_capacity(paths.len());
-    for p in paths {
+    /// Bundan kısa geçmiş bölünmez (aylık Takeout dosyası saat farkıyla komşu
+    /// aya taşsa da tek kayıt kalır).
+    const MIN_SPAN_MS: i64 = 40 * 86_400_000;
+    let mut out: Vec<String> = Vec::with_capacity(paths.len());
+    for (i, p) in paths.into_iter().enumerate() {
         let path = std::path::Path::new(&p);
         let json = path
             .extension()
@@ -136,19 +139,40 @@ fn split_histories(library: &Library, paths: Vec<String>, dir: &std::path::Path)
             out.push(p);
             continue;
         }
-        let months = std::fs::read(path)
-            .ok()
-            .and_then(|b| gpx_core::google::parse_google(&b).ok())
-            .map(gpx_core::google::split_by_month)
-            .unwrap_or_default();
-        if months.len() < 2 || std::fs::create_dir_all(dir).is_err() {
+        // Ayrıştırıcıdaki beklenmeyen bir çökme yalnızca bu dosyayı etkiler
+        // (normal yoldan okunur ve hatası gösterilir).
+        let parsed = std::panic::catch_unwind(|| {
+            std::fs::read(path)
+                .ok()
+                .and_then(|b| gpx_core::google::parse_google(&b).ok())
+        })
+        .ok()
+        .flatten();
+        let Some(gpx) = parsed else {
+            out.push(p);
+            continue;
+        };
+        let times = gpx
+            .tracks
+            .iter()
+            .flat_map(|t| t.segments.iter().flatten())
+            .filter_map(|q| q.time);
+        let (lo, hi) = times.fold((i64::MAX, i64::MIN), |(a, b), t| (a.min(t), b.max(t)));
+        if hi.saturating_sub(lo) < MIN_SPAN_MS {
             out.push(p);
             continue;
         }
-        let written: Option<Vec<String>> = months
+        // Her kaynak kendi alt klasörüne: aynı ayı kapsayan iki geçmiş
+        // birbirinin dosyasının üzerine yazmasın.
+        let sub = dir.join(i.to_string());
+        if std::fs::create_dir_all(&sub).is_err() {
+            out.push(p);
+            continue;
+        }
+        let written: Option<Vec<String>> = gpx_core::google::split_by_month(gpx)
             .into_iter()
             .map(|(key, gpx)| {
-                let file = dir.join(format!("Google konum geçmişi {key}.gpx"));
+                let file = sub.join(format!("Google konum geçmişi {key}.gpx"));
                 std::fs::write(&file, gpx_core::write::write_gpx(&gpx)).ok()?;
                 Some(file.to_string_lossy().into_owned())
             })
@@ -158,7 +182,8 @@ fn split_histories(library: &Library, paths: Vec<String>, dir: &std::path::Path)
             None => out.push(p),
         }
     }
-    out.dedup();
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|p| seen.insert(p.clone()));
     out
 }
 

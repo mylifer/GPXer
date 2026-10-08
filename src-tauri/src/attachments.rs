@@ -23,8 +23,7 @@ impl Attachments {
     /// Klasördeki bir ekin yolu; ad düz dosya adı değilse (klasör dışına
     /// çıkmaya çalışan) `None`.
     pub(crate) fn path_of(&self, name: &str) -> Option<PathBuf> {
-        let base = Path::new(name).file_name()?.to_str()?;
-        (base == name && !name.starts_with('.')).then(|| self.0.join(name))
+        path_in(&self.0, name)
     }
 
     /// Dosyayı klasöre kopyalar: "<zaman>-<ad>" (aynı adlı ekler çakışmasın).
@@ -62,6 +61,14 @@ impl Attachments {
     }
 }
 
+/// `dir` içindeki ekin yolu; ad düz dosya adı değilse (klasör dışına çıkan,
+/// mutlak ya da gizli) `None`.
+pub(crate) fn path_in(dir: &Path, name: &str) -> Option<PathBuf> {
+    let base = Path::new(name).file_name()?.to_str()?;
+    (base == name && !name.starts_with('.') && !name.contains(['/', '\\', ':']))
+        .then(|| dir.join(name))
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -87,17 +94,28 @@ pub(crate) async fn attach_files(
         let mut meta = store.get(&path);
         let stamp = now_ms();
         let mut errors = Vec::new();
+        let mut added = 0;
         for f in &files {
             match dir.add(Path::new(f), stamp) {
-                Ok(name) => meta.attachments.push(name),
+                Ok(name) => {
+                    meta.attachments.push(name);
+                    added += 1;
+                }
                 Err(e) => errors.push(e),
             }
         }
-        store
-            .set(&path, meta.clone())
-            .map_err(|e| format!("Kayıt bilgileri yazılamadı: {e}"))?;
-        if !errors.is_empty() && meta.attachments.is_empty() {
-            return Err(errors.join("; "));
+        if added > 0 {
+            store
+                .set(&path, meta.clone())
+                .map_err(|e| format!("Kayıt bilgileri yazılamadı: {e}"))?;
+        }
+        if !errors.is_empty() {
+            let note = if added > 0 {
+                format!("{added} belge iliştirildi; iliştirilemeyenler: ")
+            } else {
+                "Belge iliştirilemedi: ".to_owned()
+            };
+            return Err(format!("{note}{}", errors.join("; ")));
         }
         Ok(meta)
     })
@@ -163,6 +181,8 @@ mod tests {
         assert_eq!(std::fs::read(a.path_of(&n2).unwrap()).unwrap(), b"%PDF");
         assert!(a.path_of("../meta.json").is_none());
         assert!(a.path_of("..").is_none());
+        assert!(a.path_of("/etc/passwd").is_none());
+        assert!(a.path_of("C:x").is_none());
         assert!(a.add(&root, 1).is_err());
         let _ = std::fs::remove_dir_all(&root);
     }

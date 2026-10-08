@@ -130,8 +130,8 @@ pub fn parse_google(bytes: &[u8]) -> Result<Gpx, ParseError> {
     ) {
         (Some(a), Some(b)) => Some(format!(
             "Google konum geçmişi {} – {}",
-            &crate::write::format_time(a)[..10],
-            &crate::write::format_time(b)[..10]
+            crate::write::format_time(a).get(..10).unwrap_or_default(),
+            crate::write::format_time(b).get(..10).unwrap_or_default()
         )),
         _ => Some("Google konum geçmişi".into()),
     };
@@ -153,7 +153,9 @@ pub fn split_by_month(gpx: Gpx) -> Vec<(String, Gpx)> {
     let mut out: Vec<(String, Vec<Point>)> = Vec::new();
     for p in gpx.tracks.into_iter().flat_map(|t| t.segments).flatten() {
         let Some(t) = p.time else { continue };
-        let key = crate::write::format_time(t)[..7].to_owned();
+        let Some(key) = crate::write::format_time(t).get(..7).map(str::to_owned) else {
+            continue;
+        };
         match out.last_mut() {
             Some((k, pts)) if *k == key => pts.push(p),
             _ => out.push((key, vec![p])),
@@ -181,8 +183,11 @@ fn e7(v: i64) -> f64 {
 }
 
 fn push(pts: &mut Vec<Point>, lat: f64, lon: f64, time: Option<i64>, ele: Option<f64>) {
-    // Zamansız noktalar sıralanamaz (tek bir izde nereye düştüğü bilinmez).
-    let Some(time) = time else { return };
+    // Zamansız noktalar sıralanamaz (tek bir izde nereye düştüğü bilinmez);
+    // bozuk zaman damgaları (1990 öncesi, 2100 sonrası) atılır.
+    let Some(time) = time.filter(|t| (631_152_000_000..4_102_444_800_000).contains(t)) else {
+        return;
+    };
     if !(lat.is_finite() && lon.is_finite() && lat.abs() <= 90.0 && lon.abs() <= 180.0)
         || (lat == 0.0 && lon == 0.0)
     {
@@ -242,7 +247,13 @@ fn semantic_object(o: &Value, pts: &mut Vec<Point>) {
             let n = w.len() as i64 + 1;
             for (k, p) in w.iter().enumerate() {
                 if let Some((la, lo)) = e7_obj(p) {
-                    push(pts, la, lo, Some(a + (b - a) * (k as i64 + 1) / n), None);
+                    push(
+                        pts,
+                        la,
+                        lo,
+                        Some(a.saturating_add(b.saturating_sub(a) / n * (k as i64 + 1))),
+                        None,
+                    );
                 }
             }
         }
@@ -292,7 +303,13 @@ fn android_item(it: &Value, pts: &mut Vec<Point>) {
                 .and_then(|x| x.parse().ok())
                 .or_else(|| p["durationMinutesOffsetFromStartTime"].as_i64());
             if let (Some((la, lo)), Some(m)) = (p["point"].as_str().and_then(deg_pair), off) {
-                push(pts, la, lo, Some(s + m * 60_000), None);
+                push(
+                    pts,
+                    la,
+                    lo,
+                    Some(s.saturating_add(m.saturating_mul(60_000))),
+                    None,
+                );
             }
         }
     }

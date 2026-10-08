@@ -265,15 +265,24 @@ pub(crate) async fn import_archive(app: AppHandle, src: String) -> Result<Archiv
 
 fn import_into(app: &AppHandle, src: &Path, tmp: &Path) -> Result<ArchiveImport, String> {
     let x = extract(src, tmp)?;
-    let paths: Vec<String> = x
-        .files
-        .iter()
-        .map(|(p, _)| p.to_string_lossy().into_owned())
-        .collect();
-    let mut results = load_many(app, paths, true);
+    // Konum geçmişi (JSON) aylara bölünüp birden çok sonuç verebilir: önce
+    // diğer kayıtlar yüklenir ki sonuçlar dosyalarla sıra sıra eşleşsin.
+    let is_json = |p: &Path| {
+        p.extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+    };
+    let (tracks, histories): (Vec<_>, Vec<_>) = x.files.iter().partition(|(p, _)| !is_json(p));
+    let mut results = load_many(
+        app,
+        tracks
+            .iter()
+            .map(|(p, _)| p.to_string_lossy().into_owned())
+            .collect(),
+        true,
+    );
     // Strava türleri: yeni eklenen kayda yazılır, özeti o türle yeniden hesaplanır.
     let mut items = Vec::new();
-    for (r, (_, name)) in results.iter().zip(&x.files) {
+    for (r, (_, name)) in results.iter().zip(tracks.iter().copied()) {
         let base = name.strip_suffix(".gz").unwrap_or(name);
         let act = x.types.get(name).or_else(|| x.types.get(base)).or_else(|| {
             x.types
@@ -285,6 +294,14 @@ fn import_into(app: &AppHandle, src: &Path, tmp: &Path) -> Result<ArchiveImport,
             items.push((file.path.clone(), a));
         }
     }
+    results.extend(load_many(
+        app,
+        histories
+            .iter()
+            .map(|(p, _)| p.to_string_lossy().into_owned())
+            .collect(),
+        true,
+    ));
     let typed = items.len();
     if typed > 0 {
         app.state::<MetaStore>()

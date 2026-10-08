@@ -302,6 +302,12 @@ pub(crate) fn sync_core(
         let l = files.get(&name).and_then(|(p, size, mtime)| {
             hash_of(&name, p, *size, *mtime, &base).map(|h| (h, *size, *mtime, p.clone()))
         });
+        // Dosya burada var ama okunamıyor (başka program kilitlemiş): silinmiş
+        // sayılmaz; bir sonraki eşitlemeye bırakılır.
+        if l.is_none() && files.contains_key(&name) {
+            c.waiting += 1;
+            continue;
+        }
         let b = base.records.get(&name).cloned();
         let r = remote.records.get(&name).cloned();
         let r_live = r.as_ref().filter(|r| !r.deleted);
@@ -572,7 +578,13 @@ impl LocalRecords for AppRecords<'_> {
 
     fn remove(&mut self, name: &str) -> Result<(), String> {
         let p = self.library().dir.join(name).to_string_lossy().into_owned();
-        self.library().trash(std::slice::from_ref(&p))?;
+        // Bilgiler (etiket, not, ekler) çöpteki yola taşınır: aynı adla sonra
+        // gelen başka bir kayda geçmesin (Dosya → Sil ile aynı).
+        let items = self.library().trash(std::slice::from_ref(&p))?;
+        let meta = self.app.state::<crate::meta::MetaStore>();
+        for it in &items {
+            meta.rename(&it.original, &it.trashed);
+        }
         self.removed.push(p);
         Ok(())
     }
@@ -673,6 +685,7 @@ pub(crate) async fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
             journal: app.state::<crate::journal::JournalStore>().all(),
         };
         let before_meta = data.meta.clone();
+        let before_journal = data.journal.clone();
         let mut records = AppRecords {
             app: &app,
             added: Vec::new(),
@@ -718,8 +731,22 @@ pub(crate) async fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
                 .map_err(|e| format!("Yer imleri yazılamadı: {e}"))?;
         }
         if counts.journal_changed {
-            app.state::<crate::journal::JournalStore>()
-                .set_all(data.journal)
+            // Eşitleme sürerken yazılan notlar ezilmez: başından beri burada
+            // değişen günlerde şimdiki hal kalır.
+            let store = app.state::<crate::journal::JournalStore>();
+            let now = store.all();
+            let mut merged = data.journal;
+            let days: BTreeSet<String> = now.keys().chain(before_journal.keys()).cloned().collect();
+            for d in days {
+                if now.get(&d) != before_journal.get(&d) {
+                    match now.get(&d) {
+                        Some(t) => merged.insert(d, t.clone()),
+                        None => merged.remove(&d),
+                    };
+                }
+            }
+            store
+                .set_all(merged)
                 .map_err(|e| format!("Günlük yazılamadı: {e}"))?;
         }
         Ok(SyncReport {

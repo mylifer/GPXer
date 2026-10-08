@@ -149,23 +149,35 @@ pub fn hour_first_points(gpx: &Gpx, hours: &[[f64; 3]]) -> Vec<(i64, [f64; 2])> 
         let dt = (q.time.unwrap_or(0) - p.time.unwrap_or(0)).abs().max(1000) as f64 / 1000.0;
         stats::haversine_m(p, q) / dt > GROUND_SPEED_MS
     };
+    // Komşu ararken bakılan en çok nokta ve saat başına en çok deneme: aynı
+    // zamanlı binlerce noktada (dönüştürülmüş rota) arama karesel büyümesin.
+    const SCAN: usize = 200;
+    const TRIES: u32 = 50;
     let mut first: std::collections::HashMap<i64, [f64; 2]> = Default::default();
+    let mut tries: std::collections::HashMap<i64, u32> = Default::default();
     for (i, p) in pts.iter().enumerate() {
         let t = p.time.unwrap_or(0);
         let hour = t.div_euclid(HOUR_MS) * HOUR_MS;
         if first.contains_key(&hour) {
             continue;
         }
+        let n = tries.entry(hour).or_insert(0);
+        if *n >= TRIES {
+            continue;
+        }
+        *n += 1;
         // Önceki ve sonraki, en az WINDOW_MS uzaktaki (yoksa en uzak) komşu.
-        let before = pts[..i]
+        let lo = i.saturating_sub(SCAN);
+        let hi = (i + 1 + SCAN).min(pts.len());
+        let before = pts[lo..i]
             .iter()
             .rev()
             .find(|q| t - q.time.unwrap_or(0) >= WINDOW_MS)
-            .or(pts[..i].first());
-        let after = pts[i + 1..]
+            .or(pts[lo..i].first());
+        let after = pts[i + 1..hi]
             .iter()
             .find(|q| q.time.unwrap_or(0) - t >= WINDOW_MS)
-            .or(pts[i + 1..].last());
+            .or(pts[i + 1..hi].last());
         // En yakın komşu da hızlıysa (saniyelik kayıtta uçak).
         let near_before = i.checked_sub(1).map(|j| pts[j]);
         let near_after = pts.get(i + 1).copied();

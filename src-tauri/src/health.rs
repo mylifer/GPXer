@@ -152,6 +152,10 @@ impl Health {
 
     /// Kayıtları denetler; yeni ya da bilerek değiştirilmiş dosyaların izi güncellenir.
     pub(crate) fn check(&self, files: &[String]) -> Report {
+        // Aynı anda iki denetim (açılıştaki ve "Arşivi denetle") parmak
+        // izlerini birbirinin elinden almasın.
+        static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+        let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
         let mut r = Report {
             total: files.len(),
             checked_at: now_ms(),
