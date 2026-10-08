@@ -14,11 +14,16 @@ pub struct FileMeta {
     pub note: String,
     /// Kullanıcının seçtiği tür; yoksa tahmin kullanılır.
     pub activity: Option<Activity>,
+    /// Kayıtta birlikte olunan kişiler.
+    pub people: Vec<String>,
 }
 
 impl FileMeta {
     fn is_empty(&self) -> bool {
-        self.tags.is_empty() && self.note.trim().is_empty() && self.activity.is_none()
+        self.tags.is_empty()
+            && self.note.trim().is_empty()
+            && self.activity.is_none()
+            && self.people.is_empty()
     }
 }
 
@@ -59,6 +64,7 @@ impl MetaStore {
     /// Kaydın bilgilerini değiştirir; önceki halini döndürür.
     pub fn set(&self, path: &str, mut meta: FileMeta) -> std::io::Result<FileMeta> {
         meta.tags = clean_tags(meta.tags);
+        meta.people = clean_tags(meta.people);
         let mut map = self.map.lock().unwrap();
         // Kaydedilemezse bellekteki bilgi de değişmez (yeniden başlatınca
         // kaybolacak bir değişiklik gösterilmez).
@@ -113,6 +119,8 @@ impl MetaStore {
             let before = m.clone();
             m.tags.extend(add.tags);
             m.tags = clean_tags(m.tags);
+            m.people.extend(add.people);
+            m.people = clean_tags(m.people);
             if m.note.trim().is_empty() {
                 m.note = add.note;
             }
@@ -224,6 +232,7 @@ mod tests {
                 tags: vec![" iş ".into(), "İş".into(), "".into(), "tatil".into()],
                 note: "not".into(),
                 activity: Some(Activity::Bike),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -311,6 +320,7 @@ mod tests {
                 tags: vec!["iş".into()],
                 note: "benim notum".into(),
                 activity: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -322,6 +332,7 @@ mod tests {
                         tags: vec!["İŞ".into(), "tatil".into()],
                         note: "yedekteki not".into(),
                         activity: Some(Activity::Walk),
+                        people: vec!["Ayşe".into()],
                     },
                 ),
                 (
@@ -338,6 +349,7 @@ mod tests {
         assert_eq!(a.tags, vec!["iş", "tatil"]);
         assert_eq!(a.note, "benim notum");
         assert_eq!(a.activity, Some(Activity::Walk));
+        assert_eq!(a.people, vec!["Ayşe"]);
         assert_eq!(MetaStore::open(&root).get("b").note, "yeni");
     }
 }

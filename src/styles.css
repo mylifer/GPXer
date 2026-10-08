@@ -2913,3 +2913,15 @@ td.down {
 .otd-note {
   font-style: italic;
 }
+
+/* Gelişmiş arama */
+.adv-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+.adv-name {
+  flex: 1;
+  min-width: 140px;
+}

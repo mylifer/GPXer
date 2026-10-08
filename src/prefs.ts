@@ -32,6 +32,19 @@ export interface Filters {
   route: string | null;
   /** Yalnızca başka bir kayıtla zamanı çakışan kayıtlar. */
   overlap: boolean;
+  /** Mesafe aralığı (km; 0 = sınırsız). */
+  minKm: number;
+  maxKm: number;
+  /** "" tümü, "weekday" hafta içi, "weekend" hafta sonu (başlangıç günü). */
+  weekday: "" | "weekday" | "weekend";
+  /** Kayıtta bulunan kişi ("" tümü). */
+  person: string;
+}
+
+/** Adı verilip saklanan arama. */
+export interface SavedSearch {
+  name: string;
+  filters: Filters;
 }
 
 export interface Prefs {
@@ -83,6 +96,8 @@ export interface Prefs {
   terrain3d: boolean;
   /** Araç kayıtları için yakıt tüketimi ve fiyatı. */
   fuel: FuelPrefs;
+  /** Kayıtlı aramalar. */
+  savedSearches: SavedSearch[];
 }
 
 export interface Goals {
@@ -103,11 +118,15 @@ const DEFAULT_FILTERS: Filters = {
   tag: "",
   route: null,
   overlap: false,
+  minKm: 0,
+  maxKm: 0,
+  weekday: "",
+  person: "",
 };
 
 /** Listeyi daraltan bir filtre etkin mi (sıralama filtre sayılmaz). */
 export const filtersActive = (f: Filters) =>
-  !!(f.query.trim() || f.from || f.to || f.activity || f.tag || f.area || f.route || f.overlap);
+  !!(f.query.trim() || f.from || f.to || f.activity || f.tag || f.area || f.route || f.overlap || f.minKm || f.maxKm || f.weekday || f.person);
 
 /** Filtreleri kaldırır; sıralama korunur. */
 export const resetFilters = (f: Filters): Filters => ({ ...DEFAULT_FILTERS, sort: f.sort });
@@ -144,6 +163,7 @@ const DEFAULTS: Prefs = {
   customLayers: [],
   bookmarksLayer: true,
   explorerLayer: false,
+  savedSearches: [],
 };
 
 export const PREFS_KEY = "gpxer.prefs.v1";
@@ -201,6 +221,10 @@ export function sanitizePrefs(raw: unknown): Prefs {
     tag: pick(f.tag, isStr, F.tag),
     route: pick(f.route, nullable(isStr), F.route),
     overlap: pick(f.overlap, isBool, F.overlap),
+    minKm: pick(f.minKm, isNum, F.minKm),
+    maxKm: pick(f.maxKm, isNum, F.maxKm),
+    weekday: pick(f.weekday, oneOf<Filters["weekday"]>("", "weekday", "weekend"), F.weekday),
+    person: pick(f.person, isStr, F.person),
   };
   const isView = (v: unknown): v is Prefs["mapView"] & object =>
     isRec(v) && Array.isArray(v.center) && v.center.length === 2 && v.center.every(isNum) && isNum(v.zoom);
@@ -244,6 +268,10 @@ export function sanitizePrefs(raw: unknown): Prefs {
       (v): v is Goals => !!v && typeof v === "object" && isNum((v as Goals).km) && isNum((v as Goals).days),
       D.goals,
     ),
+    // Kayıtlı aramaların filtreleri de aynı denetimden geçer (eksik alanlar varsayılan).
+    savedSearches: Array.isArray(s.savedSearches)
+      ? s.savedSearches.flatMap((x) => (isRec(x) && isStr(x.name) && x.name.trim() ? [{ name: x.name, filters: sanitizePrefs({ filters: x.filters }).filters }] : []))
+      : D.savedSearches,
   };
 }
 

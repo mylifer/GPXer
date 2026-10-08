@@ -92,6 +92,8 @@ export interface FileMeta {
   tags: string[];
   note: string;
   activity: Activity | null;
+  /** Kayıtta birlikte olunan kişiler. */
+  people?: string[];
 }
 
 export interface Detail {

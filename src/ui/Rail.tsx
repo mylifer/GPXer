@@ -7,6 +7,7 @@ import {
   IconFilePlus,
   IconFolderOpen,
   IconHelp,
+  IconFilterSearch,
   IconHistory,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -25,6 +26,7 @@ export function Rail(p: {
   onSummary(): void;
   onDay(): void;
   onGoTo(): void;
+  onSearch(): void;
   onBookmarks(): void;
   onPlan(): void;
   onPalette(): void;
@@ -54,6 +56,7 @@ export function Rail(p: {
       {item("Özet (Ctrl/⌘+I)", <IconChartBar size={s} />, p.onSummary, !p.hasFiles)}
       {item("Gün akışı", <IconCalendarEvent size={s} />, p.onDay, !p.hasFiles)}
       {item("Tarihe git (G)", <IconHistory size={s} />, p.onGoTo, !p.hasFiles)}
+      {item("Gelişmiş arama", <IconFilterSearch size={s} />, p.onSearch, !p.hasFiles)}
       {item("Yer imleri listesi", <IconBookmarks size={s} />, p.onBookmarks)}
       {item("Rota planla", <IconRoute size={s} />, p.onPlan)}
       {item("Komut paleti (Ctrl/⌘+K)", <IconCommand size={s} />, p.onPalette)}

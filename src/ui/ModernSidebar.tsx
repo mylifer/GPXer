@@ -167,6 +167,11 @@ export const ModernSidebar = memo(function ModernSidebar(p: SidebarProps) {
                 Tarihe git
               </Button>
             </Tooltip>
+            <Tooltip label="Mesafe, gün, kişi, etiket ve tarihe göre ara; aramaları adıyla kaydet">
+              <Button size="compact-xs" variant="light" color="gray" leftSection={<IconSearch size={14} />} onClick={p.onSearch}>
+                Gelişmiş arama
+              </Button>
+            </Tooltip>
             <Tooltip label="Bir günün akışı: nerede durulmuş, nereden nereye gidilmiş">
               <Button size="compact-xs" variant="light" color="gray" leftSection={<IconCalendarEvent size={14} />} onClick={p.onDay}>
                 Gün akışı

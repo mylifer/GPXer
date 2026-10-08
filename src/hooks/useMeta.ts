@@ -27,6 +27,11 @@ export function useMeta({
     [meta],
   );
 
+  const allPeople = useMemo(
+    () => [...new Set(Object.values(meta).flatMap((m) => m.people ?? []))].sort((a, b) => a.localeCompare(b, "tr-TR")),
+    [meta],
+  );
+
   /** Kaydın tür/etiket/notunu kaydeder; tür değişince özeti günceller. */
   const updateMeta = useCallback(
     async (path: string, m: FileMeta) => {
@@ -60,5 +65,5 @@ export function useMeta({
     [multi, say, fail],
   );
 
-  return { meta, setMetaState, allTags, updateMeta, tagMany };
+  return { meta, setMetaState, allTags, allPeople, updateMeta, tagMany };
 }

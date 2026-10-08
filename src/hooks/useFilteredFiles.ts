@@ -4,7 +4,7 @@ import type { Group } from "../components/Sidebar";
 import { findRoutes, type Route } from "../routes";
 import { linesHitBox } from "../geo";
 import { SEQ_DARK, SEQ_LIGHT, placeLabel, rampColor, type FileEntry } from "../types";
-import type { Prefs } from "../prefs";
+import type { Filters, Prefs } from "../prefs";
 import { dayBuckets, dedupedTotals, touchesRange } from "../days";
 import { dayKey, monthLabel, searchKey, tzOf } from "../format";
 import { findOverlaps } from "../overlaps";
@@ -62,27 +62,45 @@ export function useFilteredFiles({
   /** Zamanı çakışan kayıtlar (tüm kütüphane üzerinden). */
   const overlapInfo = useMemo(() => findOverlaps(summaries), [summaries]);
 
+  /** Ölçütlere uyan kayıtlar (sırasız); gelişmiş aramanın önizlemesinde de kullanılır. */
+  const filterBy = useCallback(
+    (fl: Filters) => {
+      const q = searchKey(fl.query.trim());
+      const dateOn = !!(fl.from || fl.to);
+      const route = fl.route ? (routeInfo.byPath.get(fl.route) ?? null) : null;
+      return colored.filter((f) => {
+        const s = f.summary;
+        const m = meta[s.path];
+        if (q) {
+          const hay = `${s.name ?? ""} ${s.fileName} ${s.startPlace ?? ""} ${s.endPlace ?? ""} ${places.length ? (placeLabel(s) ?? "") : ""} ${m?.tags.join(" ") ?? ""} ${m?.note ?? ""}`;
+          if (!searchKey(hay).includes(q)) return false;
+        }
+        if (fl.activity && s.activity !== fl.activity) return false;
+        if (fl.tag && !m?.tags.includes(fl.tag)) return false;
+        if (fl.route && (!route || routeInfo.byPath.get(s.path) !== route)) return false;
+        if (fl.overlap && !overlapInfo.has(s.path)) return false;
+        if (fl.area && !linesHitBox(s.lines, fl.area, s.stats.bbox)) return false;
+        const km = s.stats.distanceM / 1000;
+        if (fl.minKm && km < fl.minKm) return false;
+        if (fl.maxKm && km > fl.maxKm) return false;
+        if (fl.person && !m?.people?.includes(fl.person)) return false;
+        if (fl.weekday) {
+          if (s.stats.startTime == null) return false;
+          const wd = new Date(`${dayKey(s.stats.startTime, tzOf(s))}T12:00:00Z`).getUTCDay();
+          if ((wd === 0 || wd === 6) !== (fl.weekday === "weekend")) return false;
+        }
+        if (!dateOn) return true;
+        if (s.stats.startTime == null) return fl.includeUndated;
+        // Birden çok güne yayılan kayıt, günlerinden biri aralıktaysa uyar.
+        return touchesRange(s, fl.from, fl.to);
+      });
+    },
+    [colored, meta, routeInfo, prefs.tzMode, overlapInfo, places], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   const shown = useMemo(() => {
     const fl = prefs.filters;
-    const q = searchKey(fl.query.trim());
-    const dateOn = !!(fl.from || fl.to);
-    const list = colored.filter((f) => {
-      const s = f.summary;
-      const m = meta[s.path];
-      if (q) {
-        const hay = `${s.name ?? ""} ${s.fileName} ${s.startPlace ?? ""} ${s.endPlace ?? ""} ${places.length ? (placeLabel(s) ?? "") : ""} ${m?.tags.join(" ") ?? ""} ${m?.note ?? ""}`;
-        if (!searchKey(hay).includes(q)) return false;
-      }
-      if (fl.activity && s.activity !== fl.activity) return false;
-      if (fl.tag && !m?.tags.includes(fl.tag)) return false;
-      if (fl.route && (!activeRoute || routeInfo.byPath.get(s.path) !== activeRoute)) return false;
-      if (fl.overlap && !overlapInfo.has(s.path)) return false;
-      if (fl.area && !linesHitBox(s.lines, fl.area, s.stats.bbox)) return false;
-      if (!dateOn) return true;
-      if (s.stats.startTime == null) return fl.includeUndated;
-      // Birden çok güne yayılan kayıt, günlerinden biri aralıktaysa uyar.
-      return touchesRange(s, fl.from, fl.to);
-    });
+    const list = filterBy(fl);
     // Tarihsiz kayıtlar tarih sıralamasında her zaman en sonda.
     const byDate = (a: FileEntry, b: FileEntry, dir: number) => {
       const ta = a.summary.stats.startTime;
@@ -104,7 +122,7 @@ export function useFilteredFiles({
       case "distance":
         return list.sort((a, b) => b.summary.stats.distanceM - a.summary.stats.distanceM);
     }
-  }, [colored, prefs.filters, meta, routeInfo, activeRoute, prefs.tzMode, overlapInfo, places]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filterBy, prefs.filters]);
 
   // Geziye göre gruplamada geziler bütün kütüphaneden çıkarılır (filtre bir
   // gezinin yalnızca bir kısmını gösterse de gezi aynı kalır).
@@ -220,9 +238,12 @@ export function useFilteredFiles({
     [selected, overlapInfo, coloredByPath],
   );
 
+  const countFor = useCallback((fl: Filters) => filterBy(fl).length, [filterBy]);
+
   return {
     colored,
     summaries,
+    countFor,
     routeInfo,
     overlapInfo,
     shown,

@@ -28,6 +28,7 @@ import { RouteModal } from "./components/RouteModal";
 import { CompareView } from "./components/CompareView";
 import { HelpDialog } from "./components/HelpDialog";
 import { GoToDialog } from "./components/GoToDialog";
+import { AdvancedSearch } from "./components/AdvancedSearch";
 import { DuplicatesDialog } from "./components/DuplicatesDialog";
 import { findDuplicates } from "./duplicates";
 import { useRegions } from "./hooks/useRegions";
@@ -162,7 +163,7 @@ export default function App() {
     closeAll,
   } = useFileLoader({ prefsRef, persistedSel, up, say, fail, setErrors, setDuplicates, setEmpties, mapRef, setCompare, setMulti, routeInfoRef });
   const { places, setPlacesState, namePrompt, setNamePrompt, updatePlaces, onNamePlace, namePlace } = usePlaces(say, fail);
-  const { meta, setMetaState, allTags, updateMeta, tagMany } = useMeta({ fail, say, patchFiles, multi, setDialog });
+  const { meta, setMetaState, allTags, allPeople, updateMeta, tagMany } = useMeta({ fail, say, patchFiles, multi, setDialog });
 
   // ---------- Türetilen veriler ----------
 
@@ -189,6 +190,7 @@ export default function App() {
     summaryOf,
     libraryFlights,
     selOverlaps,
+    countFor,
   } = useFilteredFiles({ files, prefs, meta, places, dark, selected, routeInfoRef });
   const bookmarks = useBookmarks(fail);
   /** Gizlilik bölgeleri (“gizli” işaretli adlandırılmış yerler). */
@@ -652,6 +654,7 @@ export default function App() {
           onSummary={openSummary}
           onDay={() => setDialog("day")}
           onGoTo={openGoTo}
+          onSearch={() => setDialog("search")}
           onBookmarks={() => setDialog("bookmarks")}
           onPlan={openPlan}
           onPalette={() => setPalette(true)}
@@ -702,6 +705,7 @@ export default function App() {
           overlaps={overlapInfo}
           places={places}
           onGoTo={openGoTo}
+          onSearch={() => setDialog("search")}
           onDay={() => setDialog("day")}
           duplicateGroups={duplicateGroups.length}
           onDuplicates={() => setDialog("duplicates")}
@@ -1136,6 +1140,21 @@ export default function App() {
             setDialog(null);
             selectAndZoom(p);
           }}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === "search" && (
+        <AdvancedSearch
+          filters={prefs.filters}
+          allTags={allTags}
+          allPeople={allPeople}
+          saved={prefs.savedSearches}
+          count={countFor}
+          onApply={(f) => {
+            setDialog(null);
+            up({ filters: f });
+          }}
+          onSaved={(savedSearches) => up({ savedSearches })}
           onClose={() => setDialog(null)}
         />
       )}
