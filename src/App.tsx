@@ -4,6 +4,7 @@ import {
   fixElevation,
   getMeta,
   pickSavePath,
+  writeTextFile,
   snapToRoads,
   undoRewrite,
   deletePoints,
@@ -29,6 +30,7 @@ import { CompareView } from "./components/CompareView";
 import { HelpDialog } from "./components/HelpDialog";
 import { GoToDialog } from "./components/GoToDialog";
 import { AdvancedSearch } from "./components/AdvancedSearch";
+import { MileageDialog } from "./components/MileageDialog";
 import { DuplicatesDialog } from "./components/DuplicatesDialog";
 import { findDuplicates } from "./duplicates";
 import { useRegions } from "./hooks/useRegions";
@@ -1165,6 +1167,29 @@ export default function App() {
           onShowDay={(day) => {
             setDialog(null);
             up({ filters: { ...prefs.filters, from: day, to: day } });
+          }}
+          onOpen={(p) => {
+            setDialog(null);
+            selectAndZoom(p);
+          }}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === "mileage" && (
+        <MileageDialog
+          files={files}
+          meta={meta}
+          allTags={allTags}
+          fuel={prefs.fuel}
+          onSave={async (name, csv) => {
+            try {
+              const path = await pickSavePath(name, [{ name: "CSV", extensions: ["csv"] }]);
+              if (!path) return;
+              await writeTextFile(path, csv);
+              say("Kilometre defteri kaydedildi.");
+            } catch (e) {
+              fail(String(e));
+            }
           }}
           onOpen={(p) => {
             setDialog(null);

@@ -55,6 +55,7 @@ export function paletteCommands(x: PaletteContext): Command[] {
   add("İşlem", "settings", "Ayarlar", () => x.setDialog("settings"), `${MOD}+,`, "yakıt hedef katman gizlilik yedek");
   add("İşlem", "day", "Gün akışı", () => x.setDialog("day"), undefined, "zaman çizelgesi timeline");
   add("İşlem", "goto", "Tarihe git (neredeydim?)", x.openGoTo, "G");
+  add("İşlem", "mileage", "Kilometre defteri…", () => x.setDialog("mileage"), undefined, "iş yolculuk km masraf yakıt vergi");
   add("İşlem", "search", "Gelişmiş arama…", () => x.setDialog("search"), undefined, "filtre mesafe km hafta sonu kişi etiket");
   for (const s of x.prefs.savedSearches)
     add("Kayıtlı arama", `saved:${s.name}`, `Kayıtlı arama: ${s.name}`, () => x.up({ filters: s.filters }), undefined, "filtre");

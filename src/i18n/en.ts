@@ -1068,11 +1068,20 @@ export const EN: Record<string, string> = {
   "Bu kişiyle yapılan bütün yolculukların albümü: kapakta ortak harita, ardından birlikte olunan her ay": "Album of all trips with this person: a shared map on the cover, then every month together",
   "ile yolculuklar": "trips together",
   "Birlikte gün": "Days together",
+  "Kilometre defteri": "Mileage log",
+  "Kilometre defteri…": "Mileage log…",
+  "CSV olarak kaydet…": "Save as CSV…",
+  "Önce yolculukları etiketleyin (ör. “iş”); defter etikete göre tutulur.": "Tag your trips first (e.g. “work”); the log is kept per tag.",
+  "Bu yıl bu etikette kayıt yok.": "No recordings with this tag this year.",
+  "Km": "Km",
+  "Yakıt tutarı Ayarlar'daki tüketim ve fiyatla hesaplanır.": "Fuel cost uses the consumption and price in Settings.",
+  "Kilometre defteri kaydedildi.": "Mileage log saved.",
 };
 
 /** Değişken içeren iletiler: `{0}`, `{1}`… yer tutucuları (İngilizcede sırası
  * değişebilir). */
 export const EN_T: [string, string][] = [
+  ["{0} yolculuk · {1} km · {2}", "{0} trips · {1} km · {2}"],
   ["📖 {0}", "📖 {0}"],
   ["{0} ile yolculuklar", "Trips with {0}"],
   ["{0} belge iliştirildi.", "{0} documents attached."],
