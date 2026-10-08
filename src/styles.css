@@ -2977,3 +2977,9 @@ table.coverage th {
 .tag.person {
   background: var(--selected);
 }
+.stop-venue {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

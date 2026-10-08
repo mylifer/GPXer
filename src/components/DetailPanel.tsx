@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   IconArrowBackUp,
   IconArrowsSplit,
@@ -20,8 +20,9 @@ import { Btn, IconBtn } from "../ui/primitives";
 import { weatherDays, weatherFor, weatherLabel, type WeatherDay } from "../weather";
 import { fmtCo2, fmtFuel, fmtMoney, fuelFor, type FuelPrefs } from "../fuel";
 import { nightsOf, type Night } from "../nights";
-import { recordRoads, type Detail, type FileMeta, type FileSummary, type NamedPlace, type RewriteKind, type RoadSeg, type Stats, type Stop } from "../api";
+import { recordRoads, venuesAt, type Venue, type Detail, type FileMeta, type FileSummary, type NamedPlace, type RewriteKind, type RoadSeg, type Stats, type Stop } from "../api";
 import { namedPlaceAt } from "../places";
+import { venueIcon } from "../venues";
 import { METRICS, PALETTE, placeLabel, type FileEntry } from "../types";
 import { MetaEditor } from "./MetaEditor";
 import type { Metric, TrackColorBy, XAxis } from "../prefs";
@@ -132,6 +133,27 @@ function StopList({
   const [open, setOpen] = useState(false);
   const [limit, setLimit] = useState(STOPS_PAGE);
   const total = stops.reduce((a, x) => a + x.durationMs, 0);
+  // Liste açılınca duraklardaki mekânlar (kafe, lokanta, müze…) sorulur.
+  const [venues, setVenues] = useState<Map<number, Venue | null>>(new Map());
+  useEffect(() => {
+    if (!open) return;
+    const todo = stops.slice(0, limit).filter((st) => !venues.has(st.start));
+    if (!todo.length) return;
+    let live = true;
+    venuesAt(todo.map((st) => [st.lon, st.lat]))
+      .then((list) => {
+        if (!live || !Array.isArray(list)) return;
+        setVenues((prev) => {
+          const next = new Map(prev);
+          todo.forEach((st, i) => next.set(st.start, list[i] ?? null));
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [open, stops, limit, venues]);
   return (
     <div className="stop-list">
       <button className="stat stat-btn" onClick={() => setOpen((v) => !v)} aria-expanded={open} title="Duraklamaları listele">
@@ -152,7 +174,13 @@ function StopList({
                     {fmtTime(st.start, tz).slice(0, 5)}
                   </span>
                   <span>{fmtDuration(st.durationMs)}</span>
-                  {place && <strong className="stop-name" data-no-i18n>{place.name}</strong>}
+                  {place ? (
+                    <strong className="stop-name" data-no-i18n>{place.name}</strong>
+                  ) : (
+                    venues.get(st.start) && (
+                      <span className="stop-venue" data-no-i18n>{`${venueIcon(venues.get(st.start)!.kind)} ${venues.get(st.start)!.name}`}</span>
+                    )
+                  )}
                 </button>
                 <button
                   className="icon-btn tiny"

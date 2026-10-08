@@ -574,6 +574,7 @@ pub fn run() {
             photos::read_photos,
             photos::photo_thumb,
             photos::watch_photo_folders,
+            streetat::venues_at,
             get_places,
             set_places
         ])

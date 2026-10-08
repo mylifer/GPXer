@@ -171,9 +171,141 @@ pub(crate) async fn street_at(app: AppHandle, lon: f64, lat: f64) -> Result<Stre
     .await?
 }
 
+/// Durak bu kadar yakınsa mekânın adı verilir (m).
+const VENUE_M: f64 = 60.0;
+/// Durak yeri olarak anlamsız POI sınıfları.
+const VENUE_SKIP: &[&str] = &[
+    "bus",
+    "bus_stop",
+    "parking",
+    "bicycle_parking",
+    "motorcycle_parking",
+    "toilets",
+    "atm",
+    "post_box",
+    "bench",
+    "drinking_water",
+    "waste_basket",
+    "vending_machine",
+];
+
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub(crate) struct Venue {
+    pub name: String,
+    /// OpenMapTiles POI sınıfı ("cafe", "restaurant", "museum"…).
+    pub kind: String,
+}
+
+/// En yakın adlı mekân (saf: denenebilir).
+pub(crate) fn nearest_venue(names: &[crate::mvt::Named], at: (f64, f64)) -> Option<Venue> {
+    names
+        .iter()
+        .filter_map(|n| {
+            let kind = n.kind.strip_prefix("poi:")?;
+            if VENUE_SKIP.contains(&kind) {
+                return None;
+            }
+            let (x, y) = local(n.lon, n.lat, at);
+            let d = (x * x + y * y).sqrt();
+            (d <= VENUE_M).then_some((d, n, kind))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, n, kind)| Venue {
+            name: n.name.clone(),
+            kind: kind.to_owned(),
+        })
+}
+
+type NamesMemo = (
+    HashMap<(u32, u32), Arc<Vec<crate::mvt::Named>>>,
+    VecDeque<(u32, u32)>,
+);
+
+/// Karodaki adlı öğeler (son kullanılanlar bellekte).
+fn tile_names(cache: &TileCache, x: u32, y: u32) -> Arc<Vec<crate::mvt::Named>> {
+    static MEMO: Mutex<Option<NamesMemo>> = Mutex::new(None);
+    if let Some(hit) = MEMO
+        .lock()
+        .ok()
+        .and_then(|m| m.as_ref().and_then(|m| m.0.get(&(x, y)).cloned()))
+    {
+        return hit;
+    }
+    let names = vector_template(cache)
+        .and_then(|t| {
+            let url = t
+                .replace("{z}", "14")
+                .replace("{x}", &x.to_string())
+                .replace("{y}", &y.to_string());
+            cache.get(&url)
+        })
+        .map(|b| crate::mvt::names(&b, 14, x, y))
+        .unwrap_or_default();
+    let names = Arc::new(names);
+    if let Ok(mut g) = MEMO.lock() {
+        let (map, order) = g.get_or_insert_with(Default::default);
+        if map.insert((x, y), names.clone()).is_none() {
+            order.push_back((x, y));
+        }
+        while order.len() > 64 {
+            if let Some(k) = order.pop_front() {
+                map.remove(&k);
+            }
+        }
+    }
+    names
+}
+
+/// Duraklardaki mekânlar (kafe, lokanta, müze…): her nokta için en yakın
+/// adlı OpenStreetMap mekânı ya da `None`. Karolar önbellekten, yoksa
+/// internetten.
+#[tauri::command]
+pub(crate) async fn venues_at(
+    app: AppHandle,
+    points: Vec<[f64; 2]>,
+) -> Result<Vec<Option<Venue>>, String> {
+    run_blocking(move || {
+        let cache = app.state::<TileCache>();
+        Ok(points
+            .into_iter()
+            .map(|[lon, lat]| {
+                let (x, y) = tile_xy(lon, lat, 14);
+                nearest_venue(&tile_names(&cache, x, y), (lon, lat))
+            })
+            .collect())
+    })
+    .await?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nearest_named_venue_near_stop() {
+        use crate::mvt::Named;
+        let n = |name: &str, kind: &str, lon: f64, lat: f64| Named {
+            name: name.into(),
+            kind: kind.into(),
+            lon,
+            lat,
+        };
+        let at = (29.0250, 40.9800);
+        let names = vec![
+            n("Moda Çay Bahçesi", "poi:cafe", 29.0252, 40.9801),
+            n("Otopark", "poi:parking", 29.02501, 40.98001),
+            n("Uzak Müze", "poi:museum", 29.0300, 40.9800),
+            n("Moda Caddesi", "street", 29.0250, 40.9800),
+        ];
+        assert_eq!(
+            nearest_venue(&names, at),
+            Some(Venue {
+                name: "Moda Çay Bahçesi".into(),
+                kind: "cafe".into()
+            })
+        );
+        assert_eq!(nearest_venue(&names, (29.05, 40.99)), None);
+    }
 
     #[test]
     fn picks_nearest_street_and_area() {

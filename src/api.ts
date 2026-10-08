@@ -81,6 +81,13 @@ export interface FileSummary {
 
 export type Activity = "walk" | "run" | "bike" | "car" | "unknown";
 
+/** Durağın yanındaki adlı OpenStreetMap mekânı. */
+export interface Venue {
+  name: string;
+  /** "cafe", "restaurant", "museum"… */
+  kind: string;
+}
+
 export interface Stop {
   lat: number;
   lon: number;
@@ -314,6 +321,8 @@ export const readPhotos = (paths: string[]) => invoke<PhotoInfo[] | null>("read_
 /** Fotoğrafın küçük resmi (data: adresi); okunamazsa null. */
 export const photoThumb = (path: string) => invoke<string | null>("photo_thumb", { path });
 /** Fotoğraf klasörlerini izle: yeni fotoğraflar `photos-added` olayıyla gelir. */
+/** Noktaların yanındaki mekânlar (60 m içinde; yoksa null). */
+export const venuesAt = (points: [number, number][]) => invoke<(Venue | null)[]>("venues_at", { points });
 export const watchPhotoFolders = (folders: string[]) => invoke<string[]>("watch_photo_folders", { folders });
 /** Kayıtları tek dosyada dışa aktarır; `dest` pickSavePath'ten gelmeli. */
 export const exportMany = (paths: string[], dest: string, format: ExportFormat) =>

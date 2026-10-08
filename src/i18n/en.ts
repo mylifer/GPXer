@@ -1043,11 +1043,16 @@ export const EN: Record<string, string> = {
   "Eksik say": "Count as missing",
   "Bilerek boş": "Intentionally empty",
   "Bilerek boş dönemleri gizle": "Hide intentionally empty periods",
+  "Ziyaret defteri": "Visit log",
+  "10 dakikadan uzun duraklar; yanındaki kafe, lokanta, müze… (OpenStreetMap)": "Stops over 10 minutes; the café, restaurant, museum… next to them (OpenStreetMap)",
+  "Mekân": "Place",
 };
 
 /** Değişken içeren iletiler: `{0}`, `{1}`… yer tutucuları (İngilizcede sırası
  * değişebilir). */
 export const EN_T: [string, string][] = [
+  ["☕ {0} durak yerinde mekân ara", "☕ Look up places at {0} stops"],
+  ["Mekânlar aranıyor {0}", "Looking up places {0}"],
   ["{0} dönem bilerek boş işaretli · göster", "{0} periods marked intentionally empty · show"],
   ["📷 {0} fotoğraftan iz", "📷 Track from {0} photos"],
   ["{0} · {1} gün · {2} kayıt", "{0} · {1} days · {2} recordings"],

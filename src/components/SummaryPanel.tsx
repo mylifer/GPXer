@@ -18,6 +18,7 @@ import { Modal } from "./Modal";
 import { CalendarHeatmap } from "./CalendarHeatmap";
 import { CoverageSection, type CoverageFill } from "./CoverageSection";
 import { PeopleSection } from "./PeopleSection";
+import { VenueSection } from "./VenueSection";
 import { ACTIVITIES, placeLabel } from "../types";
 import type { Route } from "../routes";
 import type { FileMeta, NamedPlace } from "../api";
@@ -585,6 +586,8 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes,
         <ProvinceSection files={files} from={from} to={to} />
 
         {meta && onPerson && <PeopleSection files={files} meta={meta} onPerson={onPerson} />}
+
+        <VenueSection files={files} />
 
         <HabitsSection files={files} from={from} to={to} onOpen={onOpen} />
 
