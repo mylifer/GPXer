@@ -16,7 +16,7 @@ import { periodRange } from "./DateRange";
 import { dayBuckets, dayIn, dedupedDays, dedupedTotals, rangeShare } from "../days";
 import { Modal } from "./Modal";
 import { CalendarHeatmap } from "./CalendarHeatmap";
-import { CoverageSection } from "./CoverageSection";
+import { CoverageSection, type CoverageFill } from "./CoverageSection";
 import { PeopleSection } from "./PeopleSection";
 import { ACTIVITIES, placeLabel } from "../types";
 import type { Route } from "../routes";
@@ -93,9 +93,10 @@ interface Props {
   onPerson?(name: string): void;
   /** Haritadaki fotoğraflar (yıllık albüm için). */
   photos?: readonly PlacedPhoto[];
+  coverageFill?: CoverageFill;
 }
 
-export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage, fuel, goals, meta, onPerson, photos }: Props) {
+export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage, fuel, goals, meta, onPerson, photos, coverageFill }: Props) {
   const [period, setPeriod] = useState<Period>("month");
   const [measure, setMeasure] = useState<Measure>("distance");
   const [hover, setHover] = useState<number | null>(null);
@@ -343,7 +344,7 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes,
         <h3 className="chart-title">Takvim</h3>
         <CalendarHeatmap files={files} from={from} to={to} onDay={(iso) => onPeriod(iso, iso)} />
 
-        <CoverageSection files={files} onPeriod={onPeriod} />
+        <CoverageSection files={files} onPeriod={onPeriod} fill={coverageFill} />
 
         <div className="filter-row summary-controls">
           <div className="segmented small">

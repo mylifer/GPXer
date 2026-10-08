@@ -1035,11 +1035,21 @@ export const EN: Record<string, string> = {
   "📖 Albüm (PDF)…": "📖 Album (PDF)…",
   "Kapakta yıl kartı; her ay için harita, kayıtlar, kimlerle gidildiği, günlük notları ve o ay çekilen fotoğraflar": "Year card on the cover; for each month a map, recordings, who you were with, day notes and photos taken that month",
   "Albüm kaydedildi.": "Album saved.",
+  "Bu dönemde çekilmiş, konumu olan fotoğraflardan yolculuk kaydı oluştur": "Create a recording from geotagged photos taken in this period",
+  "Bu dönemi kapsayan konum geçmişi (Google Timeline.json, Records.json) ya da GPX dosyalarını aç": "Open location history (Google Timeline.json, Records.json) or GPX files covering this period",
+  "Konum geçmişi…": "Location history…",
+  "Yeniden eksik say": "Count as missing again",
+  "Bu dönemde kayıt olmaması doğal (evdeydim…): listeden çıkar": "No recordings here is expected (I was home…): remove from the list",
+  "Eksik say": "Count as missing",
+  "Bilerek boş": "Intentionally empty",
+  "Bilerek boş dönemleri gizle": "Hide intentionally empty periods",
 };
 
 /** Değişken içeren iletiler: `{0}`, `{1}`… yer tutucuları (İngilizcede sırası
  * değişebilir). */
 export const EN_T: [string, string][] = [
+  ["{0} dönem bilerek boş işaretli · göster", "{0} periods marked intentionally empty · show"],
+  ["📷 {0} fotoğraftan iz", "📷 Track from {0} photos"],
   ["{0} · {1} gün · {2} kayıt", "{0} · {1} days · {2} recordings"],
   ["📖 Albüm hazırlanıyor {0}", "📖 Preparing album {0}"],
   ["{0} albümü", "{0} album"],

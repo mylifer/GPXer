@@ -1,4 +1,4 @@
-import { expect, test } from "./app";
+import { emit, expect, test } from "./app";
 
 test("Özet: Türkiye illeri ve yurtdışı bölgeler", async ({ app }) => {
   await app.getByRole("button", { name: /^Özet/ }).first().click();
@@ -55,4 +55,31 @@ test("Özet: yıllık albüm PDF olarak kaydedilir (kapak + kayıtlı her ay)", 
   // 2025: Ağustos (Edirne → Selanik) ve Eylül (Münih → Augsburg).
   expect(pdf).toContain("/Count 3");
   await expect(app.getByText("Albüm kaydedildi.")).toBeVisible();
+});
+
+test("Özet: kayıtsız dönem fotoğraflardan doldurulur ya da bilerek boş işaretlenir", async ({ app, mock }) => {
+  const added: string[] = [];
+  mock.add_gpx_record = (a) => {
+    added.push(a.name as string);
+    return { status: "error", path: "x", message: "test" };
+  };
+  // Ankara gezisiyle Bodrum arasındaki boşlukta (Ocak 2024) çekilmiş iki fotoğraf.
+  await emit(app, "photos-added", [
+    { path: "/f/1.jpg", name: "1.jpg", time: Date.parse("2024-01-05T10:00:00Z"), timeIsLocal: false, lat: 38.4, lon: 27.1, thumb: null },
+    { path: "/f/2.jpg", name: "2.jpg", time: Date.parse("2024-01-05T12:00:00Z"), timeIsLocal: false, lat: 38.5, lon: 27.2, thumb: null },
+  ]);
+  await app.getByRole("button", { name: /^Özet/ }).first().click();
+  const first = app.getByTestId("coverage-gaps").locator("li").first();
+  await expect(first).toContainText("08.07.2024");
+  await first.getByRole("button", { name: "📷 2 fotoğraftan iz" }).click();
+  await expect.poll(() => added).toEqual(["Fotoğraflardan iz 05.01.2024"]);
+
+  await app.getByRole("button", { name: /^Özet/ }).first().click();
+  const gaps = app.getByTestId("coverage-gaps").locator("li");
+  const n = await gaps.count();
+  await gaps.first().getByRole("button", { name: "Bilerek boş" }).click();
+  await expect(gaps).toHaveCount(n - 1);
+  await expect(app.getByTestId("coverage-gaps").locator("li").first()).not.toContainText("08.07.2024");
+  await app.getByRole("button", { name: "1 dönem bilerek boş işaretli · göster" }).click();
+  await expect(app.locator(".coverage-gaps li.quiet")).toHaveCount(1);
 });

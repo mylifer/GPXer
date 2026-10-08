@@ -2956,13 +2956,23 @@ table.coverage th {
   list-style: none;
   margin: 0;
   padding: 0;
-  columns: 2 240px;
 }
 .coverage-gaps li {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 2px 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--grid);
+}
+.coverage-gaps li.quiet {
+  opacity: 0.6;
+}
+.gap-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
 }
 .tag.person {
   background: var(--selected);

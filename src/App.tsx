@@ -215,7 +215,7 @@ export default function App() {
   /** Aynı yolculuğun kopyaları (tüm kütüphanede). */
   const duplicateGroups = useMemo(() => findDuplicates(files.map((f) => f.summary)), [files]);
   const fileMap = useMemo(() => new Map(files.map((f) => [f.summary.path, f])), [files]);
-  const { photoInfo, setPhotoInfo, placedPhotos, mapPhotos, pickPhotos, clearPhotos, addPhotosRef } = usePhotos({
+  const { photoInfo: allPhotos, setPhotoInfo, placedPhotos, mapPhotos, pickPhotos, clearPhotos, addPhotosRef } = usePhotos({
     prefs,
     prefsRef,
     up,
@@ -403,8 +403,13 @@ export default function App() {
     }
   }, [say, fail]);
   // ---------- Fotoğraflardan iz ----------
-  const makePhotoTracks = useCallback(async () => {
+  const makePhotoTracks = useCallback(async (range?: { from: string; to: string }) => {
     try {
+      // Kapsama boşluğundan: yalnızca o dönemde çekilmiş fotoğraflar.
+      const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+      const photoInfo = range
+        ? allPhotos.filter((p) => p.time != null && day(p.time) >= range.from && day(p.time) <= range.to)
+        : allPhotos;
       // Dilimsiz EXIF saatleri için konumların saat dilimi (yaklaşık 50 km'lik hücrelerde bir kez).
       const zones = new Map<string, string | null>();
       const cell = (lat: number, lon: number) => `${Math.round(lat * 2)}:${Math.round(lon * 2)}`;
@@ -431,7 +436,7 @@ export default function App() {
     } catch (e) {
       fail(`Fotoğraflardan iz oluşturulamadı: ${e}`);
     }
-  }, [photoInfo, prefs.photoOffsetH, addResults, say, fail]);
+  }, [allPhotos, prefs.photoOffsetH, addResults, say, fail]);
   // ---------- Gezi hikâyesi, görüntü kaydetme ----------
   const { makeStory, makeTripStory, saveImage } = useStory({ selectedEntry, detail, placedPhotos, places, zones, mapRef, notes: journal.days, say, fail });
   // ---------- Yedek ve geri yükleme ----------
@@ -801,7 +806,7 @@ export default function App() {
             placedPhotos={placedPhotos}
             pickPhotos={pickPhotos}
             clearPhotos={clearPhotos}
-            photoTrack={makePhotoTracks}
+            photoTrack={() => makePhotoTracks()}
             downloadArea={downloadArea}
             openStreets={() => setDialog("streets")}
             openBookmarks={() => setDialog("bookmarks")}
@@ -997,6 +1002,19 @@ export default function App() {
           files={shown}
           meta={meta}
           photos={placedPhotos.placed}
+          coverageFill={{
+            photos: allPhotos,
+            onPhotoTrack: (from, to) => {
+              setDialog(null);
+              void makePhotoTracks({ from, to });
+            },
+            onImport: () => {
+              setDialog(null);
+              void pickFiles();
+            },
+            quiet: prefs.quietGaps,
+            onQuiet: (quietGaps) => up({ quietGaps }),
+          }}
           onPerson={(person) => {
             setDialog(null);
             up({ filters: { ...prefs.filters, person } });

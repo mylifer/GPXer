@@ -98,6 +98,8 @@ export interface Prefs {
   fuel: FuelPrefs;
   /** Kayıtlı aramalar. */
   savedSearches: SavedSearch[];
+  /** Kayıt kapsamında "bilerek boş" işaretlenen dönemler ("yyyy-aa-gg/yyyy-aa-gg"). */
+  quietGaps: string[];
 }
 
 export interface Goals {
@@ -164,6 +166,7 @@ const DEFAULTS: Prefs = {
   bookmarksLayer: true,
   explorerLayer: false,
   savedSearches: [],
+  quietGaps: [],
 };
 
 export const PREFS_KEY = "gpxer.prefs.v1";
@@ -272,6 +275,7 @@ export function sanitizePrefs(raw: unknown): Prefs {
     savedSearches: Array.isArray(s.savedSearches)
       ? s.savedSearches.flatMap((x) => (isRec(x) && isStr(x.name) && x.name.trim() ? [{ name: x.name, filters: sanitizePrefs({ filters: x.filters }).filters }] : []))
       : D.savedSearches,
+    quietGaps: (strings(s.quietGaps) ?? D.quietGaps).filter((x) => /^\d{4}-\d{2}-\d{2}\/\d{4}-\d{2}-\d{2}$/.test(x)),
   };
 }
 
