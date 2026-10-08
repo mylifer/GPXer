@@ -1023,11 +1023,18 @@ export const EN: Record<string, string> = {
   "Kayıtlı aramalar": "Saved searches",
   "Kayıtlı arama": "Saved search",
   "Kayıtlı aramayı sil": "Delete saved search",
+  "Kayıtsız dönemler, en az": "Periods without recordings, at least",
+  "En kısa boşluk": "Shortest gap",
+  "Bu uzunlukta kayıtsız dönem yok.": "No unrecorded periods this long.",
 };
 
 /** Değişken içeren iletiler: `{0}`, `{1}`… yer tutucuları (İngilizcede sırası
  * değişebilir). */
 export const EN_T: [string, string][] = [
+  ["… ve {0} dönem daha", "… and {0} more periods"],
+  ["{0} – {1}", "{0} – {1}"],
+  ["{0} {1}: {2} / {3} gün", "{0} {1}: {2} / {3} days"],
+  ["Kayıt kapsamı: {0} günün {1} gününde kayıt var (%{2})", "Coverage: recordings on {1} of {0} days ({2}%)"],
   ["Kayıtlı arama: {0}", "Saved search: {0}"],
   ["{0} kayıt uyuyor.", "{0} recordings match."],
   ["{0}\nÇift tıklayınca haritada yakınlaştırılır. Ctrl/⌘ ile tıklayarak birden çok, Shift ile aralık seçebilirsiniz.", "{0}\nDouble-click to zoom on the map. Ctrl/⌘-click to select several, Shift-click for a range."],

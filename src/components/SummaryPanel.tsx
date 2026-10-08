@@ -16,6 +16,7 @@ import { periodRange } from "./DateRange";
 import { dayBuckets, dayIn, dedupedDays, dedupedTotals, rangeShare } from "../days";
 import { Modal } from "./Modal";
 import { CalendarHeatmap } from "./CalendarHeatmap";
+import { CoverageSection } from "./CoverageSection";
 import { ACTIVITIES, placeLabel } from "../types";
 import type { Route } from "../routes";
 import type { NamedPlace } from "../api";
@@ -334,6 +335,8 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes,
 
         <h3 className="chart-title">Takvim</h3>
         <CalendarHeatmap files={files} from={from} to={to} onDay={(iso) => onPeriod(iso, iso)} />
+
+        <CoverageSection files={files} onPeriod={onPeriod} />
 
         <div className="filter-row summary-controls">
           <div className="segmented small">

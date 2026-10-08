@@ -26,3 +26,15 @@ test.describe("İngilizce", () => {
     expect(text).toMatch(/\d+ \/ \d+ regions/);
   });
 });
+
+test("Özet: kayıt kapsamı tablosu ve kayıtsız dönemler", async ({ app }) => {
+  await app.getByRole("button", { name: /^Özet/ }).first().click();
+  const table = app.getByTestId("coverage");
+  await expect(table).toBeVisible();
+  await expect(table.locator("tbody tr")).toHaveCount(3);
+  await expect(table.locator("tbody tr").first().locator("th")).toHaveText("2025");
+  // En uzun boşluk: Mayıs 2023'teki Ankara gezisiyle Temmuz 2024'teki Bodrum arası.
+  await expect(app.getByTestId("coverage-gaps").locator("li").first()).toContainText("08.07.2024");
+  await app.getByTitle(/^Temmuz 2024: /).click();
+  await expect(app.locator(".file-row")).toHaveCount(3);
+});
