@@ -17,9 +17,10 @@ import { dayBuckets, dayIn, dedupedDays, dedupedTotals, rangeShare } from "../da
 import { Modal } from "./Modal";
 import { CalendarHeatmap } from "./CalendarHeatmap";
 import { CoverageSection } from "./CoverageSection";
+import { PeopleSection } from "./PeopleSection";
 import { ACTIVITIES, placeLabel } from "../types";
 import type { Route } from "../routes";
-import type { NamedPlace } from "../api";
+import type { FileMeta, NamedPlace } from "../api";
 import { dayKey, isoToTr, type TzMode } from "../format";
 import { endName, flightsOf, uniqueFlights, type Flight } from "../flights";
 import { countryName, flagOf } from "../visits";
@@ -86,9 +87,12 @@ interface Props {
   goals: Goals;
   /** Yıl kartını kaydet (kaydetme penceresi açılır). */
   onSaveImage(name: string, base64: string): void;
+  /** Kayıt bilgileri (birlikte olunan kişiler için). */
+  meta?: Record<string, FileMeta>;
+  onPerson?(name: string): void;
 }
 
-export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage, fuel, goals }: Props) {
+export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage, fuel, goals, meta, onPerson }: Props) {
   const [period, setPeriod] = useState<Period>("month");
   const [measure, setMeasure] = useState<Measure>("distance");
   const [hover, setHover] = useState<number | null>(null);
@@ -575,6 +579,8 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes,
         )}
 
         <ProvinceSection files={files} from={from} to={to} />
+
+        {meta && onPerson && <PeopleSection files={files} meta={meta} onPerson={onPerson} />}
 
         <HabitsSection files={files} from={from} to={to} onOpen={onOpen} />
 

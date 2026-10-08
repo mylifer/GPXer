@@ -2964,3 +2964,6 @@ table.coverage th {
   gap: 8px;
   padding: 2px 0;
 }
+.tag.person {
+  background: var(--selected);
+}

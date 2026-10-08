@@ -89,6 +89,7 @@ interface Props {
   onExportGpx(): void;
   meta: FileMeta;
   allTags: string[];
+  allPeople: string[];
   onMeta(m: FileMeta): void;
   /** Bu kaydın güzergâhındaki kayıt sayısı (tekrarlanmıyorsa 0). */
   routeCount: number;
@@ -521,7 +522,7 @@ export function DetailPanel(p: Props) {
         </Btn>
         <IconBtn icon={<IconX size={18} />} glyph="×" label="Kapat (Esc)" onClick={p.onClose} />
       </header>
-      <MetaEditor summary={s} meta={p.meta} allTags={p.allTags} onChange={p.onMeta} />
+      <MetaEditor summary={s} meta={p.meta} allTags={p.allTags} allPeople={p.allPeople} onChange={p.onMeta} />
       <div className="detail-toolbar">
         <div className="chips" role="group" aria-label="Grafikte gösterilecekler">
           {ALL_METRICS.filter((m) => available.includes(m)).map((m) => (

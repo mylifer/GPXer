@@ -72,7 +72,7 @@ export function useFilteredFiles({
         const s = f.summary;
         const m = meta[s.path];
         if (q) {
-          const hay = `${s.name ?? ""} ${s.fileName} ${s.startPlace ?? ""} ${s.endPlace ?? ""} ${places.length ? (placeLabel(s) ?? "") : ""} ${m?.tags.join(" ") ?? ""} ${m?.note ?? ""}`;
+          const hay = `${s.name ?? ""} ${s.fileName} ${s.startPlace ?? ""} ${s.endPlace ?? ""} ${places.length ? (placeLabel(s) ?? "") : ""} ${m?.tags.join(" ") ?? ""} ${m?.people?.join(" ") ?? ""} ${m?.note ?? ""}`;
           if (!searchKey(hay).includes(q)) return false;
         }
         if (fl.activity && s.activity !== fl.activity) return false;

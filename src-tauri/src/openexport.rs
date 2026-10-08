@@ -32,6 +32,7 @@ pub(crate) struct Row {
     pub end_place: String,
     pub countries: Vec<String>,
     pub tags: Vec<String>,
+    pub people: Vec<String>,
     pub note: String,
 }
 
@@ -64,7 +65,7 @@ fn html(v: &str) -> String {
 
 pub(crate) fn csv_text(rows: &[Row]) -> String {
     let mut out = String::from(
-        "dosya,ad,baslangic_utc,bitis_utc,saat_dilimi,mesafe_km,hareket_dk,tur,baslangic_yeri,bitis_yeri,ulkeler,etiketler,not\n",
+        "dosya,ad,baslangic_utc,bitis_utc,saat_dilimi,mesafe_km,hareket_dk,tur,baslangic_yeri,bitis_yeri,ulkeler,etiketler,kisiler,not\n",
     );
     for r in rows {
         let cells = [
@@ -82,6 +83,7 @@ pub(crate) fn csv_text(rows: &[Row]) -> String {
             r.end_place.clone(),
             r.countries.join(" "),
             r.tags.join(" "),
+            r.people.join("; "),
             r.note.clone(),
         ];
         out.push_str(&cells.iter().map(|c| csv(c)).collect::<Vec<_>>().join(","));
@@ -118,7 +120,7 @@ pub(crate) fn index_html(rows: &[Row], created: i64) -> String {
             html(&r.name),
             html(&route),
             r.distance_m / 1000.0,
-            html(&[r.tags.join(", "), r.note.clone()].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" — ")),
+            html(&[r.tags.join(", "), r.people.join(", "), r.note.clone()].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" — ")),
         ));
     }
     format!(
@@ -155,7 +157,7 @@ Bu klasör GPXer olmadan da kullanılabilir:
                    GPS programı açabilir.
 - kayitlar.csv     Her kaydın dosyası, adı, başlangıç/bitiş zamanı (UTC), saat
                    dilimi, mesafesi, hareket süresi, türü, başlangıç ve bitiş
-                   yeri, geçtiği ülkeler, etiketleri ve notu (UTF-8, virgülle
+                   yeri, geçtiği ülkeler, etiketleri, birlikte olunan kişiler ve notu (UTF-8, virgülle
                    ayrılmış; Excel, LibreOffice ve benzerleri açar).
 - bilgiler.json    Etiket, not ve tür (dosya adına göre).
 - yerler.json      Adlandırılmış yerler (ev, iş…; enlem/boylam, yarıçap).
@@ -289,6 +291,7 @@ pub(crate) async fn export_open_archive(app: AppHandle) -> Result<Option<OpenExp
                     end_place: s.end_place.clone().unwrap_or_default(),
                     countries,
                     tags: m.tags.clone(),
+                    people: m.people.clone(),
                     note: m.note.clone(),
                 },
             ));
@@ -337,6 +340,7 @@ mod tests {
             start_place: "Bodrum".into(),
             end_place: "Marmaris".into(),
             tags: vec!["tatil".into()],
+            people: vec!["Ayşe".into(), "Can".into()],
             note: "Denize, \"yüzmeye\" gittik".into(),
             ..Row::default()
         };
@@ -376,7 +380,7 @@ mod tests {
             "{}",
             lines[1]
         );
-        assert!(lines[2].contains("\"Denize, \"\"yüzmeye\"\" gittik\""));
+        assert!(lines[2].contains(",tatil,\"Ayşe; Can\",\"Denize, \"\"yüzmeye\"\" gittik\""));
         let html = std::fs::read_to_string(out.join("index.html")).unwrap();
         assert!(html.contains("<a href=\"kayitlar/iz.gpx\">Muğla gezisi</a>"));
         assert!(html.contains("Bodrum → Marmaris"));

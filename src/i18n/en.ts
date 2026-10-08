@@ -1026,11 +1026,16 @@ export const EN: Record<string, string> = {
   "Kayıtsız dönemler, en az": "Periods without recordings, at least",
   "En kısa boşluk": "Shortest gap",
   "Bu uzunlukta kayıtsız dönem yok.": "No unrecorded periods this long.",
+  "Kişiler": "People",
+  "Kimlerle? Kişi ekle…": "With whom? Add person…",
+  "Kimlerle": "Together with",
+  "Listeyi bu kişinin olduğu kayıtlara süz": "Filter the list to recordings with this person",
 };
 
 /** Değişken içeren iletiler: `{0}`, `{1}`… yer tutucuları (İngilizcede sırası
  * değişebilir). */
 export const EN_T: [string, string][] = [
+  ["{0} kişisini kaldır", "Remove {0}"],
   ["… ve {0} dönem daha", "… and {0} more periods"],
   ["{0} – {1}", "{0} – {1}"],
   ["{0} {1}: {2} / {3} gün", "{0} {1}: {2} / {3} days"],

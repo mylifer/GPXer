@@ -944,6 +944,7 @@ export default function App() {
             rewriting={rewriting?.path === selectedEntry.summary.path ? rewriting.kind : null}
             meta={meta[selectedEntry.summary.path] ?? EMPTY_META}
             allTags={allTags}
+            allPeople={allPeople}
             onMeta={(m) => updateMeta(selectedEntry.summary.path, m)}
             routeCount={routeInfo.byPath.get(selectedEntry.summary.path)?.paths.length ?? 0}
             onOpenRoute={() => setRouteModal(routeInfo.byPath.get(selectedEntry.summary.path) ?? null)}
@@ -992,6 +993,11 @@ export default function App() {
         <SummaryPanel
           notes={journal.days}
           files={shown}
+          meta={meta}
+          onPerson={(person) => {
+            setDialog(null);
+            up({ filters: { ...prefs.filters, person } });
+          }}
           tzMode={prefs.tzMode}
           from={prefs.filters.from}
           to={prefs.filters.to}

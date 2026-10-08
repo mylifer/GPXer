@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Activity, FileMeta, FileSummary } from "../api";
 import { ACTIVITIES, activityOf } from "../types";
 import { FLUSH_EVENT } from "../prefs";
@@ -7,12 +7,12 @@ interface Props {
   summary: FileSummary;
   meta: FileMeta;
   allTags: string[];
+  allPeople: string[];
   onChange(meta: FileMeta): void;
 }
 
-/** Kaydın türü, etiketleri ve notu. */
-export function MetaEditor({ summary, meta, allTags, onChange }: Props) {
-  const [tag, setTag] = useState("");
+/** Kaydın türü, etiketleri, birlikte olunan kişiler ve notu. */
+export function MetaEditor({ summary, meta, allTags, allPeople, onChange }: Props) {
   const [note, setNote] = useState(meta.note);
   // Kayıt ya da kayıtlı not değişince alan güncellenir (çizim sırasında; efektte
   // yapmak her seçimde fazladan bir güncelleme turu doğuruyordu).
@@ -51,15 +51,7 @@ export function MetaEditor({ summary, meta, allTags, onChange }: Props) {
     };
   }, []);
 
-  const addTag = () => {
-    const t = tag.trim();
-    setTag("");
-    if (t && !meta.tags.some((x) => x.toLocaleLowerCase("tr-TR") === t.toLocaleLowerCase("tr-TR"))) {
-      onChange({ ...meta, tags: [...meta.tags, t] });
-    }
-  };
   const guessed = summary.activitySet ? null : activityOf(summary.activity);
-  const listId = `tags-${summary.path.length}`;
 
   return (
     <div className="meta-editor">
@@ -78,40 +70,23 @@ export function MetaEditor({ summary, meta, allTags, onChange }: Props) {
           ))}
         </select>
       </label>
-      <div className="tag-box" role="group" aria-label="Etiketler">
-        {meta.tags.map((t) => (
-          <span key={t} className="tag">
-            <span data-no-i18n>{t}</span>
-            <button
-              className="tag-x"
-              onClick={() => onChange({ ...meta, tags: meta.tags.filter((x) => x !== t) })}
-              aria-label={`${t} etiketini kaldır`}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <input
-          list={listId}
-          value={tag}
-          placeholder="Etiket ekle…"
-          onChange={(e) => setTag(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === ",") {
-              e.preventDefault();
-              addTag();
-            }
-          }}
-          onBlur={addTag}
-        />
-        <datalist id={listId}>
-          {allTags
-            .filter((t) => !meta.tags.includes(t))
-            .map((t) => (
-              <option key={t} value={t} />
-            ))}
-        </datalist>
-      </div>
+      <ChipBox
+        label="Etiketler"
+        items={meta.tags}
+        all={allTags}
+        placeholder="Etiket ekle…"
+        removeLabel={(t) => `${t} etiketini kaldır`}
+        onChange={(tags) => onChange({ ...meta, tags })}
+      />
+      <ChipBox
+        label="Kişiler"
+        items={meta.people ?? []}
+        all={allPeople}
+        placeholder="Kimlerle? Kişi ekle…"
+        removeLabel={(t) => `${t} kişisini kaldır`}
+        onChange={(people) => onChange({ ...meta, people })}
+        people
+      />
       <textarea
         className="note"
         value={note}
@@ -120,6 +95,66 @@ export function MetaEditor({ summary, meta, allTags, onChange }: Props) {
         onChange={(e) => setNote(e.target.value)}
         onBlur={() => pending.current?.()}
       />
+    </div>
+  );
+}
+
+/** Yazılarak eklenen, × ile kaldırılan kısa adlar (etiket, kişi). */
+function ChipBox({
+  label,
+  items,
+  all,
+  placeholder,
+  removeLabel,
+  onChange,
+  people,
+}: {
+  label: string;
+  items: string[];
+  all: string[];
+  placeholder: string;
+  removeLabel(t: string): string;
+  onChange(items: string[]): void;
+  people?: boolean;
+}) {
+  const [text, setText] = useState("");
+  const listId = useId();
+  const add = () => {
+    const t = text.trim();
+    setText("");
+    if (t && !items.some((x) => x.toLocaleLowerCase("tr-TR") === t.toLocaleLowerCase("tr-TR"))) onChange([...items, t]);
+  };
+  return (
+    <div className={people ? "tag-box people-box" : "tag-box"} role="group" aria-label={label}>
+      {items.map((t) => (
+        <span key={t} className={people ? "tag person" : "tag"}>
+          <span data-no-i18n>{people ? `👤 ${t}` : t}</span>
+          <button className="tag-x" onClick={() => onChange(items.filter((x) => x !== t))} aria-label={removeLabel(t)}>
+            ×
+          </button>
+        </span>
+      ))}
+      <input
+        list={listId}
+        value={text}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === ",") {
+            e.preventDefault();
+            add();
+          }
+        }}
+        onBlur={add}
+      />
+      <datalist id={listId}>
+        {all
+          .filter((t) => !items.includes(t))
+          .map((t) => (
+            <option key={t} value={t} />
+          ))}
+      </datalist>
     </div>
   );
 }
