@@ -28,6 +28,18 @@ ile yazılmıştır.
   dosyalar haftalık denetimde bildirilir; seçilen klasöre otomatik yedek (son 5
   yedek kalır); GPXer olmadan da okunabilen açık arşiv dışa aktarımı (orijinal
   dosyalar, CSV liste, JSON bilgiler, HTML dizin).
+- *Gelişmiş arama*: metin, tarih, hafta içi/sonu, tür, etiket, kişi ve mesafe
+  aralığı bir arada; uyan kayıt sayısı önizlenir, aramalar adıyla saklanır ve
+  komut paletinden yeniden uygulanır.
+- *Kişiler*: kayıtlara birlikte olunan kişiler eklenir; Özet'te kimlerle kaç
+  gün ve ne kadar yol gidildiği, ada tıklayınca o kayıtlar.
+- *Kayıt kapsamı* (Özet): her yılın her ayında kaç günün kaydı olduğu ve hiç
+  kaydı olmayan uzun dönemler (eksik GPS'i bulmak için).
+- *Fotoğraf klasörü izleme*: eklenen fotoğraf klasörüne yeni fotoğraf düşünce
+  (telefondan aktarma, bulut eşitlemesi) kendiliğinden haritaya ve çekildiği
+  kayda yerleşir.
+- *Yıllık albüm (PDF)*: kapakta yıl kartı, her ay için izler, kayıtlar,
+  kimlerle gidildiği, günlük notları ve o ay çekilen fotoğraflar.
 - Seçili iz hıza, yüksekliğe, nabza, kadansa ya da güce göre renklendirilebilir.
 - Tüm izler dosya rengiyle ya da tarihe göre (eskiden yeniye) renklenir;
   dosya rengi değiştirilebilir ve kalıcıdır.
