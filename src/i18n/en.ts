@@ -1032,11 +1032,17 @@ export const EN: Record<string, string> = {
   "Listeyi bu kişinin olduğu kayıtlara süz": "Filter the list to recordings with this person",
   "Fotoğraf klasörü ekle…": "Add photo folder…",
   "Fotoğraf ekle…": "Add photos…",
+  "📖 Albüm (PDF)…": "📖 Album (PDF)…",
+  "Kapakta yıl kartı; her ay için harita, kayıtlar, kimlerle gidildiği, günlük notları ve o ay çekilen fotoğraflar": "Year card on the cover; for each month a map, recordings, who you were with, day notes and photos taken that month",
+  "Albüm kaydedildi.": "Album saved.",
 };
 
 /** Değişken içeren iletiler: `{0}`, `{1}`… yer tutucuları (İngilizcede sırası
  * değişebilir). */
 export const EN_T: [string, string][] = [
+  ["{0} · {1} gün · {2} kayıt", "{0} · {1} days · {2} recordings"],
+  ["📖 Albüm hazırlanıyor {0}", "📖 Preparing album {0}"],
+  ["{0} albümü", "{0} album"],
   ["Fotoğraf klasöründe {0} yeni fotoğraf; {1} tanesi haritada.", "{0} new photos in the photo folder; {1} on the map."],
   ["{0} kişisini kaldır", "Remove {0}"],
   ["… ve {0} dönem daha", "… and {0} more periods"],

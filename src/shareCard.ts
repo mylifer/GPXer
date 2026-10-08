@@ -67,7 +67,7 @@ export function yearCardData(files: FileEntry[], year: string, zones: Zone[] = [
 }
 
 /** Kaydın o yıla düşen çizgi parçaları (zamanı olmayan kayıt tümüyle). */
-function linesInYear(s: FileSummary, year: string): YearCard["lines"] {
+export function linesInYear(s: FileSummary, year: string): YearCard["lines"] {
   const zone = tzOf(s);
   const out: YearCard["lines"] = [];
   s.lines.forEach((line, i) => {
@@ -128,6 +128,56 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, width: number, max: n
   return out;
 }
 
+/** Çizgileri kutuya sığdırarak (Web Mercator) çizer; altlık harita yok. */
+export function drawLines(
+  ctx: CanvasRenderingContext2D,
+  lines: YearCard["lines"],
+  box: { x: number; y: number; w: number; h: number },
+  o: { radius: number; pad: number; colors: Record<Activity, string>; halo: number; width?: number },
+) {
+  const pts = lines.flatMap((l) => l.pts);
+  if (!pts.length) return;
+  let [x0, x1, y0, y1] = [Infinity, -Infinity, Infinity, -Infinity];
+  for (const [lon, lat] of pts) {
+    const x = (lon + 180) / 360;
+    const y = mercY(lat);
+    x0 = Math.min(x0, x);
+    x1 = Math.max(x1, x);
+    y0 = Math.min(y0, y);
+    y1 = Math.max(y1, y);
+  }
+  const pad = o.pad;
+  const span = Math.max(x1 - x0, y1 - y0, 1e-5);
+  const k = Math.min((box.w - 2 * pad) / Math.max(x1 - x0, span * 0.05), (box.h - 2 * pad) / Math.max(y1 - y0, span * 0.05));
+  const ox = box.x + box.w / 2 - ((x0 + x1) / 2) * k;
+  const oy = box.y + box.h / 2 - ((y0 + y1) / 2) * k;
+  const w = o.width ?? 2.5;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(box.x, box.y, box.w, box.h, o.radius);
+  ctx.clip();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  for (const pass of [0, 1]) {
+    for (const l of lines) {
+      if (l.pts.length < 2) continue;
+      ctx.strokeStyle = o.colors[l.activity] ?? o.colors.unknown;
+      ctx.globalAlpha = pass ? 0.95 : o.halo;
+      ctx.lineWidth = pass ? w : w * 3.6;
+      ctx.beginPath();
+      l.pts.forEach(([lon, lat], i) => {
+        const x = ((lon + 180) / 360) * k + ox;
+        const y = mercY(lat) * k + oy;
+        if (i) ctx.lineTo(x, y);
+        else ctx.moveTo(x, y);
+      });
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
 /** Kartı çizer (1080 × 1350, sosyal medya dikey biçimi). */
 export function drawYearCard(ctx: CanvasRenderingContext2D, c: YearCard) {
   const W = CARD_W;
@@ -155,46 +205,8 @@ export function drawYearCard(ctx: CanvasRenderingContext2D, c: YearCard) {
   ctx.beginPath();
   ctx.roundRect(box.x, box.y, box.w, box.h, 24);
   ctx.fill();
-  const pts = c.lines.flatMap((l) => l.pts);
-  if (pts.length) {
-    let [x0, x1, y0, y1] = [Infinity, -Infinity, Infinity, -Infinity];
-    for (const [lon, lat] of pts) {
-      const x = (lon + 180) / 360;
-      const y = mercY(lat);
-      x0 = Math.min(x0, x);
-      x1 = Math.max(x1, x);
-      y0 = Math.min(y0, y);
-      y1 = Math.max(y1, y);
-    }
-    const pad = 36;
-    const span = Math.max(x1 - x0, y1 - y0, 1e-5);
-    const k = Math.min((box.w - 2 * pad) / Math.max(x1 - x0, span * 0.05), (box.h - 2 * pad) / Math.max(y1 - y0, span * 0.05));
-    const ox = box.x + box.w / 2 - ((x0 + x1) / 2) * k;
-    const oy = box.y + box.h / 2 - ((y0 + y1) / 2) * k;
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(box.x, box.y, box.w, box.h, 24);
-    ctx.clip();
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    for (const pass of [0, 1]) {
-      for (const l of c.lines) {
-        if (l.pts.length < 2) continue;
-        ctx.strokeStyle = COLORS[l.activity] ?? COLORS.unknown;
-        ctx.globalAlpha = pass ? 0.95 : 0.18;
-        ctx.lineWidth = pass ? 2.5 : 9;
-        ctx.beginPath();
-        l.pts.forEach(([lon, lat], i) => {
-          const x = ((lon + 180) / 360) * k + ox;
-          const y = mercY(lat) * k + oy;
-          if (i) ctx.lineTo(x, y);
-          else ctx.moveTo(x, y);
-        });
-        ctx.stroke();
-      }
-    }
-    ctx.restore();
-    ctx.globalAlpha = 1;
+  if (c.lines.some((l) => l.pts.length)) {
+    drawLines(ctx, c.lines, box, { radius: 24, pad: 36, colors: COLORS, halo: 0.18 });
   } else {
     ctx.fillStyle = "#6b819a";
     ctx.font = `500 32px ${FONT}`;

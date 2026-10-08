@@ -34,6 +34,7 @@ import { HabitsSection } from "./HabitsSection";
 import { PlaceStatsSection } from "./PlaceStatsSection";
 import { YearCompareSection } from "./YearCompareSection";
 import { privacyZones } from "../privacy";
+import type { PlacedPhoto } from "../photos";
 import type { Goals } from "../prefs";
 
 const FLIGHT_ROWS = 200;
@@ -90,9 +91,11 @@ interface Props {
   /** Kayıt bilgileri (birlikte olunan kişiler için). */
   meta?: Record<string, FileMeta>;
   onPerson?(name: string): void;
+  /** Haritadaki fotoğraflar (yıllık albüm için). */
+  photos?: readonly PlacedPhoto[];
 }
 
-export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage, fuel, goals, meta, onPerson }: Props) {
+export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage, fuel, goals, meta, onPerson, photos }: Props) {
   const [period, setPeriod] = useState<Period>("month");
   const [measure, setMeasure] = useState<Measure>("distance");
   const [hover, setHover] = useState<number | null>(null);
@@ -645,7 +648,7 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes,
           ))}
         </ul>
 
-        <YearCardSection files={files} from={from} onSave={onSaveImage} zones={privacyZones(places)} />
+        <YearCardSection files={files} from={from} onSave={onSaveImage} zones={privacyZones(places)} notes={notes} meta={meta} photos={photos} />
       </div>
     </Modal>
   );

@@ -996,6 +996,7 @@ export default function App() {
           notes={journal.days}
           files={shown}
           meta={meta}
+          photos={placedPhotos.placed}
           onPerson={(person) => {
             setDialog(null);
             up({ filters: { ...prefs.filters, person } });

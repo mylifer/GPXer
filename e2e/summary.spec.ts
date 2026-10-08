@@ -38,3 +38,21 @@ test("Özet: kayıt kapsamı tablosu ve kayıtsız dönemler", async ({ app }) =
   await app.getByTitle(/^Temmuz 2024: /).click();
   await expect(app.locator(".file-row")).toHaveCount(3);
 });
+
+test("Özet: yıllık albüm PDF olarak kaydedilir (kapak + kayıtlı her ay)", async ({ app, mock }) => {
+  let saved = "";
+  mock.pick_save_path = (a) => `/Belgeler/${a.defaultName}`;
+  mock.write_base64_file = (a) => {
+    saved = a.data as string;
+    return null;
+  };
+  await app.getByRole("button", { name: /^Özet/ }).first().click();
+  await app.getByLabel("Yıl", { exact: true }).last().selectOption("2025");
+  await app.getByRole("button", { name: "📖 Albüm (PDF)…" }).click();
+  await expect.poll(() => saved.length, { timeout: 20_000 }).toBeGreaterThan(1000);
+  const pdf = Buffer.from(saved, "base64").toString("latin1");
+  expect(pdf.startsWith("%PDF-1.4")).toBe(true);
+  // 2025: Ağustos (Edirne → Selanik) ve Eylül (Münih → Augsburg).
+  expect(pdf).toContain("/Count 3");
+  await expect(app.getByText("Albüm kaydedildi.")).toBeVisible();
+});

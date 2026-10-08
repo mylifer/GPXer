@@ -85,12 +85,13 @@ export function useStory({
   const saveImage = useCallback(
     async (name: string, data: string) => {
       try {
-        const path = await pickSavePath(name, [{ name: "PNG", extensions: ["png"] }]);
+        const pdf = name.endsWith(".pdf");
+        const path = await pickSavePath(name, [pdf ? { name: "PDF", extensions: ["pdf"] } : { name: "PNG", extensions: ["png"] }]);
         if (!path) return;
         await writeBase64File(path, data);
-        say("Görüntü kaydedildi.");
+        say(pdf ? "Albüm kaydedildi." : "Görüntü kaydedildi.");
       } catch (e) {
-        fail(`Görüntü kaydedilemedi: ${e}`);
+        fail(`Kaydedilemedi: ${e}`);
       }
     },
     [say, fail],

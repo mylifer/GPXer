@@ -3,6 +3,9 @@ import { dayBuckets } from "../days";
 import { CARD_H, CARD_W, drawYearCard, yearCardData } from "../shareCard";
 import type { FileEntry } from "../types";
 import type { Zone } from "../privacy";
+import type { FileMeta } from "../api";
+import type { PlacedPhoto } from "../photos";
+import { buildAlbumPdf } from "../albumPdf";
 
 interface Props {
   files: FileEntry[];
@@ -10,10 +13,14 @@ interface Props {
   from: string;
   onSave(name: string, base64: string): void;
   zones: Zone[];
+  /** Albüm için: günlük notları, kayıt bilgileri ve haritadaki fotoğraflar. */
+  notes?: Record<string, string>;
+  meta?: Record<string, FileMeta>;
+  photos?: readonly PlacedPhoto[];
 }
 
 /** Yılın özetini paylaşılabilir bir görüntü (PNG) olarak verir. */
-export function YearCardSection({ files, from, onSave, zones }: Props) {
+export function YearCardSection({ files, from, onSave, zones, notes = {}, meta = {}, photos = [] }: Props) {
   const years = useMemo(() => {
     const set = new Set<string>();
     for (const f of files) for (const d of dayBuckets(f.summary)) set.add(d.day.slice(0, 4));
@@ -22,6 +29,7 @@ export function YearCardSection({ files, from, onSave, zones }: Props) {
   const [year, setYear] = useState(() => (from && years.includes(from.slice(0, 4)) ? from.slice(0, 4) : years[0] ?? ""));
   const [url, setUrl] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [album, setAlbum] = useState<string | null>(null);
   const shown = years.includes(year) ? year : (years[0] ?? "");
 
   useEffect(() => {
@@ -60,6 +68,22 @@ export function YearCardSection({ files, from, onSave, zones }: Props) {
             PNG olarak kaydet…
           </button>
         )}
+        <button
+          className="btn small"
+          disabled={album != null}
+          title="Kapakta yıl kartı; her ay için harita, kayıtlar, kimlerle gidildiği, günlük notları ve o ay çekilen fotoğraflar"
+          onClick={async () => {
+            setAlbum("…");
+            try {
+              const pdf = await buildAlbumPdf(files, shown, notes, meta, photos, zones, (d, n) => setAlbum(`${d}/${n}`));
+              onSave(`GPXer-${shown}-albumu.pdf`, pdf);
+            } finally {
+              setAlbum(null);
+            }
+          }}
+        >
+          {album ? `📖 Albüm hazırlanıyor ${album}` : "📖 Albüm (PDF)…"}
+        </button>
         <span className="muted small">Toplamlar, ülkeler, en uzun yolculuk ve yılın izleri; paylaşmak için.</span>
       </div>
       {open && url && <img className="year-card" src={url} alt={`${shown} yıl kartı`} />}
