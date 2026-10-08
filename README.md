@@ -40,6 +40,23 @@ ile yazılmıştır.
   kayda yerleşir.
 - *Yıllık albüm (PDF)*: kapakta yıl kartı, her ay için izler, kayıtlar,
   kimlerle gidildiği, günlük notları ve o ay çekilen fotoğraflar.
+- *Konum geçmişi*: Google'ın Records.json'ı ve telefonun Timeline.json'ı
+  (Android/iOS) açılır; yıllara yayılan geçmiş aylık kayıtlara bölünür.
+- *Kayıtsız dönemleri doldurma* (Özet → Kayıt kapsamı): o dönemde çekilmiş
+  fotoğraflardan iz, konum geçmişi açma ya da "bilerek boş" işareti.
+- *Ziyaret defteri*: duraklardaki kafe, lokanta, müze… adları (OpenStreetMap);
+  Özet'te en çok gidilen mekânlar, ilk ve son ziyaret.
+- *İkinci yedek klasörü ve yedek doğrulama*: otomatik yedek ikinci bir yere de
+  kopyalanır; ayda bir son yedek açılıp her kayıt yeniden okunur.
+- *Yaşam dönemleri* (Özet): günlerin başladığı yere göre "ev" dönemleri ve
+  taşınmalar; geziler her dönemin evine göre bulunur.
+- *Belge iliştirme*: bilet, fatura, ses kaydı… kayda iliştirilir; yedeğe ve
+  açık arşive dahildir.
+- *Açık arşiv haritası*: dışa aktarılan index.html'de internetsiz, etkileşimli
+  harita.
+- *Kişi albümü*: bir kişiyle yapılan bütün yolculuklar tek PDF'te.
+- *Kilometre defteri*: bir etiketin (ör. "iş") yıllık kilometre ve yakıt
+  dökümü, CSV.
 - Seçili iz hıza, yüksekliğe, nabza, kadansa ya da güce göre renklendirilebilir.
 - Tüm izler dosya rengiyle ya da tarihe göre (eskiden yeniye) renklenir;
   dosya rengi değiştirilebilir ve kalıcıdır.
