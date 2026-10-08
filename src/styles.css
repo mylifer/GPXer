@@ -2845,3 +2845,61 @@ td.down {
   margin-right: 6px;
   font-size: 12.5px;
 }
+
+.here-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.here-years {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 66px;
+  margin-top: 8px;
+}
+
+.here-year {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.here-year .bar {
+  width: 18px;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent);
+}
+
+.here-list {
+  max-height: 340px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  font-size: 12.5px;
+}
+
+.here-list li {
+  border-bottom: 1px solid var(--border);
+}
+
+.here-list button.link {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 2px;
+  text-align: left;
+}
+
+.here-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

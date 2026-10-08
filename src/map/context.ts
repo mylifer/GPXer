@@ -84,6 +84,8 @@ export interface MapViewProps {
   onBookmark(b: import("../api").Bookmark): void;
   /** Sağ tık menüsünden “Buraya yer imi koy”. */
   onBookmarkHere(lonLat: [number, number]): void;
+  /** "Burada ne zaman bulundum?" penceresi. */
+  onVisitsHere(lonLat: [number, number], pxM: number): void;
   /** Kullanıcının eklediği harita katmanları. */
   customLayers: import("../customLayers").CustomLayer[];
   /** 3B arazi görünümü. */

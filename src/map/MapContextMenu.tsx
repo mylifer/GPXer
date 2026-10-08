@@ -35,12 +35,15 @@ export function MapContextMenu({
   onInfo,
   onRoutePoint,
   onBookmarkHere,
+  onVisitsHere,
 }: {
   map: maplibregl.Map | null;
   onInfo(msg: string): void;
   /** Güzergâh aramasının başlangıç (A) ya da varış (B) noktası. */
   onRoutePoint(which: "a" | "b", lonLat: [number, number]): void;
   onBookmarkHere(lonLat: [number, number]): void;
+  /** Bu noktadan geçilen anlar; `pxM`: haritanın bir pikseli kaç metre. */
+  onVisitsHere(lonLat: [number, number], pxM: number): void;
 }) {
   const [spot, setSpot] = useState<Spot | null>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -116,7 +119,7 @@ export function MapContextMenu({
   // Menü harita kenarından taşmasın.
   const box = map?.getContainer().getBoundingClientRect();
   const left = Math.min(spot.x, (box?.width ?? 1e4) - 270);
-  const top = Math.min(spot.y, (box?.height ?? 1e4) - 330);
+  const top = Math.min(spot.y, (box?.height ?? 1e4) - 360);
   return (
     <div ref={menu} className="map-menu" style={{ left: Math.max(0, left), top: Math.max(0, top) }} role="menu">
       <div className="map-menu-title">Koordinatı kopyala</div>
@@ -133,6 +136,17 @@ export function MapContextMenu({
         }}
       >
         📌 Buraya yer imi koy…
+      </button>
+      <button
+        role="menuitem"
+        onClick={() => {
+          setSpot(null);
+          // Bir pikselin metre karşılığı (Web Mercator).
+          const pxM = (156_543.03 * Math.cos((spot.lat * Math.PI) / 180)) / 2 ** (map?.getZoom() ?? 14);
+          onVisitsHere([spot.lon, spot.lat], pxM);
+        }}
+      >
+        🕒 Burada ne zaman bulundum?
       </button>
       <div className="map-menu-title">Sokak görünümü (tarayıcıda)</div>
       <button role="menuitem" onClick={() => street("google")}>

@@ -271,6 +271,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(prop
         onInfo={(m) => live.current.onInfo(m)}
         onRoutePoint={(w, p) => live.current.onRoutePoint(w, p)}
         onBookmarkHere={(p) => live.current.onBookmarkHere(p)}
+        onVisitsHere={(p, m) => live.current.onVisitsHere(p, m)}
       />
     </>
   );

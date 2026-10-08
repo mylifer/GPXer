@@ -52,6 +52,7 @@ import { ModernSidebar } from "./ui/ModernSidebar";
 import { ModernMapToolbar } from "./ui/ModernMapToolbar";
 import { MapSearch } from "./components/MapSearch";
 import { StreetsDialog } from "./components/StreetsDialog";
+import { HereDialog } from "./components/HereDialog";
 import { MapLegends } from "./components/MapLegends";
 import { OnThisDayCard } from "./components/OnThisDay";
 import { Toasts } from "./components/Toasts";
@@ -103,6 +104,8 @@ export default function App() {
   /** İmleç (fare ya da oynatma); App'i her karede yeniden çizmemek için state değil. */
   const [cursor] = useState(createIdxStore);
   const [dialog, setDialog] = useState<Dialog>(null);
+  /** "Burada ne zaman bulundum?" noktası. */
+  const [here, setHere] = useState<{ at: [number, number]; pxM: number } | null>(null);
   /** Rota planlama (kapalıyken null). */
   const [plan, setPlan] = useState<PlanState | null>(null);
   const openPlan = useCallback(() => {
@@ -753,6 +756,7 @@ export default function App() {
             onPlanRemove={(i) => setPlan((s) => s && { ...s, points: s.points.filter((_, k) => k !== i) })}
             bookmarks={prefs.bookmarksLayer ? bookmarks.marks : null}
             onBookmark={(b) => setEditMark({ mark: b, isNew: false })}
+            onVisitsHere={(p, pxM) => setHere({ at: p, pxM })}
             onBookmarkHere={([lon, lat]) =>
               setEditMark({ mark: { id: `y${Date.now().toString(36)}`, name: "", note: "", lat, lon, wish: false, created: Date.now() }, isNew: true })
             }
@@ -1054,6 +1058,18 @@ export default function App() {
                   setEditMark(null);
                 }
           }
+        />
+      )}
+      {here && (
+        <HereDialog
+          at={here.at}
+          pxM={here.pxM}
+          files={files}
+          onGo={(path) => {
+            setHere(null);
+            selectAndZoom(path);
+          }}
+          onClose={() => setHere(null)}
         />
       )}
       {dialog === "streets" && (
