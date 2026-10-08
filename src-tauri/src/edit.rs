@@ -33,6 +33,7 @@ fn store_new(
         note: String::new(),
         activity: inherit.activity,
         people: inherit.people.clone(),
+        attachments: inherit.attachments.clone(),
     };
     if meta != FileMeta::default() {
         if let Err(e) = app.state::<MetaStore>().set(&path, meta) {
@@ -113,6 +114,15 @@ pub(crate) async fn merge_files(
             note: String::new(),
             activity: first.filter(|_| metas.iter().all(|m| m.activity == first)),
             people: metas.iter().flat_map(|m| m.people.clone()).collect(),
+            attachments: {
+                let mut a: Vec<String> = Vec::new();
+                for x in metas.iter().flat_map(|m| m.attachments.iter()) {
+                    if !a.contains(x) {
+                        a.push(x.clone());
+                    }
+                }
+                a
+            },
         };
         let merged = gpx_core::ops::merge(parts, Some(name.clone()));
         Ok(store_new(&app, &merged, &name, &inherit))

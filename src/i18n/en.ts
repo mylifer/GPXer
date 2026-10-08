@@ -1060,11 +1060,17 @@ export const EN: Record<string, string> = {
   "Yaşam dönemleri": "Life periods",
   "Listeyi bu döneme süz": "Filter the list to this period",
   "Günlerin çoğunun başladığı yere göre; geziler ve “evden uzak” hesapları dönemin evine göre yapılır.": "Based on where most days started; trips and “away from home” use the home of each period.",
+  "Belgeler": "Documents",
+  "Aç": "Open",
+  "Bilet, fatura, giriş kartı, ses kaydı… kayda iliştirilir; yedeğe ve açık arşive dahildir": "Tickets, invoices, entry passes, voice notes… are attached to the recording; included in backups and the open archive",
+  "📎 Belge ekle…": "📎 Attach document…",
 };
 
 /** Değişken içeren iletiler: `{0}`, `{1}`… yer tutucuları (İngilizcede sırası
  * değişebilir). */
 export const EN_T: [string, string][] = [
+  ["{0} belge iliştirildi.", "{0} documents attached."],
+  ["{0} belgesini kaldır", "Remove {0}"],
   ["{0} yıl {1} ay", "{0} yr {1} mo"],
   ["{0} ay", "{0} mo"],
   ["{0} yıl", "{0} yr"],

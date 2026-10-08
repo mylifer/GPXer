@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { Activity, FileMeta, FileSummary } from "../api";
+import { attachmentName, type Activity, type FileMeta, type FileSummary } from "../api";
 import { ACTIVITIES, activityOf } from "../types";
 import { FLUSH_EVENT } from "../prefs";
 
@@ -9,10 +9,14 @@ interface Props {
   allTags: string[];
   allPeople: string[];
   onChange(meta: FileMeta): void;
+  /** Belge iliştir / kaldır (yoksa bölüm gösterilmez). */
+  onAttach?(): void;
+  onDetach?(name: string): void;
+  onOpenAttachment?(name: string): void;
 }
 
 /** Kaydın türü, etiketleri, birlikte olunan kişiler ve notu. */
-export function MetaEditor({ summary, meta, allTags, allPeople, onChange }: Props) {
+export function MetaEditor({ summary, meta, allTags, allPeople, onChange, onAttach, onDetach, onOpenAttachment }: Props) {
   const [note, setNote] = useState(meta.note);
   // Kayıt ya da kayıtlı not değişince alan güncellenir (çizim sırasında; efektte
   // yapmak her seçimde fazladan bir güncelleme turu doğuruyordu).
@@ -87,6 +91,25 @@ export function MetaEditor({ summary, meta, allTags, allPeople, onChange }: Prop
         onChange={(people) => onChange({ ...meta, people })}
         people
       />
+      {onAttach && (
+        <div className="attachments" role="group" aria-label="Belgeler">
+          {(meta.attachments ?? []).map((a) => (
+            <span key={a} className="tag attachment">
+              <button className="link" onClick={() => onOpenAttachment?.(a)} title="Aç" data-no-i18n>
+                {`📎 ${attachmentName(a)}`}
+              </button>
+              {onDetach && (
+                <button className="tag-x" onClick={() => onDetach(a)} aria-label={`${attachmentName(a)} belgesini kaldır`}>
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+          <button className="link small" onClick={onAttach} title="Bilet, fatura, giriş kartı, ses kaydı… kayda iliştirilir; yedeğe ve açık arşive dahildir">
+            📎 Belge ekle…
+          </button>
+        </div>
+      )}
       <textarea
         className="note"
         value={note}

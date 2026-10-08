@@ -101,6 +101,8 @@ export interface FileMeta {
   activity: Activity | null;
   /** Kayıtta birlikte olunan kişiler. */
   people?: string[];
+  /** İliştirilen belgeler (ekler klasöründeki adlar: "<zaman>-<ad>"). */
+  attachments?: string[];
 }
 
 export interface Detail {
@@ -339,6 +341,12 @@ export const photoThumb = (path: string) => invoke<string | null>("photo_thumb",
 /** Fotoğraf klasörlerini izle: yeni fotoğraflar `photos-added` olayıyla gelir. */
 /** Noktaların yanındaki mekânlar (60 m içinde; yoksa null). */
 export const venuesAt = (points: [number, number][]) => invoke<(Venue | null)[]>("venues_at", { points });
+/** Dosyaları kayda iliştirir (ekler klasörüne kopyalanır). */
+export const attachFiles = (path: string, files: string[]) => invoke<FileMeta>("attach_files", { path, files });
+export const openAttachment = (name: string) => invoke<void>("open_attachment", { name });
+export const removeAttachment = (path: string, name: string) => invoke<FileMeta>("remove_attachment", { path, name });
+/** Ekin gösterilen adı ("1720…-bilet.pdf" → "bilet.pdf"). */
+export const attachmentName = (name: string) => name.replace(/^\d+-/, "");
 export const watchPhotoFolders = (folders: string[]) => invoke<string[]>("watch_photo_folders", { folders });
 /** Kayıtları tek dosyada dışa aktarır; `dest` pickSavePath'ten gelmeli. */
 export const exportMany = (paths: string[], dest: string, format: ExportFormat) =>

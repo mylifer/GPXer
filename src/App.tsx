@@ -163,7 +163,7 @@ export default function App() {
     closeAll,
   } = useFileLoader({ prefsRef, persistedSel, up, say, fail, setErrors, setDuplicates, setEmpties, mapRef, setCompare, setMulti, routeInfoRef });
   const { places, setPlacesState, namePrompt, setNamePrompt, updatePlaces, onNamePlace, namePlace } = usePlaces(say, fail);
-  const { meta, setMetaState, allTags, allPeople, updateMeta, tagMany } = useMeta({ fail, say, patchFiles, multi, setDialog });
+  const { meta, setMetaState, allTags, allPeople, updateMeta, tagMany, attach, detach, openDoc } = useMeta({ fail, say, patchFiles, multi, setDialog });
 
   // ---------- Türetilen veriler ----------
 
@@ -953,6 +953,9 @@ export default function App() {
             allTags={allTags}
             allPeople={allPeople}
             onMeta={(m) => updateMeta(selectedEntry.summary.path, m)}
+            onAttach={() => attach(selectedEntry.summary.path)}
+            onDetach={(name) => detach(selectedEntry.summary.path, name)}
+            onOpenAttachment={openDoc}
             routeCount={routeInfo.byPath.get(selectedEntry.summary.path)?.paths.length ?? 0}
             onOpenRoute={() => setRouteModal(routeInfo.byPath.get(selectedEntry.summary.path) ?? null)}
             overlaps={selOverlaps}

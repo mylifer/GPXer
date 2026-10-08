@@ -16,6 +16,9 @@ pub struct FileMeta {
     pub activity: Option<Activity>,
     /// Kayıtta birlikte olunan kişiler.
     pub people: Vec<String>,
+    /// İliştirilen belgeler (bilet, fatura, ses kaydı…): ekler klasöründeki
+    /// dosya adları.
+    pub attachments: Vec<String>,
 }
 
 impl FileMeta {
@@ -24,6 +27,7 @@ impl FileMeta {
             && self.note.trim().is_empty()
             && self.activity.is_none()
             && self.people.is_empty()
+            && self.attachments.is_empty()
     }
 }
 
@@ -121,6 +125,11 @@ impl MetaStore {
             m.tags = clean_tags(m.tags);
             m.people.extend(add.people);
             m.people = clean_tags(m.people);
+            for a in add.attachments {
+                if !m.attachments.contains(&a) {
+                    m.attachments.push(a);
+                }
+            }
             if m.note.trim().is_empty() {
                 m.note = add.note;
             }
@@ -333,6 +342,7 @@ mod tests {
                         note: "yedekteki not".into(),
                         activity: Some(Activity::Walk),
                         people: vec!["Ayşe".into()],
+                        attachments: vec!["1-bilet.pdf".into()],
                     },
                 ),
                 (
@@ -350,6 +360,7 @@ mod tests {
         assert_eq!(a.note, "benim notum");
         assert_eq!(a.activity, Some(Activity::Walk));
         assert_eq!(a.people, vec!["Ayşe"]);
+        assert_eq!(a.attachments, vec!["1-bilet.pdf"]);
         assert_eq!(MetaStore::open(&root).get("b").note, "yeni");
     }
 }

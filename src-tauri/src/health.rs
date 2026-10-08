@@ -3,7 +3,7 @@
 //! hatası, bozulma) bildirilir. Son yedeğin zamanı tutulur; ayarlarda klasör
 //! seçiliyse süresi gelince otomatik yedek alınır (son 5 yedek kalır).
 
-use crate::backup::write_backup;
+use crate::backup::{write_backup, BackupData};
 use crate::bookmarks::BookmarkStore;
 use crate::library::Library;
 use crate::meta::MetaStore;
@@ -336,11 +336,14 @@ fn auto_backup(app: &AppHandle, force: bool) -> Option<Result<String, String>> {
         .and_then(|_| {
             write_backup(
                 &dest,
-                &app.state::<Library>().files(),
-                &app.state::<MetaStore>().all(),
-                &app.state::<PlacesStore>().all(),
-                &app.state::<BookmarkStore>().all(),
-                &app.state::<crate::journal::JournalStore>().all(),
+                &BackupData {
+                    files: &app.state::<Library>().files(),
+                    meta: &app.state::<MetaStore>().all(),
+                    places: &app.state::<PlacesStore>().all(),
+                    bookmarks: &app.state::<BookmarkStore>().all(),
+                    journal: &app.state::<crate::journal::JournalStore>().all(),
+                    attachments: Some(&app.state::<crate::attachments::Attachments>().0),
+                },
                 None,
             )
         })
@@ -517,11 +520,14 @@ mod tests {
         ];
         write_backup(
             &dest,
-            &files,
-            &HashMap::new(),
-            &[],
-            &[],
-            &Default::default(),
+            &BackupData {
+                files: &files,
+                meta: &HashMap::new(),
+                places: &[],
+                bookmarks: &[],
+                journal: &Default::default(),
+                attachments: None,
+            },
             None,
         )
         .unwrap();

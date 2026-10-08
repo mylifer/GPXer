@@ -1,4 +1,5 @@
 mod archive;
+mod attachments;
 mod backup;
 mod bookmarks;
 mod dem;
@@ -470,6 +471,7 @@ pub fn run() {
             app.manage(library);
             app.manage(SettingsStore::open(&root));
             app.manage(health::Health::open(&root));
+            app.manage(attachments::Attachments::open(&root));
             app.manage(journal::JournalStore::open(&root));
             app.manage(meta);
             app.manage(PlacesStore::open(&root));
@@ -576,6 +578,9 @@ pub fn run() {
             photos::photo_thumb,
             photos::watch_photo_folders,
             streetat::venues_at,
+            attachments::attach_files,
+            attachments::open_attachment,
+            attachments::remove_attachment,
             get_places,
             set_places
         ])

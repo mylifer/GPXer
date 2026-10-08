@@ -2994,3 +2994,10 @@ table.coverage th {
   align-items: baseline;
   padding: 2px 0;
 }
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+  margin: 4px 0;
+}

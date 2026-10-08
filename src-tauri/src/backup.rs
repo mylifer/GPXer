@@ -15,6 +15,7 @@ use std::path::Path;
 use tauri::{AppHandle, Manager};
 
 pub(crate) const RECORDS_DIR: &str = "kayitlar/";
+const ATTACH_DIR: &str = "ekler/";
 const META_FILE: &str = "bilgiler.json";
 const PLACES_FILE: &str = "yerler.json";
 const MANIFEST_FILE: &str = "gpxer-yedek.json";
@@ -67,11 +68,14 @@ pub(crate) async fn backup_library(
         export::take_approved(&app, &dest)?;
         let r = write_backup(
             Path::new(&dest),
-            &app.state::<Library>().files(),
-            &app.state::<MetaStore>().all(),
-            &app.state::<PlacesStore>().all(),
-            &app.state::<BookmarkStore>().all(),
-            &app.state::<crate::journal::JournalStore>().all(),
+            &BackupData {
+                files: &app.state::<Library>().files(),
+                meta: &app.state::<MetaStore>().all(),
+                places: &app.state::<PlacesStore>().all(),
+                bookmarks: &app.state::<BookmarkStore>().all(),
+                journal: &app.state::<crate::journal::JournalStore>().all(),
+                attachments: Some(&app.state::<crate::attachments::Attachments>().0),
+            },
             password.as_deref().filter(|p| !p.is_empty()),
         )
         .map_err(|e| format!("Yedek yazılamadı: {e}"))?;
@@ -81,15 +85,30 @@ pub(crate) async fn backup_library(
     .await?
 }
 
+/// Yedeğe girenler.
+pub(crate) struct BackupData<'a> {
+    pub files: &'a [String],
+    pub meta: &'a HashMap<String, FileMeta>,
+    pub places: &'a [NamedPlace],
+    pub bookmarks: &'a [Bookmark],
+    pub journal: &'a BTreeMap<String, String>,
+    /// Eklerin klasörü (kayıtlara iliştirilen belgeler).
+    pub attachments: Option<&'a Path>,
+}
+
 pub(crate) fn write_backup(
     dest: &Path,
-    files: &[String],
-    meta: &HashMap<String, FileMeta>,
-    places: &[NamedPlace],
-    bookmarks: &[Bookmark],
-    journal: &BTreeMap<String, String>,
+    data: &BackupData,
     password: Option<&str>,
 ) -> std::io::Result<BackupInfo> {
+    let BackupData {
+        files,
+        meta,
+        places,
+        bookmarks,
+        journal,
+        attachments,
+    } = *data;
     use zip::write::SimpleFileOptions;
     // Yarım yedek kalmasın: geçici dosyaya yazılıp yerine taşınır.
     let tmp = dest.with_extension("zip.tmp");
@@ -111,6 +130,17 @@ pub(crate) fn write_backup(
             zip.write_all(&std::fs::read(p)?)?;
             if let Some(m) = meta.get(f) {
                 by_name.insert(name, m);
+            }
+        }
+        // Kayıtlara iliştirilen belgeler (bu bilgisayarda olanlar).
+        if let Some(dir) = attachments {
+            let mut done = std::collections::HashSet::new();
+            for name in meta.values().flat_map(|m| m.attachments.iter()) {
+                let p = dir.join(name);
+                if done.insert(name.clone()) && p.is_file() {
+                    zip.start_file(format!("{ATTACH_DIR}{name}"), opts)?;
+                    std::io::copy(&mut std::fs::File::open(&p)?, &mut zip)?;
+                }
             }
         }
         zip.start_file(META_FILE, opts)?;
@@ -163,6 +193,8 @@ pub(crate) async fn restore_library(
 
 struct Extracted {
     paths: Vec<(String, String)>,
+    /// Açılan ekler (geçici yol, ad).
+    attachments: Vec<(std::path::PathBuf, String)>,
     meta: HashMap<String, FileMeta>,
     places: Vec<NamedPlace>,
     bookmarks: Vec<Bookmark>,
@@ -230,6 +262,33 @@ fn extract(src: &Path, tmp: &Path, password: Option<&str>) -> Result<Extracted, 
     let bookmarks: Vec<Bookmark> = parse(&mut zip, pw, BOOKMARKS_FILE)?;
     let journal: BTreeMap<String, String> = parse(&mut zip, pw, JOURNAL_FILE)?;
     std::fs::create_dir_all(tmp).map_err(|e| e.to_string())?;
+    let mut attachments = Vec::new();
+    let attach_tmp = tmp.join("ekler");
+    for i in 0..zip.len() {
+        let Some(name) = zip
+            .name_for_index(i)
+            .and_then(|n| n.strip_prefix(ATTACH_DIR))
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        // Yalnızca düz dosya adı (klasör dışına çıkamaz).
+        if Path::new(&name).file_name().and_then(|n| n.to_str()) != Some(name.as_str())
+            || name.starts_with('.')
+        {
+            continue;
+        }
+        let mut f = match pw {
+            Some(pw) => zip.by_index_decrypt(i, pw),
+            None => zip.by_index(i),
+        }
+        .map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&attach_tmp).map_err(|e| e.to_string())?;
+        let out = attach_tmp.join(&name);
+        let mut w = std::fs::File::create(&out).map_err(|e| e.to_string())?;
+        std::io::copy(&mut f, &mut w).map_err(|e| e.to_string())?;
+        attachments.push((out, name));
+    }
     let mut paths = Vec::new();
     for i in 0..zip.len() {
         let Some(name) = zip
@@ -261,6 +320,7 @@ fn extract(src: &Path, tmp: &Path, password: Option<&str>) -> Result<Extracted, 
     }
     Ok(Extracted {
         paths,
+        attachments,
         meta,
         places,
         bookmarks,
@@ -275,6 +335,17 @@ fn restore_into(
     password: Option<&str>,
 ) -> Result<RestoreInfo, String> {
     let x = extract(src, tmp, password)?;
+    // Ekler: bu bilgisayarda olmayanlar ekler klasörüne kopyalanır.
+    let dir = &app.state::<crate::attachments::Attachments>().0;
+    if !x.attachments.is_empty() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    for (p, name) in &x.attachments {
+        let dest = dir.join(name);
+        if !dest.exists() {
+            std::fs::copy(p, &dest).map_err(|e| format!("Ek geri yüklenemedi: {e}"))?;
+        }
+    }
     let results = load_many(app, x.paths.iter().map(|(p, _)| p.clone()).collect(), true);
     // Bilgiler yedekteki dosya adına göre (sonuçlar girişle aynı sırada): yeni
     // eklenen kayda ya da zaten kütüphanede olan aynı içeriğe taşınır.
@@ -356,9 +427,13 @@ mod tests {
             a.to_string_lossy().into_owned(),
             FileMeta {
                 tags: vec!["iş".into()],
+                attachments: vec!["1-bilet.pdf".into(), "2-yok.pdf".into()],
                 ..Default::default()
             },
         )]);
+        let ekler = root.join("ekler");
+        std::fs::create_dir_all(&ekler).unwrap();
+        std::fs::write(ekler.join("1-bilet.pdf"), b"%PDF bilet").unwrap();
         let places = vec![NamedPlace {
             id: "ev".into(),
             name: "Ev".into(),
@@ -370,11 +445,14 @@ mod tests {
         let dest = root.join("yedek.zip");
         let info = write_backup(
             &dest,
-            &[a.to_string_lossy().into_owned()],
-            &meta,
-            &places,
-            &[],
-            &BTreeMap::from([("2024-07-09".to_owned(), "Datça".to_owned())]),
+            &BackupData {
+                files: &[a.to_string_lossy().into_owned()],
+                meta: &meta,
+                places: &places,
+                bookmarks: &[],
+                journal: &BTreeMap::from([("2024-07-09".to_owned(), "Datça".to_owned())]),
+                attachments: Some(&ekler),
+            },
             None,
         )
         .unwrap();
@@ -390,6 +468,10 @@ mod tests {
         assert_eq!(x.meta["a.gpx"].tags, vec!["iş"]);
         assert_eq!(x.places.len(), 1);
         assert_eq!(x.journal["2024-07-09"], "Datça");
+        // Diskte olan ek yedeğe girer, olmayan atlanır.
+        assert_eq!(x.attachments.len(), 1);
+        assert_eq!(x.attachments[0].1, "1-bilet.pdf");
+        assert_eq!(std::fs::read(&x.attachments[0].0).unwrap(), b"%PDF bilet");
         // Yedek olmayan zip reddedilir.
         let other = root.join("baska.zip");
         let mut z = zip::ZipWriter::new(std::fs::File::create(&other).unwrap());
@@ -401,11 +483,14 @@ mod tests {
         let locked = root.join("sifreli.zip");
         write_backup(
             &locked,
-            &[a.to_string_lossy().into_owned()],
-            &meta,
-            &places,
-            &[],
-            &BTreeMap::new(),
+            &BackupData {
+                files: &[a.to_string_lossy().into_owned()],
+                meta: &meta,
+                places: &places,
+                bookmarks: &[],
+                journal: &BTreeMap::new(),
+                attachments: None,
+            },
             Some("gizli123"),
         )
         .unwrap();
