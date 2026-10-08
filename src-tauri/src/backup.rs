@@ -14,7 +14,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 use tauri::{AppHandle, Manager};
 
-const RECORDS_DIR: &str = "kayitlar/";
+pub(crate) const RECORDS_DIR: &str = "kayitlar/";
 const META_FILE: &str = "bilgiler.json";
 const PLACES_FILE: &str = "yerler.json";
 const MANIFEST_FILE: &str = "gpxer-yedek.json";

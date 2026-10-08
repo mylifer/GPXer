@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { archiveInfo, type ArchiveReport, type Settings } from "../api";
+import { archiveInfo, type ArchiveReport, type BackupVerify, type Settings } from "../api";
 import { fmtNumber } from "../format";
 import { t } from "../i18n";
 
@@ -21,6 +21,18 @@ export function reportProblems(r: ArchiveReport): string | null {
   return `${t("Arşiv denetimi:")} ${parts.join("; ")} (${names.join(", ")}${r.corrupted.length + r.missing.length + r.unreadable.length > 3 ? "…" : ""}).`;
 }
 
+/** Yedek doğrulamasının özeti ve sorun olup olmadığı. */
+export function verifySummary(v: BackupVerify): { text: string; bad: boolean } {
+  const name = v.path.split(/[\\/]/).pop();
+  const issues = [
+    v.bad.length && t(`${fmtNumber(v.bad.length)} kayıt bozuk (${v.bad.slice(0, 3).join(", ")}${v.bad.length > 3 ? "…" : ""})`),
+    v.absent.length && t(`${fmtNumber(v.absent.length)} kayıt yedekte yok`),
+    !v.metaOk && t("kayıt bilgileri okunamadı"),
+  ].filter((x): x is string => !!x);
+  if (issues.length) return { text: `${t("Yedek doğrulaması:")} ${name}: ${issues.join("; ")}.`, bad: true };
+  return { text: t(`Yedek açılabiliyor: ${name}, ${fmtNumber(v.records)} kaydın hepsi sağlam.`), bad: false };
+}
+
 /** Arşiv bildirimleri: otomatik yedek ve haftalık denetim sonuçları; uzun
  * süredir yedek alınmadıysa (otomatik yedek kapalıyken) hatırlatma. */
 export function useArchive({ settings, records, say, fail }: { settings: Settings | null; records: number; say(m: string): void; fail(m: string): void }) {
@@ -29,6 +41,14 @@ export function useArchive({ settings, records, say, fail }: { settings: Setting
       listen<{ Ok?: string; Err?: string }>("archive-backup", (e) => {
         if (e.payload.Err) fail(e.payload.Err);
         else say(`${t("Otomatik yedek alındı:")} ${e.payload.Ok?.split(/[\\/]/).pop()}`);
+      }),
+      listen<{ Ok?: BackupVerify; Err?: string }>("archive-verify", (e) => {
+        if (e.payload.Err) fail(`${t("Yedek doğrulanamadı:")} ${e.payload.Err}`);
+        else if (e.payload.Ok) {
+          const v = verifySummary(e.payload.Ok);
+          if (v.bad) fail(v.text);
+          else say(v.text);
+        }
       }),
       listen<ArchiveReport>("archive-health", (e) => {
         const p = reportProblems(e.payload);

@@ -175,6 +175,20 @@ export interface Settings {
   backupFolder?: string | null;
   /** Otomatik yedek aralığı (gün; 0 → 7). */
   backupDays?: number;
+  /** Otomatik yedeğin kopyalandığı ikinci klasör. */
+  backupFolder2?: string | null;
+}
+
+/** Yedek doğrulamasının sonucu. */
+export interface BackupVerify {
+  path: string;
+  records: number;
+  ok: number;
+  /** Bozuk ya da okunamayan kayıtlar. */
+  bad: string[];
+  /** Kütüphanede olup yedekte bulunmayanlar. */
+  absent: string[];
+  metaOk: boolean;
 }
 
 /** Arşiv sağlık denetiminin sonucu. */
@@ -188,11 +202,13 @@ export interface ArchiveReport {
   lastBackup: number | null;
 }
 export const archiveCheck = () => invoke<ArchiveReport>("archive_check");
-export const archiveInfo = () => invoke<{ lastBackup: number | null; lastAutoBackup: number | null; lastCheck: number | null }>("archive_info");
+export const archiveInfo = () =>
+  invoke<{ lastBackup: number | null; lastAutoBackup: number | null; lastCheck: number | null; lastVerify?: number | null }>("archive_info");
 /** Uygulamadan bağımsız açık arşiv (klasör seçilir); vazgeçilirse null. */
 export const exportOpenArchive = () => invoke<{ folder: string; records: number } | null>("export_open_archive");
 /** Otomatik yedeği şimdi alır; yazılan dosyanın yolu. */
 export const backupNow = () => invoke<string>("backup_now");
+export const verifyLastBackup = () => invoke<BackupVerify>("verify_last_backup");
 
 export const expandPaths = (paths: string[]) => invoke<string[]>("expand_paths", { paths });
 /** `explicit`: kullanıcı dosyaları kendisi açtı (Dosya Aç, Klasör Aç, sürükle-bırak,

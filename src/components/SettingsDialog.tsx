@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { lang, saveLang, t, type Lang } from "../i18n";
-import { reportProblems } from "../hooks/useArchive";
+import { reportProblems, verifySummary } from "../hooks/useArchive";
 import { saveUiMode, uiMode, type UiMode } from "../ui/mode";
 import { CustomLayersEditor } from "./CustomLayersEditor";
 import { FUEL_KINDS, type FuelKind, type FuelPrefs } from "../fuel";
 import type { Goals, Prefs } from "../prefs";
-import { archiveCheck, archiveInfo, backupNow, exportOpenArchive, clearTileCache, streetsInfo, syncInfo, tileCacheInfo, type ArchiveReport, type NamedPlace, type Settings } from "../api";
+import { archiveCheck, archiveInfo, backupNow, verifyLastBackup, exportOpenArchive, clearTileCache, streetsInfo, syncInfo, tileCacheInfo, type ArchiveReport, type NamedPlace, type Settings } from "../api";
 import { fmtBytes, fmtNumber, fmtTimestamp, type TzMode } from "../format";
 import { Modal } from "./Modal";
 
@@ -63,10 +63,19 @@ export function SettingsDialog({
   const [syncFolder, setSyncFolder] = useState<string | null>(settings.syncFolder ?? null);
   const [backupFolder, setBackupFolder] = useState<string | null>(settings.backupFolder ?? null);
   const [backupDays, setBackupDays] = useState(settings.backupDays || 7);
-  const [archive, setArchive] = useState<{ busy?: string; report?: ArchiveReport; msg?: string; lastBackup?: number | null; lastCheck?: number | null }>({});
+  const [backupFolder2, setBackupFolder2] = useState<string | null>(settings.backupFolder2 ?? null);
+  const [archive, setArchive] = useState<{
+    busy?: string;
+    report?: ArchiveReport;
+    msg?: string;
+    verify?: { text: string; bad: boolean };
+    lastBackup?: number | null;
+    lastCheck?: number | null;
+    lastVerify?: number | null;
+  }>({});
   useEffect(() => {
     archiveInfo()
-      .then((i) => setArchive((a) => ({ ...a, lastBackup: i.lastBackup, lastCheck: i.lastCheck })))
+      .then((i) => setArchive((a) => ({ ...a, lastBackup: i.lastBackup, lastCheck: i.lastCheck, lastVerify: i.lastVerify })))
       .catch(() => {});
   }, []);
   const [syncLast, setSyncLast] = useState<number | null>(null);
@@ -108,6 +117,7 @@ export function SettingsDialog({
         syncFolder,
         backupFolder,
         backupDays,
+        backupFolder2: backupFolder ? backupFolder2 : null,
       },
       { tzMode: tz, customLayers: layers, goals: { km: Math.max(0, goals.km || 0), days: Math.max(0, goals.days || 0) }, fuel: { ...fuel, per100: Math.max(0, fuel.per100 || 0), price: Math.max(0, fuel.price || 0) } },
       places
@@ -368,7 +378,7 @@ export function SettingsDialog({
           <small>
             Kayıtlarınızın içerik parmak izi saklanır; haftada bir (ya da “Arşivi denetle” ile) kaybolan ve bozulan dosyalar
             aranır. Bir klasör seçerseniz (harici disk, bulut klasörü) seçtiğiniz aralıkla otomatik yedek alınır; son 5 yedek
-            kalır. Otomatik yedekler şifresizdir; şifreli yedek için Dosya menüsündeki Yedek al… kullanılır.
+            kalır; istenirse ikinci bir klasöre de kopyalanır ve ayda bir son yedek açılıp doğrulanır. Otomatik yedekler şifresizdir; şifreli yedek için Dosya menüsündeki Yedek al… kullanılır.
           </small>
           {backupFolder ? (
             <ul className="folder-list">
@@ -381,6 +391,32 @@ export function SettingsDialog({
             </ul>
           ) : (
             <span className="muted small-note">Otomatik yedek kapalı.</span>
+          )}
+          {backupFolder && (
+            <div className="form-actions" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
+              <span className="muted small-note">İkinci kopya:</span>
+              {backupFolder2 ? (
+                <>
+                  <span title={backupFolder2} data-testid="backup-folder2">
+                    {backupFolder2}
+                  </span>
+                  <button className="icon-btn" onClick={() => setBackupFolder2(null)} title="İkinci kopyayı kapat">
+                    ×
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn small"
+                  title="Her otomatik yedek ikinci bir klasöre de kopyalanır (ör. biri harici disk, biri bulut klasörü)"
+                  onClick={async () => {
+                    const f = await onPickFolder();
+                    if (f) setBackupFolder2(f);
+                  }}
+                >
+                  İkinci klasör seç…
+                </button>
+              )}
+            </div>
           )}
           <div className="form-actions" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
             <button
@@ -415,6 +451,22 @@ export function SettingsDialog({
               }}
             >
               {archive.busy === "backup" ? "Yedekleniyor…" : "Şimdi yedekle"}
+            </button>
+            <button
+              className="btn small"
+              disabled={!settings.backupFolder || !!archive.busy}
+              title="Son otomatik yedeği açar ve her kaydı yeniden okur (ayda bir kendiliğinden de yapılır)"
+              onClick={async () => {
+                setArchive((a) => ({ ...a, busy: "verify", msg: undefined, verify: undefined }));
+                try {
+                  const v = await verifyLastBackup();
+                  setArchive((a) => ({ ...a, busy: undefined, verify: verifySummary(v), lastVerify: Date.now() }));
+                } catch (e) {
+                  setArchive((a) => ({ ...a, busy: undefined, msg: String(e) }));
+                }
+              }}
+            >
+              {archive.busy === "verify" ? "Doğrulanıyor…" : "Yedeği doğrula"}
             </button>
             <button
               className="btn small"
@@ -453,10 +505,16 @@ export function SettingsDialog({
               {reportProblems(archive.report) ?? t(`${fmtNumber(archive.report.total)} kaydın hepsi sağlam.`)}
             </div>
           )}
+          {archive.verify && (
+            <div className={`hint${archive.verify.bad ? " error" : ""}`} data-testid="backup-verify">
+              {archive.verify.text}
+            </div>
+          )}
           {archive.msg && <div className="hint">{archive.msg}</div>}
           <small>
             {`${t("Son yedek:")} ${archive.lastBackup != null ? fmtTimestamp(archive.lastBackup, undefined) : t("hiç")}`}
             {archive.lastCheck != null && ` · ${t("Son denetim:")} ${fmtTimestamp(archive.lastCheck, undefined)}`}
+            {archive.lastVerify != null && ` · ${t("Son doğrulama:")} ${fmtTimestamp(archive.lastVerify, undefined)}`}
           </small>
         </fieldset>
 

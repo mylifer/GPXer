@@ -546,6 +546,7 @@ pub fn run() {
             health::archive_check,
             health::archive_info,
             health::backup_now,
+            health::verify_last_backup,
             openexport::export_open_archive,
             journal::get_journal,
             journal::set_day_note,

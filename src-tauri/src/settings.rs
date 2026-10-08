@@ -21,6 +21,9 @@ pub struct Settings {
     pub backup_folder: Option<String>,
     /// Otomatik yedek aralığı (gün); 0 ise 7.
     pub backup_days: u32,
+    /// Otomatik yedeğin kopyalandığı ikinci klasör (ör. harici disk ya da
+    /// bulut klasörü); yoksa tek kopya.
+    pub backup_folder2: Option<String>,
 }
 
 /// İzlenen klasör: kullanıcının seçtiği yol ve gerçek (kanonik) yolu. macOS

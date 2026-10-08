@@ -19,6 +19,8 @@ use tauri::{AppHandle, Emitter, Manager};
 const DAY_MS: i64 = 86_400_000;
 /// Otomatik denetim aralığı.
 const CHECK_EVERY_MS: i64 = 7 * DAY_MS;
+/// Son otomatik yedeğin açılıp doğrulanma aralığı.
+const VERIFY_EVERY_MS: i64 = 30 * DAY_MS;
 /// Klasörde tutulan otomatik yedek sayısı.
 const KEEP: usize = 5;
 const PREFIX: &str = "GPXer-otomatik-yedek-";
@@ -33,6 +35,7 @@ struct State {
     last_backup: Option<i64>,
     last_auto_backup: Option<i64>,
     last_check: Option<i64>,
+    last_verify: Option<i64>,
 }
 
 pub(crate) struct Health {
@@ -61,6 +64,25 @@ pub(crate) struct Info {
     last_backup: Option<i64>,
     last_auto_backup: Option<i64>,
     last_check: Option<i64>,
+    last_verify: Option<i64>,
+}
+
+/// Yedek doğrulamasının sonucu: yedek açılıp her kayıt yeniden okunur.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Verify {
+    /// Doğrulanan yedek dosyası.
+    path: String,
+    /// Yedekteki kayıt sayısı.
+    records: usize,
+    /// Açılıp okunabilen kayıtlar.
+    ok: usize,
+    /// Bozuk ya da okunamayan kayıtlar (yedekteki adları).
+    bad: Vec<String>,
+    /// Kütüphanede olup yedekte bulunmayan kayıtlar (dosya adları).
+    absent: Vec<String>,
+    /// Kayıt bilgileri dosyası okunabildi mi.
+    meta_ok: bool,
 }
 
 fn now_ms() -> i64 {
@@ -184,8 +206,93 @@ impl Health {
             last_backup: s.last_backup,
             last_auto_backup: s.last_auto_backup,
             last_check: s.last_check,
+            last_verify: s.last_verify,
         }
     }
+
+    fn note_verify(&self) {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .last_verify = Some(now_ms());
+        self.save();
+    }
+}
+
+/// Yedeği açar, her kaydı açılıp ayrıştırılabiliyor mu diye dener (zip CRC
+/// denetimi dahil) ve kütüphanedeki dosyalarla karşılaştırır.
+pub(crate) fn verify_backup(path: &Path, library: &[String]) -> Result<Verify, String> {
+    use std::io::Read;
+    let f = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut zip = zip::ZipArchive::new(f).map_err(|e| format!("Yedek açılamadı: {e}"))?;
+    let mut v = Verify {
+        path: path.to_string_lossy().into_owned(),
+        ..Verify::default()
+    };
+    let mut names = std::collections::HashSet::new();
+    for i in 0..zip.len() {
+        let mut e = match zip.by_index(i) {
+            Ok(e) => e,
+            Err(err) => {
+                v.bad.push(format!("#{i}: {err}"));
+                continue;
+            }
+        };
+        let full = e.name().to_owned();
+        let Some(name) = full
+            .strip_prefix(crate::backup::RECORDS_DIR)
+            .map(str::to_owned)
+        else {
+            if full == "bilgiler.json" || full.ends_with("/bilgiler.json") {
+                let mut b = Vec::new();
+                v.meta_ok = e.read_to_end(&mut b).is_ok()
+                    && serde_json::from_slice::<serde_json::Value>(&b).is_ok();
+            }
+            continue;
+        };
+        if name.is_empty() {
+            continue;
+        }
+        v.records += 1;
+        let mut bytes = Vec::new();
+        let ext = Path::new(&name)
+            .extension()
+            .map(|x| x.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        // read_to_end CRC'yi de denetler; bozuk girdi hata verir.
+        let good =
+            e.read_to_end(&mut bytes).is_ok() && gpx_core::formats::parse_any(&ext, &bytes).is_ok();
+        if good {
+            v.ok += 1;
+        } else {
+            v.bad.push(name.clone());
+        }
+        names.insert(name);
+    }
+    v.absent = library
+        .iter()
+        .filter_map(|f| {
+            Path::new(f)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+        })
+        .filter(|n| !names.contains(n))
+        .collect();
+    Ok(v)
+}
+
+/// Klasördeki en yeni otomatik yedek.
+fn latest_backup(dir: &Path) -> Option<PathBuf> {
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(PREFIX) && n.ends_with(".zip"))
+        })
+        .max()
 }
 
 /// Klasördeki eski otomatik yedekler silinir (en yeni `KEEP` tanesi kalır).
@@ -243,6 +350,25 @@ fn auto_backup(app: &AppHandle, force: bool) -> Option<Result<String, String>> {
             dest.to_string_lossy().into_owned()
         })
         .map_err(|e| format!("Otomatik yedek alınamadı ({}): {e}", dir.display()));
+    // İkinci kopya (harici disk, bulut klasörü): yarım dosya kalmasın diye
+    // önce geçici adla kopyalanıp yerine taşınır.
+    if let (Ok(_), Some(dir2)) = (&res, settings.backup_folder2.filter(|d| !d.is_empty())) {
+        let dir2 = PathBuf::from(dir2);
+        let name = dest.file_name().unwrap_or_default();
+        let target = dir2.join(name);
+        let tmp = target.with_extension("zip.tmp");
+        let copied = std::fs::create_dir_all(&dir2)
+            .and_then(|_| std::fs::copy(&dest, &tmp))
+            .and_then(|_| std::fs::rename(&tmp, &target));
+        if let Err(e) = copied {
+            let _ = std::fs::remove_file(&tmp);
+            return Some(Err(format!(
+                "Yedek alındı ama ikinci klasöre kopyalanamadı ({}): {e}",
+                dir2.display()
+            )));
+        }
+        prune_backups(&dir2);
+    }
     Some(res)
 }
 
@@ -257,6 +383,16 @@ pub(crate) fn on_startup(app: &AppHandle) {
             let _ = app.emit("archive-backup", r.map_err(|e| e.to_string()));
         }
         let health = app.state::<Health>();
+        // Ayda bir son otomatik yedek açılıp doğrulanır.
+        let verify_due = health
+            .info()
+            .last_verify
+            .is_none_or(|t| now_ms() - t >= VERIFY_EVERY_MS);
+        if verify_due {
+            if let Some(r) = verify_latest(&app) {
+                let _ = app.emit("archive-verify", r);
+            }
+        }
         let due = health
             .info()
             .last_check
@@ -266,6 +402,26 @@ pub(crate) fn on_startup(app: &AppHandle) {
             let _ = app.emit("archive-health", report);
         }
     });
+}
+
+/// Ayarlardaki klasördeki son otomatik yedeği doğrular (klasör ya da yedek
+/// yoksa `None`).
+fn verify_latest(app: &AppHandle) -> Option<Result<Verify, String>> {
+    let dir = PathBuf::from(app.state::<SettingsStore>().current().backup_folder?);
+    let path = latest_backup(&dir)?;
+    let r = verify_backup(&path, &app.state::<Library>().files());
+    app.state::<Health>().note_verify();
+    Some(r)
+}
+
+/// Son otomatik yedeği şimdi doğrular.
+#[tauri::command]
+pub(crate) async fn verify_last_backup(app: AppHandle) -> Result<Verify, String> {
+    run_blocking(move || {
+        verify_latest(&app)
+            .unwrap_or_else(|| Err("Yedek klasöründe otomatik yedek yok; önce yedek alın".into()))
+    })
+    .await?
 }
 
 #[tauri::command]
@@ -337,6 +493,46 @@ mod tests {
             .unwrap();
         let r = Health::open(&dir).check(&files);
         assert!(r.corrupted.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn verifies_backup_contents() {
+        let dir = std::env::temp_dir().join(format!("gpxer-verify-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let gpx = |lat: &str| {
+            format!(
+                r#"<gpx><trk><trkseg><trkpt lat="{lat}" lon="29"><time>2024-05-01T08:00:00Z</time></trkpt><trkpt lat="{lat}1" lon="29.01"><time>2024-05-01T08:01:00Z</time></trkpt></trkseg></trk></gpx>"#
+            )
+        };
+        let a = dir.join("a.gpx");
+        let b = dir.join("b.gpx");
+        std::fs::write(&a, gpx("41.0")).unwrap();
+        std::fs::write(&b, b"bozuk icerik").unwrap();
+        let dest = dir.join(format!("{PREFIX}2025-01-01.zip"));
+        let files = vec![
+            a.to_string_lossy().into_owned(),
+            b.to_string_lossy().into_owned(),
+        ];
+        write_backup(
+            &dest,
+            &files,
+            &HashMap::new(),
+            &[],
+            &[],
+            &Default::default(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(latest_backup(&dir), Some(dest.clone()));
+        let mut lib = files.clone();
+        lib.push(dir.join("c.gpx").to_string_lossy().into_owned());
+        let v = verify_backup(&dest, &lib).unwrap();
+        assert_eq!((v.records, v.ok), (2, 1));
+        assert_eq!(v.bad, vec!["b.gpx".to_owned()]);
+        assert_eq!(v.absent, vec!["c.gpx".to_owned()]);
+        assert!(verify_backup(&dir.join("yok.zip"), &lib).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

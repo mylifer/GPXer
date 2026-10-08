@@ -700,8 +700,8 @@ export const EN: Record<string, string> = {
   "Kopyalandı": "Copied",
   "Geziye göre": "By trip",
   "Güzergâh": "Route",
-  "Kayıtlarınızın içerik parmak izi saklanır; haftada bir (ya da “Arşivi denetle” ile) kaybolan ve bozulan dosyalar aranır. Bir klasör seçerseniz (harici disk, bulut klasörü) seçtiğiniz aralıkla otomatik yedek alınır; son 5 yedek kalır. Otomatik yedekler şifresizdir; şifreli yedek için Dosya menüsündeki Yedek al… kullanılır.":
-    "A content fingerprint of every recording is kept; missing and corrupted files are looked for weekly (or with “Check archive”). If you choose a folder (external disk, cloud folder), automatic backups are taken at the chosen interval; the last 5 are kept. Automatic backups are not encrypted; use File → Back up… for an encrypted one.",
+  "Kayıtlarınızın içerik parmak izi saklanır; haftada bir (ya da “Arşivi denetle” ile) kaybolan ve bozulan dosyalar aranır. Bir klasör seçerseniz (harici disk, bulut klasörü) seçtiğiniz aralıkla otomatik yedek alınır; son 5 yedek kalır; istenirse ikinci bir klasöre de kopyalanır ve ayda bir son yedek açılıp doğrulanır. Otomatik yedekler şifresizdir; şifreli yedek için Dosya menüsündeki Yedek al… kullanılır.":
+    "A content fingerprint of every recording is kept; missing and corrupted files are looked for weekly (or with “Check archive”). If you choose a folder (external disk, cloud folder), automatic backups are taken at the chosen interval; the last 5 are kept; optionally they are also copied to a second folder, and the latest backup is opened and verified monthly. Automatic backups are not encrypted; use File → Back up… for an encrypted one.",
   "Otomatik yedek kapalı.": "Automatic backup is off.",
   "Otomatik yedeği kapat": "Turn off automatic backup",
   "Yedek klasörü seç…": "Choose backup folder…",
@@ -1046,11 +1046,25 @@ export const EN: Record<string, string> = {
   "Ziyaret defteri": "Visit log",
   "10 dakikadan uzun duraklar; yanındaki kafe, lokanta, müze… (OpenStreetMap)": "Stops over 10 minutes; the café, restaurant, museum… next to them (OpenStreetMap)",
   "Mekân": "Place",
+  "İkinci kopya:": "Second copy:",
+  "İkinci kopyayı kapat": "Turn off the second copy",
+  "Her otomatik yedek ikinci bir klasöre de kopyalanır (ör. biri harici disk, biri bulut klasörü)": "Each automatic backup is also copied to a second folder (e.g. an external disk and a cloud folder)",
+  "İkinci klasör seç…": "Choose second folder…",
+  "Son otomatik yedeği açar ve her kaydı yeniden okur (ayda bir kendiliğinden de yapılır)": "Opens the latest automatic backup and re-reads every recording (also done monthly)",
+  "Doğrulanıyor…": "Verifying…",
+  "Yedeği doğrula": "Verify backup",
+  "Son doğrulama:": "Last verified:",
+  "Yedek doğrulaması:": "Backup verification:",
+  "kayıt bilgileri okunamadı": "recording details could not be read",
+  "Yedek doğrulanamadı:": "Backup could not be verified:",
 };
 
 /** Değişken içeren iletiler: `{0}`, `{1}`… yer tutucuları (İngilizcede sırası
  * değişebilir). */
 export const EN_T: [string, string][] = [
+  ["Yedek açılabiliyor: {0}, {1} kaydın hepsi sağlam.", "Backup opens: {0}, all {1} recordings intact."],
+  ["{0} kayıt yedekte yok", "{0} recordings missing from the backup"],
+  ["{0} kayıt bozuk ({1})", "{0} recordings corrupted ({1})"],
   ["☕ {0} durak yerinde mekân ara", "☕ Look up places at {0} stops"],
   ["Mekânlar aranıyor {0}", "Looking up places {0}"],
   ["{0} dönem bilerek boş işaretli · göster", "{0} periods marked intentionally empty · show"],
