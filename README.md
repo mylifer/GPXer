@@ -20,6 +20,14 @@ ile yazılmıştır.
   geçilen yollar ve ilçe ilçe geçilen mahalleler.
 - *Geçmiş yıllarda bugün*: açılışta günde bir kez "1 yıl önce bugün…" kartı;
   Özet'te bütün yıllar.
+- *Günlük notları*: Gün akışında her güne not ("kimle, nereye"); gezi
+  hikâyesinde ve "Geçmiş yıllarda bugün"de görünür, eşitlenir ve yedeklenir.
+- *Burada ne zaman bulundum?* (haritada sağ tık): o noktadan geçtiğiniz bütün
+  anlar, ilk/son ve yıllara göre dağılım.
+- *Arşiv* (Ayarlar): kayıtların içerik parmak izi saklanır, kaybolan ve bozulan
+  dosyalar haftalık denetimde bildirilir; seçilen klasöre otomatik yedek (son 5
+  yedek kalır); GPXer olmadan da okunabilen açık arşiv dışa aktarımı (orijinal
+  dosyalar, CSV liste, JSON bilgiler, HTML dizin).
 - Seçili iz hıza, yüksekliğe, nabza, kadansa ya da güce göre renklendirilebilir.
 - Tüm izler dosya rengiyle ya da tarihe göre (eskiden yeniye) renklenir;
   dosya rengi değiştirilebilir ve kalıcıdır.

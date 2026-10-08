@@ -6,6 +6,7 @@ mod edit;
 mod export;
 mod geo;
 mod health;
+mod journal;
 mod library;
 mod links;
 mod menu;
@@ -405,6 +406,7 @@ pub fn run() {
             app.manage(library);
             app.manage(SettingsStore::open(&root));
             app.manage(health::Health::open(&root));
+            app.manage(journal::JournalStore::open(&root));
             app.manage(meta);
             app.manage(PlacesStore::open(&root));
             app.manage(bookmarks::BookmarkStore::open(&root));
@@ -481,6 +483,8 @@ pub fn run() {
             health::archive_info,
             health::backup_now,
             openexport::export_open_archive,
+            journal::get_journal,
+            journal::set_day_note,
             streets::search_streets_offline,
             streets::streets_info,
             sync::sync_now,

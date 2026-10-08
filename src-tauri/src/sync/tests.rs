@@ -211,3 +211,26 @@ fn rejects_unsafe_names() {
     assert!(!safe_name("a\\b.gpx"));
     assert!(!safe_name("notes.txt"));
 }
+
+#[test]
+fn journal_notes_merge_between_devices() {
+    let (root, cloud, mut a, mut b) = setup("journal");
+    a.data
+        .journal
+        .insert("2024-07-09".into(), "Babamla Datça'ya gittik".into());
+    a.sync(&cloud, 1);
+    b.data.journal.insert("2024-07-10".into(), "Knidos".into());
+    let c = b.sync(&cloud, 2);
+    assert!(c.journal_changed);
+    assert_eq!(b.data.journal["2024-07-09"], "Babamla Datça'ya gittik");
+    // B'de silinen not A'da da silinir; A'nın gördüğü yeni not gelir.
+    b.data.journal.remove("2024-07-09");
+    b.sync(&cloud, 3);
+    let c = a.sync(&cloud, 4);
+    assert!(c.journal_changed);
+    assert_eq!(
+        a.data.journal.keys().collect::<Vec<_>>(),
+        vec!["2024-07-10"]
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -342,6 +342,7 @@ export interface SyncReport {
   metaChanged: boolean;
   placesChanged: boolean;
   bookmarksChanged: boolean;
+  journalChanged?: boolean;
   added: LoadResult[];
   updated: LoadResult[];
   removed: string[];

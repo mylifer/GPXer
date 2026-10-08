@@ -67,6 +67,7 @@ struct Remote {
     meta: BTreeMap<String, Stamped<FileMeta>>,
     places: BTreeMap<String, Stamped<NamedPlace>>,
     bookmarks: BTreeMap<String, Stamped<Bookmark>>,
+    journal: BTreeMap<String, Stamped<String>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -89,6 +90,7 @@ struct Base {
     meta: BTreeMap<String, String>,
     places: BTreeMap<String, String>,
     bookmarks: BTreeMap<String, String>,
+    journal: BTreeMap<String, String>,
     last: i64,
 }
 
@@ -113,6 +115,8 @@ pub(crate) struct LocalData {
     pub meta: BTreeMap<String, FileMeta>,
     pub places: BTreeMap<String, NamedPlace>,
     pub bookmarks: BTreeMap<String, Bookmark>,
+    /// Günlük notları: gün → metin.
+    pub journal: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Default, Debug, PartialEq)]
@@ -127,6 +131,7 @@ pub(crate) struct SyncCounts {
     pub meta_changed: bool,
     pub places_changed: bool,
     pub bookmarks_changed: bool,
+    pub journal_changed: bool,
 }
 
 fn read_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T, String> {
@@ -466,6 +471,15 @@ pub(crate) fn sync_core(
     );
     c.bookmarks_changed = lc;
     remote_changed |= rc;
+    let (lc, rc) = merge_values(
+        &mut data.journal,
+        &mut base.journal,
+        &mut remote.journal,
+        now,
+        |_| true,
+    );
+    c.journal_changed = lc;
+    remote_changed |= rc;
 
     if remote_changed || c.pushed > 0 || c.removed_remote > 0 || !state_path.exists() {
         write_json(&state_path, &remote)?;
@@ -656,6 +670,7 @@ pub(crate) async fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
                 .into_iter()
                 .map(|b| (b.id.clone(), b))
                 .collect(),
+            journal: app.state::<crate::journal::JournalStore>().all(),
         };
         let before_meta = data.meta.clone();
         let mut records = AppRecords {
@@ -701,6 +716,11 @@ pub(crate) async fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
             app.state::<BookmarkStore>()
                 .set(list)
                 .map_err(|e| format!("Yer imleri yazılamadı: {e}"))?;
+        }
+        if counts.journal_changed {
+            app.state::<crate::journal::JournalStore>()
+                .set_all(data.journal)
+                .map_err(|e| format!("Günlük yazılamadı: {e}"))?;
         }
         Ok(SyncReport {
             counts,

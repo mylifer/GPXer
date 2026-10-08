@@ -78,6 +78,7 @@ import { useListActions } from "./hooks/useListActions";
 import { useKeyboard } from "./hooks/useKeyboard";
 import { useSync } from "./hooks/useSync";
 import { useArchive } from "./hooks/useArchive";
+import { useJournal } from "./hooks/useJournal";
 import { t } from "./i18n";
 import { useBackup } from "./hooks/useBackup";
 import { usePlanRoute } from "./hooks/usePlanRoute";
@@ -99,6 +100,7 @@ export default function App() {
   const { prefs, prefsRef, persistedSel, up } = usePrefs();
   const [baseLayer, setBaseLayer] = useBaseLayer();
   const { errors, setErrors, duplicates, setDuplicates, empties, setEmpties, info, setInfo, say, fail } = useNotices();
+  const journal = useJournal(fail);
 
   const [multi, setMulti] = useState<Set<string>>(new Set());
   /** İmleç (fare ya da oynatma); App'i her karede yeniden çizmemek için state değil. */
@@ -429,13 +431,13 @@ export default function App() {
     }
   }, [photoInfo, prefs.photoOffsetH, addResults, say, fail]);
   // ---------- Gezi hikâyesi, görüntü kaydetme ----------
-  const { makeStory, makeTripStory, saveImage } = useStory({ selectedEntry, detail, placedPhotos, places, zones, mapRef, say, fail });
+  const { makeStory, makeTripStory, saveImage } = useStory({ selectedEntry, detail, placedPhotos, places, zones, mapRef, notes: journal.days, say, fail });
   // ---------- Yedek ve geri yükleme ----------
   const { pwAsk, setPwAsk, backup, restore } = useBackup({ addResults, refreshMeta, setPlacesState, setDialog, say, fail });
   // ---------- Cihazlar arası eşitleme ----------
   const syncFolder = settings?.syncFolder ?? null;
   useArchive({ settings, records: files.length, say, fail });
-  const runSync = useSync({ syncFolder, addResults, replaceSummary, forgetPaths, refreshMeta, setPlacesState, setMarks: bookmarks.setMarks, say, fail });
+  const runSync = useSync({ syncFolder, addResults, replaceSummary, forgetPaths, refreshMeta, setPlacesState, setMarks: bookmarks.setMarks, refreshJournal: journal.refresh, say, fail });
 
   const { trim, split, merge, openMerge } = useTrackEdits({
     selected,
@@ -821,6 +823,7 @@ export default function App() {
           )}
           <OnThisDayCard
             files={files}
+            notes={journal.days}
             onShow={(paths) => (paths.length === 1 ? selectAndZoom(paths[0]) : onSelectGroup(paths))}
           />
           <MapLegends
@@ -983,6 +986,7 @@ export default function App() {
       {dialog === "help" && <HelpDialog onClose={() => setDialog(null)} />}
       {dialog === "summary" && (
         <SummaryPanel
+          notes={journal.days}
           files={shown}
           tzMode={prefs.tzMode}
           from={prefs.filters.from}
@@ -1118,6 +1122,8 @@ export default function App() {
           places={places}
           initialDay={initialDay}
           daysWithData={daysWithData}
+          note={(d) => journal.days[d] ?? ""}
+          onNote={journal.setDay}
           onFocus={(pt) => {
             setDialog(null);
             mapRef.current?.centerOn(pt, 15);

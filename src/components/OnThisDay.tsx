@@ -14,7 +14,7 @@ const readDismissed = () => {
 };
 
 /** Haritanın üstünde günde bir kez: "1 yıl önce bugün…" (kapatılınca o gün bir daha çıkmaz). */
-export function OnThisDayCard({ files, onShow }: { files: FileEntry[]; onShow(paths: string[]): void }) {
+export function OnThisDayCard({ files, notes = {}, onShow }: { files: FileEntry[]; notes?: Record<string, string>; onShow(paths: string[]): void }) {
   const today = isoOf(new Date());
   const [dismissed, setDismissed] = useState(readDismissed);
   const memories = useMemo(() => (dismissed === today ? [] : onThisDay(files, today)), [files, today, dismissed]);
@@ -35,6 +35,12 @@ export function OnThisDayCard({ files, onShow }: { files: FileEntry[]; onShow(pa
       </span>
       <span>
         <strong>{`${fmtNumber(m.years)} yıl önce bugün`}</strong> <span data-no-i18n>{memoryText(m)}</span>
+        {notes[m.day] && (
+          <span className="otd-note" data-no-i18n>
+            {" "}
+            📝 {notes[m.day]}
+          </span>
+        )}
         {memories.length > 1 && <span className="muted">{` · ${fmtNumber(memories.length - 1)} yıl daha (Özet)`}</span>}
       </span>
       <button className="btn small" onClick={() => onShow(m.entries.map((e) => e.summary.path))}>
@@ -48,7 +54,7 @@ export function OnThisDayCard({ files, onShow }: { files: FileEntry[]; onShow(pa
 }
 
 /** Özet'te bütün yıllar. */
-export function OnThisDaySection({ files, onOpen }: { files: FileEntry[]; onOpen(path: string): void }) {
+export function OnThisDaySection({ files, notes = {}, onOpen }: { files: FileEntry[]; notes?: Record<string, string>; onOpen(path: string): void }) {
   const today = isoOf(new Date());
   const memories: Memory[] = useMemo(() => onThisDay(files, today), [files, today]);
   if (!memories.length) return null;
@@ -68,6 +74,11 @@ export function OnThisDaySection({ files, onOpen }: { files: FileEntry[]; onOpen
               {" "}
               · {memoryText(m)}
             </span>
+            {notes[m.day] && (
+              <div className="otd-note" data-no-i18n>
+                📝 {notes[m.day]}
+              </div>
+            )}
           </li>
         ))}
       </ul>

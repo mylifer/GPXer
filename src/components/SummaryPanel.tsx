@@ -72,6 +72,8 @@ interface Props {
   routes: Route[];
   onPeriod(from: string, to: string): void;
   onOpen(path: string): void;
+  /** Günlük notları (gün → metin). */
+  notes?: Record<string, string>;
   onRoute(route: Route): void;
   onActivity(id: string): void;
   onClose(): void;
@@ -85,7 +87,7 @@ interface Props {
   onSaveImage(name: string, base64: string): void;
 }
 
-export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage, fuel, goals }: Props) {
+export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes, onRoute, onActivity, onClose, places, onFlight, tzMode, onSaveImage, fuel, goals }: Props) {
   const [period, setPeriod] = useState<Period>("month");
   const [measure, setMeasure] = useState<Measure>("distance");
   const [hover, setHover] = useState<number | null>(null);
@@ -575,7 +577,7 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, onRout
 
         <PlaceStatsSection files={files} places={places} from={from} to={to} />
         <RoadsSection files={files} />
-        <OnThisDaySection files={files} onOpen={onOpen} />
+        <OnThisDaySection files={files} notes={notes} onOpen={onOpen} />
 
         <YearCompareSection files={files} />
 

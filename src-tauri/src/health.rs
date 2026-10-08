@@ -233,6 +233,7 @@ fn auto_backup(app: &AppHandle, force: bool) -> Option<Result<String, String>> {
                 &app.state::<MetaStore>().all(),
                 &app.state::<PlacesStore>().all(),
                 &app.state::<BookmarkStore>().all(),
+                &app.state::<crate::journal::JournalStore>().all(),
                 None,
             )
         })

@@ -13,6 +13,7 @@ export function useSync({
   refreshMeta,
   setPlacesState,
   setMarks,
+  refreshJournal,
   say,
   fail,
 }: {
@@ -23,6 +24,7 @@ export function useSync({
   refreshMeta(): Promise<void>;
   setPlacesState(p: NamedPlace[]): void;
   setMarks(b: Bookmark[]): void;
+  refreshJournal(): void;
   say(msg: string): void;
   fail(message: string): void;
 }) {
@@ -42,6 +44,7 @@ export function useSync({
           getPlaces()
             .then((p) => Array.isArray(p) && setPlacesState(p))
             .catch(() => {});
+        if (r.journalChanged) refreshJournal();
         if (r.bookmarksChanged)
           getBookmarks()
             .then((b) => Array.isArray(b) && setMarks(b))
@@ -51,7 +54,7 @@ export function useSync({
           r.pushed && `${fmtNumber(r.pushed)} kayıt gönderildi`,
           r.removedLocal && `${fmtNumber(r.removedLocal)} kayıt öbür cihazda silindiği için çöp kutusuna taşındı`,
           r.removedRemote && `${fmtNumber(r.removedRemote)} silme öbür cihazlara bildirildi`,
-          (r.metaChanged || r.placesChanged || r.bookmarksChanged) && "etiket, not, yer ya da yer imleri güncellendi",
+          (r.metaChanged || r.placesChanged || r.bookmarksChanged || r.journalChanged) && "etiket, not, yer, yer imleri ya da günlük güncellendi",
           r.waiting && `${fmtNumber(r.waiting)} dosya bulut klasörüne henüz inmedi (sonraki eşitlemede)`,
         ]
           .filter((x): x is string => !!x)

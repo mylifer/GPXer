@@ -29,6 +29,8 @@ export interface StoryInput {
   mapPng: string | null;
   nights: Night[];
   photos: StoryPhoto[];
+  /** Günlük notları (gün → metin). */
+  notes?: Record<string, string>;
 }
 
 const esc = (x: string) => x.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -64,7 +66,7 @@ function profileSvg(d: Detail): string {
 }
 
 /** Kaydın paylaşılabilir tek sayfalık hikâyesi (dışa bağımlılığı olmayan HTML). */
-export function storyHtml({ s, detail, mapPng, nights, photos }: StoryInput): string {
+export function storyHtml({ s, detail, mapPng, nights, photos, notes = {} }: StoryInput): string {
   const tz = tzOf(s);
   const st = s.stats;
   const title = s.name || s.fileName;
@@ -85,9 +87,11 @@ export function storyHtml({ s, detail, mapPng, nights, photos }: StoryInput): st
       const n = nightOn(d.day);
       return `<tr><td>${t(`${i + 1}. gün`)}</td><td>${esc(isoToTr(d.day))}</td><td>${esc(fmtDistance(d.distanceM))}</td><td>${esc(
         fmtDuration(d.movingMs),
-      )}</td><td>${n ? `🛏 ${esc(n.place || "")}` : ""}</td></tr>`;
+      )}</td><td>${n ? `🛏 ${esc(n.place || "")}` : ""}</td></tr>${notes[d.day] ? `<tr class="note"><td colspan="5">📝 ${esc(notes[d.day])}</td></tr>` : ""}`;
     })
     .join("");
+  // Tek günlük kayıtta not başlığın altında.
+  const singleNote = days.length === 1 && notes[days[0].day] ? `<p class="note">📝 ${esc(notes[days[0].day])}</p>` : "";
   const photoHtml = photos
     .map(
       (p) =>
@@ -117,10 +121,12 @@ td{padding:8px 10px;border-bottom:1px solid var(--border)}tr:last-child td{borde
 .photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
 figure{margin:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden}
 figure img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}figcaption{padding:6px 10px;color:var(--muted);font-size:.85rem}
+.note,tr.note td{color:var(--text);font-style:italic;white-space:pre-wrap}
 footer{margin-top:40px;color:var(--muted);font-size:.85rem;text-align:center}
 </style></head><body><main>
 <h1>${esc(title)}</h1>
 <p class="sub">${esc([when, route].filter(Boolean).join(" · "))}</p>
+${singleNote}
 ${mapPng ? `<img class="map" src="data:image/png;base64,${mapPng}" alt="${t("Yolculuğun haritası")}">` : ""}
 <div class="cards">${cards.map(([k, v]) => `<div class="card"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`).join("")}</div>
 ${days.length > 1 ? `<h2>${t("Gün gün")}</h2><table>${dayRows}</table>` : ""}

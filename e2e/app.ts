@@ -54,6 +54,7 @@ const DEFAULTS: Record<string, Handler> = {
   get_places: () => [],
   streets_info: () => [0, 0],
   search_trace: () => ["", []],
+  get_journal: () => ({}),
   search_places_offline: () => [],
   search_streets_offline: () => [],
   search_places_online: () => [],

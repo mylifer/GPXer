@@ -2903,3 +2903,13 @@ td.down {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.day-note textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}
+
+.otd-note {
+  font-style: italic;
+}

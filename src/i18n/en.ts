@@ -714,6 +714,8 @@ export const EN: Record<string, string> = {
   "Denetleniyor…": "Checking…",
   "Arşivi denetle": "Check archive",
   "Burada ne zaman bulundum?": "When was I here?",
+  "Günün notu": "Note for the day",
+  "Bu gün ne oldu? (kimle, nereye, neden…)": "What happened this day? (with whom, where, why…)",
   "🕒 Burada ne zaman bulundum?": "🕒 When was I here?",
   "Yarıçap": "Radius",
   "Bu noktanın yakınından geçen kayıt yok.": "No recordings pass near this point.",

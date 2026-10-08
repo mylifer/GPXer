@@ -160,6 +160,7 @@ Bu klasör GPXer olmadan da kullanılabilir:
 - bilgiler.json    Etiket, not ve tür (dosya adına göre).
 - yerler.json      Adlandırılmış yerler (ev, iş…; enlem/boylam, yarıçap).
 - yer-imleri.json  Haritada işaretlenen yerler.
+- gunluk.json      Günlük notları (gün → metin).
 - index.html       Tarayıcıda açılan, yıllara göre kayıt listesi.
 
 GPXer'e geri almak için kayitlar/ klasörünü Dosya → Klasör aç ile açabilirsiniz.

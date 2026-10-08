@@ -9,7 +9,7 @@ use crate::meta::{FileMeta, MetaStore};
 use crate::places::{NamedPlace, PlacesStore};
 use crate::{export, load_many, run_blocking};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
 use std::path::Path;
 use tauri::{AppHandle, Manager};
@@ -19,6 +19,7 @@ const META_FILE: &str = "bilgiler.json";
 const PLACES_FILE: &str = "yerler.json";
 const MANIFEST_FILE: &str = "gpxer-yedek.json";
 const BOOKMARKS_FILE: &str = "yer-imleri.json";
+const JOURNAL_FILE: &str = "gunluk.json";
 
 #[derive(Serialize, Deserialize)]
 struct Manifest {
@@ -70,6 +71,7 @@ pub(crate) async fn backup_library(
             &app.state::<MetaStore>().all(),
             &app.state::<PlacesStore>().all(),
             &app.state::<BookmarkStore>().all(),
+            &app.state::<crate::journal::JournalStore>().all(),
             password.as_deref().filter(|p| !p.is_empty()),
         )
         .map_err(|e| format!("Yedek yazılamadı: {e}"))?;
@@ -85,6 +87,7 @@ pub(crate) fn write_backup(
     meta: &HashMap<String, FileMeta>,
     places: &[NamedPlace],
     bookmarks: &[Bookmark],
+    journal: &BTreeMap<String, String>,
     password: Option<&str>,
 ) -> std::io::Result<BackupInfo> {
     use zip::write::SimpleFileOptions;
@@ -116,6 +119,8 @@ pub(crate) fn write_backup(
         zip.write_all(&serde_json::to_vec_pretty(places).map_err(std::io::Error::other)?)?;
         zip.start_file(BOOKMARKS_FILE, opts)?;
         zip.write_all(&serde_json::to_vec_pretty(bookmarks).map_err(std::io::Error::other)?)?;
+        zip.start_file(JOURNAL_FILE, opts)?;
+        zip.write_all(&serde_json::to_vec_pretty(journal).map_err(std::io::Error::other)?)?;
         let manifest = Manifest {
             app: "GPXer".into(),
             version: env!("CARGO_PKG_VERSION").into(),
@@ -161,6 +166,7 @@ struct Extracted {
     meta: HashMap<String, FileMeta>,
     places: Vec<NamedPlace>,
     bookmarks: Vec<Bookmark>,
+    journal: BTreeMap<String, String>,
 }
 
 /// Yedeği `tmp` klasörüne açar; (geçici yol, yedekteki ad) çiftleri döner.
@@ -222,6 +228,7 @@ fn extract(src: &Path, tmp: &Path, password: Option<&str>) -> Result<Extracted, 
     let meta: HashMap<String, FileMeta> = parse(&mut zip, pw, META_FILE)?;
     let places: Vec<NamedPlace> = parse(&mut zip, pw, PLACES_FILE)?;
     let bookmarks: Vec<Bookmark> = parse(&mut zip, pw, BOOKMARKS_FILE)?;
+    let journal: BTreeMap<String, String> = parse(&mut zip, pw, JOURNAL_FILE)?;
     std::fs::create_dir_all(tmp).map_err(|e| e.to_string())?;
     let mut paths = Vec::new();
     for i in 0..zip.len() {
@@ -257,6 +264,7 @@ fn extract(src: &Path, tmp: &Path, password: Option<&str>) -> Result<Extracted, 
         meta,
         places,
         bookmarks,
+        journal,
     })
 }
 
@@ -311,6 +319,17 @@ fn restore_into(
         bm.set(marks)
             .map_err(|e| format!("Yer imleri yazılamadı: {e}"))?;
     }
+    // Günlük: yerelde notu olmayan günler eklenir (var olan not ezilmez).
+    let js = app.state::<crate::journal::JournalStore>();
+    let mut days = js.all();
+    let n = days.len();
+    for (d, t) in x.journal {
+        days.entry(d).or_insert(t);
+    }
+    if days.len() > n {
+        js.set_all(days)
+            .map_err(|e| format!("Günlük yazılamadı: {e}"))?;
+    }
     Ok(RestoreInfo {
         results,
         meta_merged,
@@ -355,6 +374,7 @@ mod tests {
             &meta,
             &places,
             &[],
+            &BTreeMap::from([("2024-07-09".to_owned(), "Datça".to_owned())]),
             None,
         )
         .unwrap();
@@ -369,6 +389,7 @@ mod tests {
         );
         assert_eq!(x.meta["a.gpx"].tags, vec!["iş"]);
         assert_eq!(x.places.len(), 1);
+        assert_eq!(x.journal["2024-07-09"], "Datça");
         // Yedek olmayan zip reddedilir.
         let other = root.join("baska.zip");
         let mut z = zip::ZipWriter::new(std::fs::File::create(&other).unwrap());
@@ -384,6 +405,7 @@ mod tests {
             &meta,
             &places,
             &[],
+            &BTreeMap::new(),
             Some("gizli123"),
         )
         .unwrap();

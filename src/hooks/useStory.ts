@@ -17,9 +17,12 @@ export function useStory({
   places,
   zones,
   mapRef,
+  notes,
   say,
   fail,
 }: {
+  /** Günlük notları (gezi hikâyesinde gün gün). */
+  notes: Record<string, string>;
   selectedEntry: FileEntry | null | undefined;
   detail: Detail | null;
   placedPhotos: { placed: PlacedPhoto[] };
@@ -47,7 +50,7 @@ export function useStory({
             }),
           )
         ).filter((x): x is StoryPhoto => !!x);
-        const html = storyHtml({ s, detail: d, mapPng: mapPng ?? null, nights: nightsOf(s, places), photos });
+        const html = storyHtml({ s, detail: d, mapPng: mapPng ?? null, nights: nightsOf(s, places), photos, notes });
         const stem = (s.name || s.fileName).replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]+/g, "_");
         const path = await pickSavePath(`${stem}.html`, [{ name: "HTML", extensions: ["html"] }]);
         if (!path) return;
@@ -57,7 +60,7 @@ export function useStory({
         fail(`Gezi hikâyesi oluşturulamadı: ${e}`);
       }
     },
-    [mapRef, placedPhotos, places, zones, say, fail],
+    [mapRef, placedPhotos, places, zones, notes, say, fail],
   );
   const makeStory = useCallback(() => {
     if (selectedEntry) void write([selectedEntry], selectedEntry.summary, detail);

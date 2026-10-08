@@ -20,7 +20,12 @@ export function DayDialog({
   onShowDay,
   onOpen,
   onClose,
+  note,
+  onNote,
 }: {
+  /** O günün günlük notu. */
+  note(day: string): string;
+  onNote(day: string, text: string): void;
   files: FileSummary[];
   places: NamedPlace[];
   initialDay: string;
@@ -78,6 +83,17 @@ export function DayDialog({
         {weekday}
         {items.length > 0 && ` · ${t("toplam yol")} ${fmtDistance(total)}`}
       </p>
+      <label className="field day-note">
+        <span>Günün notu</span>
+        <textarea
+          rows={2}
+          value={note(day)}
+          onChange={(e) => onNote(day, e.target.value)}
+          placeholder="Bu gün ne oldu? (kimle, nereye, neden…)"
+          aria-label="Günün notu"
+          data-no-i18n
+        />
+      </label>
       {items.length === 0 ? (
         <div className="muted small-note">Bu gün kayıt yok.</div>
       ) : (
@@ -89,8 +105,7 @@ export function DayDialog({
               </span>
               {x.kind === "stop" && (
                 <button className="link" onClick={() => onFocus([x.lon, x.lat])} title="Haritada göster">
-                  {x.night ? "🛏" : "📍"} <strong>{x.place || "Duraklama"}</strong>{" "}
-                  <span className="muted">{fmtDuration(x.end - x.start)}</span>
+                  {x.night ? "🛏" : "📍"} <strong>{x.place || "Duraklama"}</strong> <span className="muted">{fmtDuration(x.end - x.start)}</span>
                 </button>
               )}
               {x.kind === "move" && (
