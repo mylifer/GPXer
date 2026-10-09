@@ -61,14 +61,14 @@ import { OnThisDayCard } from "./components/OnThisDay";
 import { Toasts } from "./components/Toasts";
 import type { Route } from "./routes";
 import { fmtDistance, fmtElevation, fmtNumber, isoOf, isoToTr, tzOf } from "./format";
-import { photoTrips, tripGpx } from "./photos";
+import { photoDay, photoTrips, tripGpx } from "./photos";
 import { createIdxStore } from "./lib/idxStore";
 import type { Dialog } from "./hooks/dialog";
 import { useBaseLayer, usePrefs } from "./hooks/usePrefs";
 import { useNotices } from "./hooks/useNotices";
 import { useFileLoader } from "./hooks/useFileLoader";
 import { usePlaces } from "./hooks/usePlaces";
-import { EMPTY_META, useMeta } from "./hooks/useMeta";
+import { META_CHANGED, EMPTY_META, useMeta } from "./hooks/useMeta";
 import { useFilteredFiles } from "./hooks/useFilteredFiles";
 import { usePhotos } from "./hooks/usePhotos";
 import { useCompareDetails, useSelectedDetail } from "./hooks/useSelectedDetail";
@@ -267,6 +267,11 @@ export default function App() {
         .catch(() => {}),
     [setMetaState],
   );
+  useEffect(() => {
+    const on = () => void refreshMeta();
+    window.addEventListener(META_CHANGED, on);
+    return () => window.removeEventListener(META_CHANGED, on);
+  }, [refreshMeta]);
   // ---------- Yerinde düzeltme (arazi yüksekliği, yola oturtma) ----------
   const replaceSummary = useCallback(
     (r: LoadResult) => {
@@ -310,8 +315,16 @@ export default function App() {
     },
     [applyRewrite, say, fail],
   );
+  const rewritingRef = useRef(false);
   const rewrite = useCallback(
     async (path: string, kind: RewriteKind) => {
+      // Aynı anda ikinci düzeltme başlamaz (ikisi de asıl dosyayı okuyup son
+      // yazan kazanırdı).
+      if (rewritingRef.current) {
+        say("Önceki düzeltme sürüyor; bitince yeniden deneyin.");
+        return;
+      }
+      rewritingRef.current = true;
       setRewriting({ path, kind });
       try {
         const r = await (kind === "elevation" ? fixElevation(path) : snapToRoads(path));
@@ -325,6 +338,7 @@ export default function App() {
       } catch (e) {
         fail(String(e));
       } finally {
+        rewritingRef.current = false;
         setRewriting(null);
       }
     },
@@ -349,6 +363,8 @@ export default function App() {
         setDetailRev((x) => x + 1);
         say("Kaydın düzeltmeden önceki haline dönüldü.");
       } catch (e) {
+        // Ayrıntı değişmedi: nokta düzenleme kilitli kalmasın.
+        staleDetail.current = false;
         fail(String(e));
       }
     },
@@ -408,9 +424,11 @@ export default function App() {
   const makePhotoTracks = useCallback(async (range?: { from: string; to: string }) => {
     try {
       // Kapsama boşluğundan: yalnızca o dönemde çekilmiş fotoğraflar.
-      const day = (t: number) => new Date(t).toISOString().slice(0, 10);
       const photoInfo = range
-        ? allPhotos.filter((p) => p.time != null && day(p.time) >= range.from && day(p.time) <= range.to)
+        ? allPhotos.filter((p) => {
+            const d = photoDay(p);
+            return d != null && d >= range.from && d <= range.to;
+          })
         : allPhotos;
       // Dilimsiz EXIF saatleri için konumların saat dilimi (yaklaşık 50 km'lik hücrelerde bir kez).
       const zones = new Map<string, string | null>();

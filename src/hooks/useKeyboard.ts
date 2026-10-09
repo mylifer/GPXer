@@ -49,7 +49,8 @@ export function useKeyboard({
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (dialog || routeModal || modalOpen || e.defaultPrevented) return;
+      // Durumda izlenmeyen pencereler (yer imi, parola, "Burada ne zaman") de sayılır.
+      if (dialog || routeModal || modalOpen || e.defaultPrevented || document.querySelector(".modal-backdrop, .palette")) return;
       if (e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
       const el = e.target as HTMLElement;
       const tag = el.tagName;

@@ -96,8 +96,9 @@ export function lifePeriods(list: readonly FileSummary[]): LifePeriod[] {
 /** O andaki ev: zamanı kapsayan (ya da en yakın önceki) dönemin yeri. */
 export function homeAt(periods: readonly LifePeriod[], t: number): Pt | null {
   if (!periods.length) return null;
+  // Dönemler yerel günlerden kurulur: ay da yerel saate göre.
   const d = new Date(t);
-  const m = d.getUTCFullYear() * 12 + d.getUTCMonth();
+  const m = d.getFullYear() * 12 + d.getMonth();
   let best = periods[0];
   for (const p of periods) if (monthIdx(p.from) <= m) best = p;
   return [best.lon, best.lat];

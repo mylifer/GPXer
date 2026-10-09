@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { streetAt } from "../api";
-import { fmtLatLon, fmtNumber, fmtTimestamp, isoToTr, tzOf } from "../format";
+import { fmtLatLon, fmtNumber, fmtTimestamp, isoOf, isoToTr, tzOf } from "../format";
 import { passesNear } from "../here";
 import { t } from "../i18n";
 import type { FileEntry } from "../types";
@@ -55,7 +55,7 @@ export function HereDialog({
   const maxY = Math.max(1, ...years.map((y) => y[1]));
   const first = dated[dated.length - 1];
   const last = dated[0];
-  const day = (t: number) => isoToTr(new Date(t).toISOString().slice(0, 10));
+  const day = (t: number) => isoToTr(isoOf(new Date(t)));
 
   return (
     <Modal title="Burada ne zaman bulundum?" onClose={onClose} wide>

@@ -46,7 +46,8 @@ export function venueBook(stops: readonly VisitStop[], venues: ReadonlyMap<strin
   for (const st of stops) {
     const v = venues.get(st.cell);
     if (!v) continue;
-    const key = `${v.name}\u0000${v.kind}`;
+    // Zincirlerin farklı şubeleri ayrı satır (≈1 km'lik hücre).
+    const key = `${v.name}\u0000${v.kind}\u0000${Math.round(st.lon * 100)},${Math.round(st.lat * 100)}`;
     let e = m.get(key);
     if (!e) {
       e = { name: v.name, kind: v.kind, lon: st.lon, lat: st.lat, visits: 0, totalMs: 0, first: st.day, last: st.day, days: new Set() };

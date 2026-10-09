@@ -3,7 +3,7 @@ import { dayBuckets, dedupedTotals, rangeShare } from "./days";
 import { MONTHS, dayKey, fmtDistance, fmtNumber, isoToTr, tzOf } from "./format";
 import { t } from "./i18n";
 import type { PlacedPhoto } from "./photos";
-import { maskLines, type Zone } from "./privacy";
+import { inZone, maskLines, type Zone } from "./privacy";
 import { drawLines, linesInYear, type YearCard } from "./shareCard";
 import type { FileEntry } from "./types";
 
@@ -74,7 +74,8 @@ export function albumMonths(
       .map(([day, text]) => ({ day, text: text.trim() }));
     const tzByPath = new Map(sums.map((s) => [s.path, tzOf(s)]));
     const shots = photos
-      .filter((p) => p.at != null && dayKey(p.at, (p.record && tzByPath.get(p.record)) || undefined).startsWith(key))
+      // Gizlilik bölgesinde (ev…) çekilen fotoğraflar albüme girmez.
+      .filter((p) => p.at != null && !inZone([p.lon, p.lat], zones) && dayKey(p.at, (p.record && tzByPath.get(p.record)) || undefined).startsWith(key))
       .sort((a, b) => a.at! - b.at!);
     const step = shots.length / ALBUM_PHOTOS;
     const picked = shots.length <= ALBUM_PHOTOS ? shots : Array.from({ length: ALBUM_PHOTOS }, (_, i) => shots[Math.floor(i * step)]);

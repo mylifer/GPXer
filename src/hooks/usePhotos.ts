@@ -111,7 +111,11 @@ export function usePhotos({
       .catch(() => {});
   }, [folderKey, fail]);
   useEffect(() => {
-    const un = listen<PhotoInfo[]>("photos-added", ({ payload }) => {
+    const un = listen<PhotoInfo[]>("photos-added", ({ payload: all }) => {
+      // Yalnızca hâlâ ekli klasörlerdekiler (temizlendikten sonra gelen
+      // gecikmiş bildirim fotoğrafları geri getirmesin).
+      const folders = prefsRef.current.photos;
+      const payload = all.filter((x) => folders.some((f) => x.path === f || x.path.startsWith(f.replace(/[\\/]$/, "") + "/") || x.path.startsWith(f.replace(/[\\/]$/, "") + "\\")));
       if (!payload.length) return;
       setPhotoInfo((prev) => {
         const byPath = new Map(prev.map((x) => [x.path, x]));

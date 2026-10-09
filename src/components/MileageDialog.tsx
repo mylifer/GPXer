@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { FileMeta } from "../api";
+import { dayBuckets } from "../days";
 import { fmtNumber, isoToTr, monthLabel } from "../format";
 import { fmtMoney, type FuelPrefs } from "../fuel";
 import { mileageCsv, mileageLog } from "../mileage";
@@ -28,7 +29,11 @@ export function MileageDialog({
   const [tag, setTag] = useState(() => allTags.find((t) => /^i[şs]$/i.test(t)) ?? allTags[0] ?? "");
   const years = useMemo(() => {
     const ys = new Set<string>();
-    for (const f of files) if (f.summary.stats.startTime != null) ys.add(new Date(f.summary.stats.startTime).getFullYear().toString());
+    // Defterle aynı gün mantığı (kaydın ilk günü, saat dilimi ayarına göre).
+    for (const f of files) {
+      const d = dayBuckets(f.summary)[0]?.day;
+      if (d) ys.add(d.slice(0, 4));
+    }
     return [...ys].sort().reverse();
   }, [files]);
   const [year, setYear] = useState(() => years[0] ?? String(new Date().getFullYear()));

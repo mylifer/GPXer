@@ -1,3 +1,4 @@
+import { metaChanged } from "./useMeta";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { t } from "../i18n";
 import { ask, open } from "@tauri-apps/plugin-dialog";
@@ -374,6 +375,8 @@ export function useFileLoader({
             ".",
         );
         flushCache().catch(() => {});
+        // Arşivden alınan türler arka uçta kayıt bilgisine yazıldı.
+        if (r.typed) metaChanged();
       } catch (e) {
         fail(String(e), z);
       }
@@ -462,6 +465,8 @@ export function useFileLoader({
       setSelected((s) => (s && set.has(s) ? null : s));
       setCompare((c) => (c && c.some((p) => set.has(p)) ? null : c));
       setMulti((m) => new Set([...m].filter((p) => !set.has(p))));
+      // Bilgileri çöpteki yola taşındı.
+      metaChanged();
     },
     [fail, up, patchFiles],
   );
@@ -497,6 +502,7 @@ export function useFileLoader({
       fail(String(e));
       return;
     }
+    metaChanged();
     // Geri getirme kullanıcının isteği: kaldırılanlar listesinden de çıkarılsınlar.
     await openPaths(restored, { quiet: true, silent: true, noFit: true, noSelect: restored.length !== 1, explicit: true });
     // Bu arada yeniden içe aktarılanlar ikinci kez getirilmez.

@@ -39,8 +39,10 @@ const templates = EN_T.map(([tr, en]) => {
       return "([\\s\\S]+?)";
     })
     .join("");
-  return { re: new RegExp(`^${src}$`), order, en };
-});
+  // Yer tutucusuz metin uzunluğu: özel kalıp ("{0}. gün") genelden ("{0} gün") önce denensin.
+  const literal = norm(tr).replace(/\{\d+\}/g, "").length;
+  return { re: new RegExp(`^${src}$`), order, en, literal };
+}).sort((a, b) => b.literal - a.literal);
 
 const cache = new Map<string, string | null>();
 

@@ -532,7 +532,8 @@ export function useCustomLayers(r: MapRefs, layers: CustomLayer[]) {
 
 /** Yer imleri (işaretçi; tıklayınca düzenleme). */
 export function useBookmarkMarkers(map: maplibregl.Map | null, marks: Bookmark[] | null, onClick: (b: Bookmark) => void) {
-  const key = JSON.stringify(marks?.map((m) => [m.id, m.lat, m.lon, m.name, m.wish]) ?? null);
+  // Not de anahtarda: tıklayınca düzenleyiciye güncel yer imi gitsin.
+  const key = JSON.stringify(marks?.map((m) => [m.id, m.lat, m.lon, m.name, m.wish, m.note]) ?? null);
   useEffect(() => {
     if (!map || !marks) return;
     const made = marks.map((b) => {

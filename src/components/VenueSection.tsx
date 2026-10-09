@@ -58,7 +58,7 @@ export function VenueSection({ files }: { files: FileEntry[] }) {
           </thead>
           <tbody>
             {book.slice(0, ROWS).map((v) => (
-              <tr key={`${v.name}-${v.kind}`}>
+              <tr key={`${v.name}-${v.kind}-${v.lon}-${v.lat}`}>
                 <td data-no-i18n>{`${venueIcon(v.kind)} ${v.name}`}</td>
                 <td>{fmtNumber(v.visits)}</td>
                 <td>{fmtDuration(v.totalMs)}</td>

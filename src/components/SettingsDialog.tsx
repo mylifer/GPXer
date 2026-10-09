@@ -75,7 +75,7 @@ export function SettingsDialog({
   }>({});
   useEffect(() => {
     archiveInfo()
-      .then((i) => setArchive((a) => ({ ...a, lastBackup: i.lastBackup, lastCheck: i.lastCheck, lastVerify: i.lastVerify })))
+      .then((i) => i && setArchive((a) => ({ ...a, lastBackup: i.lastBackup, lastCheck: i.lastCheck, lastVerify: i.lastVerify })))
       .catch(() => {});
   }, []);
   const [syncLast, setSyncLast] = useState<number | null>(null);

@@ -7,6 +7,12 @@ import type { FileEntry } from "../types";
 
 export const EMPTY_META: FileMeta = { tags: [], note: "", activity: null };
 
+/** Arka uçta kayıt bilgileri başka yoldan değişti (içe aktarma, silme, geri
+ * alma): arayüz bilgileri yeniden okur. Yoksa eski bilgi bir sonraki
+ * düzenlemede yeni kaydın üzerine yazılabilirdi. */
+export const META_CHANGED = "gpxer-meta-changed";
+export const metaChanged = () => window.dispatchEvent(new Event(META_CHANGED));
+
 /** Kayıtların tür/etiket/notları. */
 export function useMeta({
   fail,
@@ -60,6 +66,8 @@ export function useMeta({
         setMetaState((prev) => ({ ...prev, [path]: m }));
         say(`${fmtNumber(files.length)} belge iliştirildi.`);
       } catch (e) {
+        // Bir kısmı iliştirilmiş olabilir: bilgiler yeniden okunur.
+        metaChanged();
         fail(String(e), path);
       }
     },

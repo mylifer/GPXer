@@ -2,7 +2,7 @@ import type { FileMeta } from "./api";
 import { photoThumb } from "./api";
 import { albumData, albumMonths, drawAlbumPage, monthsOf, PAGE_H, PAGE_W, type AlbumMonth } from "./album";
 import { dedupedTotals } from "./days";
-import { fmtDistance, fmtNumber, isoToTr } from "./format";
+import { fmtDistance, fmtNumber, isoOf, isoToTr } from "./format";
 import { t } from "./i18n";
 import type { PlacedPhoto } from "./photos";
 import { base64Bytes, bytesBase64, jpegPdf, type JpegPage } from "./pdf";
@@ -115,6 +115,7 @@ export async function buildPersonAlbumPdf(
   const tot = dedupedTotals(sums, "", "");
   const days = monthsOf(mine);
   const first = sums.map((s) => s.stats.startTime).filter((x): x is number => x != null);
+  const last = sums.map((s) => s.stats.endTime ?? s.stats.startTime).filter((x): x is number => x != null);
   const title = t(`${person} ile yolculuklar`);
   const cover = (ctx: CanvasRenderingContext2D) => {
     coverBackground(ctx);
@@ -152,8 +153,8 @@ export async function buildPersonAlbumPdf(
       ctx.fillText(value, x, 1325);
     });
     if (first.length) {
-      const a = new Date(Math.min(...first)).toISOString().slice(0, 10);
-      const b = new Date(Math.max(...first)).toISOString().slice(0, 10);
+      const a = isoOf(new Date(Math.min(...first)));
+      const b = isoOf(new Date(Math.max(...last)));
       ctx.fillStyle = "#e8eef5";
       ctx.font = `500 32px ${FONT}`;
       ctx.fillText(`${isoToTr(a)} – ${isoToTr(b)} · ${t(`${fmtNumber(days.length)} ay`)}`, M, 1420);

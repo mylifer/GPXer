@@ -63,6 +63,17 @@ test("Özet: kayıtsız dönem fotoğraflardan doldurulur ya da bilerek boş iş
     added.push(a.name as string);
     return { status: "error", path: "x", message: "test" };
   };
+  const watched: string[][] = [];
+  mock["plugin:dialog|open"] = () => ["/f"];
+  mock.read_photos = () => [];
+  mock.watch_photo_folders = (a) => {
+    watched.push(a.folders as string[]);
+    return [];
+  };
+  await app.keyboard.press("Control+k");
+  await app.locator(".palette input").fill("Fotoğraf klasörü ekle");
+  await app.keyboard.press("Enter");
+  await expect.poll(() => watched.at(-1)).toEqual(["/f"]);
   // Ankara gezisiyle Bodrum arasındaki boşlukta (Ocak 2024) çekilmiş iki fotoğraf.
   await emit(app, "photos-added", [
     { path: "/f/1.jpg", name: "1.jpg", time: Date.parse("2024-01-05T10:00:00Z"), timeIsLocal: false, lat: 38.4, lon: 27.1, thumb: null },

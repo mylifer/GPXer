@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { MONTHS, fmtNumber, isoToTr } from "../format";
 import { coverage, type Gap } from "../coverage";
 import type { PhotoInfo } from "../api";
+import { photoDay } from "../photos";
 import { dayBuckets } from "../days";
 import type { FileEntry } from "../types";
 
@@ -35,7 +36,11 @@ export function CoverageSection({
   const isQuiet = (g: Gap) => quiet.some(([a, b]) => a <= g.from && g.to <= b);
   // Boşlukta çekilmiş, konumu olan fotoğraf sayısı (iz oluşturmak için en az iki).
   const photoDays = useMemo(
-    () => (fill?.photos ?? []).filter((p) => p.time != null && p.lat != null).map((p) => new Date(p.time!).toISOString().slice(0, 10)).sort(),
+    () => (fill?.photos ?? [])
+        .filter((p) => p.lat != null)
+        .map(photoDay)
+        .filter((d): d is string => d != null)
+        .sort(),
     [fill?.photos],
   );
   const photosIn = (g: Gap) => photoDays.filter((d) => d >= g.from && d <= g.to).length;

@@ -68,7 +68,12 @@ export function mileageLog(
   };
 }
 
-const cell = (v: string) => (/[;"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+/** Hücre: tablolama programı formül sanmasın diye =, +, -, @ ile başlayan
+ * metin kaçırılır (sayılar hariç); ayraç ve tırnak içeren hücre tırnaklanır. */
+const cell = (v: string) => {
+  const safe = /^[=+\-@\t\r]/.test(v) && !/^-?\d+([.,]\d+)?$/.test(v) ? `'${v}` : v;
+  return /[;"\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+};
 
 /** Excel'in Türkçe ayarlarıyla açılan CSV (noktalı virgül, ondalık virgül, BOM). */
 export function mileageCsv(log: ReturnType<typeof mileageLog>): string {

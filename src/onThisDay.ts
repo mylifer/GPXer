@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /** "Geçmiş yıllarda bugün": bugünün ay ve gününde önceki yıllarda yapılmış
  * kayıtlar (çok günlük kayıtlarda o güne düşen bölüm de sayılır). */
 import { dayBuckets } from "./days";
@@ -38,6 +39,6 @@ export function memoryText(m: Memory): string {
   const s = m.entries.map((e) => e.summary).sort((a, b) => (a.stats.startTime ?? 0) - (b.stats.startTime ?? 0));
   const from = s[0].startPlace;
   const to = s[s.length - 1].endPlace;
-  const where = from && to && from !== to ? `${from} → ${to}` : from || to || (s.length === 1 ? s[0].name || s[0].fileName : `${s.length} kayıt`);
+  const where = from && to && from !== to ? `${from} → ${to}` : from || to || (s.length === 1 ? s[0].name || s[0].fileName : t(`${s.length} kayıt`));
   return `${where} · ${fmtDistance(m.distanceM)}`;
 }

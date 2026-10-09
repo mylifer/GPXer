@@ -105,7 +105,16 @@ export function useStartup({
       const photoPaths = prefsRef.current.photos;
       if (photoPaths.length) {
         readPhotos(photoPaths)
-          .then((list) => Array.isArray(list) && setPhotoInfo(list))
+          .then((list) => {
+            // Bu arada "Tüm fotoğrafları kaldır" denildiyse atılır; bu arada
+            // eklenenler korunur (üzerine yazılmaz).
+            if (!Array.isArray(list) || prefsRef.current.photos.length === 0) return;
+            setPhotoInfo((prev) => {
+              const byPath = new Map(list.map((x) => [x.path, x]));
+              for (const x of prev) byPath.set(x.path, x);
+              return [...byPath.values()];
+            });
+          })
           .catch((e) => fail(`Fotoğraflar okunamadı: ${e}`));
       }
       try {

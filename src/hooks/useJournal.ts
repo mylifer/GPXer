@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { FLUSH_EVENT } from "../prefs";
 
 /** Günlük notları (gün → metin): yazdıkça kısa gecikmeyle kaydedilir. */
 export function useJournal(fail: (m: string) => void) {
@@ -10,7 +11,17 @@ export function useJournal(fail: (m: string) => void) {
   const refresh = useCallback(
     () =>
       invoke<Record<string, string>>("get_journal")
-        .then((d) => setDays(d ?? {}))
+        // Yazılmayı bekleyen günler (kullanıcı yazarken) eski hâliyle ezilmez.
+        .then((d) =>
+          setDays(() => {
+            const next = { ...(d ?? {}) };
+            for (const [day, text] of pending.current) {
+              if (text.trim()) next[day] = text;
+              else delete next[day];
+            }
+            return next;
+          }),
+        )
         .catch(() => {}),
     [],
   );
@@ -38,13 +49,25 @@ export function useJournal(fail: (m: string) => void) {
     },
     [fail],
   );
-  // Kapanırken bekleyen yazımlar hemen gönderilir.
+  // Kapanırken (pencere kapatma, güncelleme kurulumu) bekleyen yazımlar
+  // hemen gönderilir.
   useEffect(() => {
     const t = timers.current;
     const p = pending.current;
-    return () => {
+    const flush = () => {
       for (const x of t.values()) clearTimeout(x);
+      t.clear();
       for (const [day, text] of p) void invoke("set_day_note", { day, text }).catch(() => {});
+      p.clear();
+    };
+    window.addEventListener(FLUSH_EVENT, flush);
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener(FLUSH_EVENT, flush);
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+      flush();
     };
   }, []);
   return { days, setDay, refresh };

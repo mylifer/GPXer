@@ -55,6 +55,7 @@ const DEFAULTS: Record<string, Handler> = {
   streets_info: () => [0, 0],
   search_trace: () => ["", []],
   get_journal: () => ({}),
+  archive_info: () => ({ lastBackup: null, lastAutoBackup: null, lastCheck: null, lastVerify: null }),
   search_places_offline: () => [],
   search_streets_offline: () => [],
   search_places_online: () => [],

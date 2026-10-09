@@ -37,6 +37,7 @@ import { HabitsSection } from "./HabitsSection";
 import { PlaceStatsSection } from "./PlaceStatsSection";
 import { YearCompareSection } from "./YearCompareSection";
 import { privacyZones } from "../privacy";
+import { t } from "../i18n";
 import type { PlacedPhoto } from "../photos";
 import type { Goals } from "../prefs";
 
@@ -106,6 +107,8 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes,
   const [asTable, setAsTable] = useState(false);
 
   const dated = useMemo(() => files.filter((f) => f.summary.stats.startTime != null), [files]);
+  // Kararlı dizi: yıl kartı her çizimde (ör. çubuk üzerine gelince) yeniden üretilmesin.
+  const zones = useMemo(() => privacyZones(places), [places]);
 
   const buckets = useMemo<Bucket[]>(() => {
     const map = new Map<string, Bucket>();
@@ -553,12 +556,12 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes,
                     ))}
                   </div>
                   {y.cities.length > 0 && (
-                    <div className="muted visited-cities">
+                    <div className="muted visited-cities" data-no-i18n>
                       {y.cities
                         .slice(0, TOP_CITIES)
-                        .map((c) => `${c.name} (${fmtNumber(c.days)} gün)`)
+                        .map((c) => `${c.name} (${t(`${fmtNumber(c.days)} gün`)})`)
                         .join(" · ")}
-                      {y.cities.length > TOP_CITIES && ` · +${fmtNumber(y.cities.length - TOP_CITIES)} yer`}
+                      {y.cities.length > TOP_CITIES && ` · +${t(`${fmtNumber(y.cities.length - TOP_CITIES)} yer`)}`}
                     </div>
                   )}
                 </div>
@@ -595,7 +598,7 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes,
             meta={meta}
             onPerson={onPerson}
             onAlbum={async (name, progress) => {
-              const pdf = await buildPersonAlbumPdf(files, name, notes ?? {}, meta, photos ?? [], privacyZones(places), progress);
+              const pdf = await buildPersonAlbumPdf(files, name, notes ?? {}, meta, photos ?? [], zones, progress);
               onSaveImage(`GPXer-${name}-albumu.pdf`, pdf);
             }}
           />
@@ -666,7 +669,7 @@ export function SummaryPanel({ files, from, to, routes, onPeriod, onOpen, notes,
           ))}
         </ul>
 
-        <YearCardSection files={files} from={from} onSave={onSaveImage} zones={privacyZones(places)} notes={notes} meta={meta} photos={photos} />
+        <YearCardSection files={files} from={from} onSave={onSaveImage} zones={zones} notes={notes} meta={meta} photos={photos} />
       </div>
     </Modal>
   );

@@ -1076,11 +1076,13 @@ export const EN: Record<string, string> = {
   "Km": "Km",
   "Yakıt tutarı Ayarlar'daki tüketim ve fiyatla hesaplanır.": "Fuel cost uses the consumption and price in Settings.",
   "Kilometre defteri kaydedildi.": "Mileage log saved.",
+  "Önceki düzeltme sürüyor; bitince yeniden deneyin.": "The previous correction is still running; try again when it finishes.",
 };
 
 /** Değişken içeren iletiler: `{0}`, `{1}`… yer tutucuları (İngilizcede sırası
  * değişebilir). */
 export const EN_T: [string, string][] = [
+  ["{0} yer", "{0} places"],
   ["{0} yolculuk · {1} km · {2}", "{0} trips · {1} km · {2}"],
   ["📖 {0}", "📖 {0}"],
   ["{0} ile yolculuklar", "Trips with {0}"],

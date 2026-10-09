@@ -168,7 +168,8 @@ export function photoTrips(
       lat: p.lat!,
       lon: p.lon!,
       name: p.name,
-      t: (p.timeIsLocal ? wallToUtc(p.time!, tzAt(p.lat!, p.lon!)) : p.time!) - offsetH * 3_600_000,
+      // Saat düzeltmesi placePhotos ile aynı yönde: çekim zamanına eklenir.
+      t: (p.timeIsLocal ? wallToUtc(p.time! + offsetH * 3_600_000, tzAt(p.lat!, p.lon!)) : p.time! + offsetH * 3_600_000),
     }))
     .sort((a, b) => a.t - b.t);
   const trips: (typeof pts)[] = [];
@@ -194,4 +195,13 @@ ${trip.map((p) => `<wpt ${pt(p)}><time>${iso(p.t)}</time><name>${xmlEsc(p.name)}
 ${trip.map((p) => `<trkpt ${pt(p)}><time>${iso(p.t)}</time></trkpt>`).join("\n")}
 </trkseg></trk>
 </gpx>`;
+}
+
+/** Fotoğrafın çekildiği yerel gün (yyyy-aa-gg): dilimsiz EXIF saati zaten
+ * duvar saatidir; dilimli olan bilgisayarın saat dilimine çevrilir. */
+export function photoDay(p: { time: number | null; timeIsLocal: boolean }): string | null {
+  if (p.time == null) return null;
+  if (p.timeIsLocal) return new Date(p.time).toISOString().slice(0, 10);
+  const d = new Date(p.time);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

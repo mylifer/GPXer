@@ -2,7 +2,7 @@ import type { Activity, FileSummary } from "./api";
 import { t } from "./i18n";
 import { dayBuckets, dedupedTotals, rangeShare } from "./days";
 import { flightsOf, uniqueFlights } from "./flights";
-import { dayKey, dayRangeTr, fmtDistance, fmtDuration, fmtElevation, fmtNumber, tzOf } from "./format";
+import { dayKey, dayRangeTr, fastDayKey, fmtDistance, fmtDuration, fmtElevation, fmtNumber, tzOf } from "./format";
 import { visitedPlaces } from "./summary";
 import type { FileEntry } from "./types";
 import { countryName } from "./visits";
@@ -79,7 +79,7 @@ export function linesInYear(s: FileSummary, year: string): YearCard["lines"] {
     let cur: [number, number][] = [];
     line.forEach((p, j) => {
       const tm = times[j];
-      if (tm == null || dayKey(tm, zone).startsWith(year)) cur.push(p);
+      if (tm == null || fastDayKey(tm, zone).startsWith(year)) cur.push(p);
       else if (cur.length) {
         out.push({ activity: s.activity, pts: cur });
         cur = [];
