@@ -669,6 +669,8 @@ fn keeps_running_on_a_track() {
 
 #[test]
 fn prepared_maps_back_to_raw_points() {
+    // prepare 1990 öncesi zamanları bozuk sayar: gerçekçi bir tarihten başlanır.
+    let pt = |la: f64, lo: f64, t: i64| pt(la, lo, 1_700_000_000 + t);
     // Kuzeye yürüyüş; 5. nokta sıçrama, ardından 1 saat titreme, yine yürüyüş.
     let mut seg: Vec<Point> = (0..60)
         .map(|i| pt(41.0 + i as f64 * 4.5e-5, 29.0, i))
@@ -1121,6 +1123,8 @@ fn jumps_between_segments_are_gaps() {
 
 #[test]
 fn removes_segments_teleported_far_away() {
+    // prepare 1990 öncesi zamanları bozuk sayar: gerçekçi bir tarihten başlanır.
+    let pt = |la: f64, lo: f64, t: i64| pt(la, lo, 1_700_000_000 + t);
     // İstanbul'da kayıt; 3 segment boyunca önce okyanusta, sonra Boston'da
     // (GPS hatası); sonra yine İstanbul.
     let ist = |k: i64| pt(41.06, 28.98 + k as f64 * 1e-4, k * 60);
