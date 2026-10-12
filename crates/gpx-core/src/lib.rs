@@ -13,6 +13,7 @@ pub mod formats;
 pub mod google;
 pub mod ops;
 pub mod parse;
+pub mod patch;
 mod segments;
 pub mod simplify;
 pub mod snap;

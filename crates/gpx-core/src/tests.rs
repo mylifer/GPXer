@@ -1792,3 +1792,94 @@ fn stops_across_antimeridian_stay_in_place() {
     analysis::collapse_segment_stays(&mut s2);
     assert!(s2.iter().all(|p| p.lon.abs() > 179.99), "{s2:?}");
 }
+
+#[test]
+fn in_place_edits_keep_the_rest_of_the_file() {
+    use crate::patch::patch_gpx;
+    let text = r#"<?xml version="1.0"?>
+<gpx version="1.1" creator="Garmin" xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3">
+  <metadata><name>Sabah</name><desc>Kuşlarla dolu &amp; sisli</desc><link href="https://ornek.com"><text>Fotoğraflar</text></link></metadata>
+  <wpt lat="41.0" lon="29.0"><name>Çeşme</name><sym>Water Source</sym><cmt>soğuk</cmt></wpt>
+  <rte><name>Plan</name><rtept lat="41.0" lon="29.0"><name>Sola dön</name></rtept><rtept lat="41.1" lon="29.1"><name>Varış</name></rtept></rte>
+  <trk><name>Sabah</name><type>hiking</type>
+    <trkseg>
+      <trkpt lat="41.0" lon="29.0"><ele>10</ele><time>2024-05-01T08:00:00Z</time><extensions><gpxx:Speed>1.2</gpxx:Speed></extensions></trkpt>
+      <trkpt lat="41.001" lon="29.001"><ele>11</ele><time>2024-05-01T08:01:00Z</time></trkpt>
+      <trkpt lat="41.002" lon="29.002"><time>2024-05-01T08:02:00Z</time></trkpt>
+      <trkpt lat="41.003" lon="29.003"/>
+    </trkseg>
+  </trk>
+</gpx>"#;
+    let base = parse::parse_gpx(text.as_bytes()).unwrap();
+    let keeps = |out: &str| {
+        for s in [
+            "<desc>Kuşlarla dolu &amp; sisli</desc>",
+            "<sym>Water Source</sym>",
+            "<cmt>soğuk</cmt>",
+            "<name>Sola dön</name>",
+            "<type>hiking</type>",
+            "<gpxx:Speed>1.2</gpxx:Speed>",
+            "https://ornek.com",
+        ] {
+            assert!(out.contains(s), "{s} kayboldu:\n{out}");
+        }
+    };
+    // Nokta taşıma.
+    let mut g = base.clone();
+    g.tracks[0].segments[0][1].lat = 41.0015;
+    let out = patch_gpx(text, &g).unwrap();
+    keeps(&out);
+    assert!(out.contains(r#"<trkpt lat="41.0015" lon="29.001">"#));
+    assert_eq!(
+        parse::parse_gpx(out.as_bytes()).unwrap().tracks[0].segments[0][1].lat,
+        41.0015
+    );
+    // Yükseklik: var olan değişir, olmayana eklenir (boş öğe de açılır).
+    let mut g = base.clone();
+    for p in g.tracks[0].segments[0].iter_mut() {
+        p.ele = Some(20.5);
+    }
+    let out = patch_gpx(text, &g).unwrap();
+    keeps(&out);
+    let back = parse::parse_gpx(out.as_bytes()).unwrap();
+    assert!(
+        back.tracks[0].segments[0]
+            .iter()
+            .all(|p| p.ele == Some(20.5)),
+        "{out}"
+    );
+    // Silme: kalan noktaların metni (eklentisi) korunur.
+    let mut g = base.clone();
+    g.tracks[0].segments[0].remove(2);
+    g.tracks[0].segments[0].remove(1);
+    let out = patch_gpx(text, &g).unwrap();
+    keeps(&out);
+    assert_eq!(
+        parse::parse_gpx(out.as_bytes()).unwrap().tracks[0].segments[0].len(),
+        2
+    );
+    // Geometri baştan değişti (yola oturtma): segment yeniden yazılır, gerisi kalır.
+    let mut g = base.clone();
+    g.tracks[0].segments[0] = (0..6)
+        .map(|k| Point {
+            lat: 41.0 + k as f64 * 0.0005,
+            lon: 29.0,
+            time: Some(1_714_550_400_000 + k * 30_000),
+            ..Default::default()
+        })
+        .collect();
+    let out = patch_gpx(text, &g).unwrap();
+    assert!(
+        out.contains("<desc>Kuşlarla dolu &amp; sisli</desc>")
+            && out.contains("<type>hiking</type>")
+            && out.contains("<name>Sola dön</name>")
+    );
+    assert_eq!(
+        parse::parse_gpx(out.as_bytes()).unwrap().tracks[0].segments[0].len(),
+        6
+    );
+    // Yapı değiştiyse (işaret noktası silindi) yama yapılmaz.
+    let mut g = base.clone();
+    g.waypoints.clear();
+    assert!(patch_gpx(text, &g).is_none());
+}

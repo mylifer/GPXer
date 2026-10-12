@@ -44,13 +44,13 @@ fn sensor_of(name: &[u8]) -> Option<Sensor> {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Track {
     pub name: Option<String>,
     pub segments: Vec<Vec<Point>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Waypoint {
     pub point: Point,
     pub name: Option<String>,

@@ -82,7 +82,13 @@ pub fn format_time(ms: i64) -> String {
         .unwrap_or_default()
 }
 
-fn point<S: Sink + ?Sized>(out: &mut S, tag: &str, p: &Point, name: Option<&str>, indent: &str) {
+pub(crate) fn point<S: Sink + ?Sized>(
+    out: &mut S,
+    tag: &str,
+    p: &Point,
+    name: Option<&str>,
+    indent: &str,
+) {
     let _ = write!(
         out,
         // `{}` f64'ü kayıpsız (en kısa geri dönüşümlü) biçimde yazar.

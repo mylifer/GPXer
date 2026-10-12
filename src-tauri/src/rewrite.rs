@@ -35,9 +35,18 @@ pub(crate) fn rewrite_record(
         .ok()
         .map(|(s, _)| s.stats);
     let (mut gpx, _) = gpx_core::read_gpx_file(path.as_ref()).map_err(|e| e.to_string())?;
+    let original = std::path::Path::new(path)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("gpx"))
+        .then(|| std::fs::read_to_string(path).ok())
+        .flatten();
     change(&mut gpx)?;
     let previous = library.keep_previous(path)?;
-    let text = gpx_core::write::write_gpx(&gpx);
+    // Özgün dosya korunarak yalnızca iz noktaları yamanır (açıklama, simge,
+    // rota adımları, nokta eklentileri kaybolmasın); olmazsa baştan yazılır.
+    let text = original
+        .and_then(|t| gpx_core::patch::patch_gpx(&t, &gpx))
+        .unwrap_or_else(|| gpx_core::write::write_gpx(&gpx));
     if let Err(e) = crate::store::write_atomic(path.as_ref(), text.as_bytes()) {
         let _ = std::fs::remove_file(&previous);
         return Err(format!("Kayıt yazılamadı: {e}"));

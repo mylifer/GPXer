@@ -238,7 +238,9 @@ fn journal_notes_merge_between_devices() {
 #[test]
 fn edits_made_during_sync_are_kept() {
     let m = |v: &[(&str, &str)]| -> BTreeMap<String, String> {
-        v.iter().map(|(k, x)| (k.to_string(), x.to_string())).collect()
+        v.iter()
+            .map(|(k, x)| (k.to_string(), x.to_string()))
+            .collect()
     };
     let before = m(&[("a", "1"), ("b", "1"), ("c", "1")]);
     // Eşitleme a'yı uzaktan güncelledi, d'yi ekledi.
@@ -246,5 +248,8 @@ fn edits_made_during_sync_are_kept() {
     // Bu arada burada b düzenlendi, c silindi, e eklendi.
     let now = m(&[("a", "1"), ("b", "yerel"), ("e", "yeni")]);
     keep_local_edits(&mut merged, &before, &now);
-    assert_eq!(merged, m(&[("a", "2"), ("b", "yerel"), ("d", "1"), ("e", "yeni")]));
+    assert_eq!(
+        merged,
+        m(&[("a", "2"), ("b", "yerel"), ("d", "1"), ("e", "yeni")])
+    );
 }
