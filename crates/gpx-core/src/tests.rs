@@ -1770,3 +1770,25 @@ fn kml_tcx_entities_and_spaced_coordinates() {
     // Denetim karakteri yazılan GPX'e geçmez.
     assert_eq!(crate::write::esc("a\u{1}b & c"), "ab &amp; c");
 }
+
+#[test]
+fn stops_across_antimeridian_stay_in_place() {
+    // Fiji'de 180. boylamın iki yanında 40 dakikalık duraklama.
+    let lons = [179.9998, 179.9999, -179.9999, 179.9998, -179.9998];
+    let seg: Vec<Point> = lons
+        .iter()
+        .enumerate()
+        .map(|(k, &lon)| Point {
+            lat: -16.8,
+            lon,
+            time: Some(1_700_000_000_000 + k as i64 * 600_000),
+            ..Default::default()
+        })
+        .collect();
+    let stops = analysis::detect_stops([seg.as_slice()]);
+    assert_eq!(stops.len(), 1);
+    assert!(stops[0].lon.abs() > 179.99, "{}", stops[0].lon);
+    let mut s2 = seg.clone();
+    analysis::collapse_segment_stays(&mut s2);
+    assert!(s2.iter().all(|p| p.lon.abs() > 179.99), "{s2:?}");
+}

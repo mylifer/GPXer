@@ -494,18 +494,21 @@ pub fn collapse_segment_stays_indexed(seg: &mut Vec<Point>, idx: &mut Vec<u32>) 
         };
         // Yarıçap içindeki noktaların ortalaması merkezdir; dışarı çıkıp kısa
         // sürede dönen noktalar duraklamaya dahildir ama merkezi etkilemez.
+        // Boylamlar ilk noktaya göre açılır: 180. boylamı aşan duraklamanın
+        // ortalaması dünyanın öbür ucuna düşmesin.
+        let ref_lon = pts[i].lon;
         let (mut sum_lat, mut sum_lon, mut count) = (pts[i].lat, pts[i].lon, 1.0);
         let mut last_in = i;
         let mut j = i + 1;
         while j < n {
             let center = Point {
                 lat: sum_lat / count,
-                lon: sum_lon / count,
+                lon: wrap_lon(sum_lon / count),
                 ..Point::default()
             };
             if haversine_m(&center, &pts[j]) <= STAY_RADIUS_M {
                 sum_lat += pts[j].lat;
-                sum_lon += pts[j].lon;
+                sum_lon += near_lon(pts[j].lon, ref_lon);
                 count += 1.0;
                 last_in = j;
             } else {
@@ -532,7 +535,7 @@ pub fn collapse_segment_stays_indexed(seg: &mut Vec<Point>, idx: &mut Vec<u32>) 
             continue;
         }
         if long {
-            let (lat, lon) = (sum_lat / count, sum_lon / count);
+            let (lat, lon) = (sum_lat / count, wrap_lon(sum_lon / count));
             out.push(Point { lat, lon, ..pts[i] });
             out.push(Point {
                 lat,
@@ -586,12 +589,12 @@ pub fn detect_stops<'a>(segments: impl IntoIterator<Item = &'a [Point]>) -> Vec<
             }
             if j > i && t1 - t0 >= STOP_MIN_MS {
                 let n = (j - i + 1) as f64;
-                let (lat, lon) = seg[i..=j]
-                    .iter()
-                    .fold((0.0, 0.0), |(a, b), p| (a + p.lat, b + p.lon));
+                let (lat, lon) = seg[i..=j].iter().fold((0.0, 0.0), |(a, b), p| {
+                    (a + p.lat, b + near_lon(p.lon, anchor.lon))
+                });
                 stops.push(Stop {
                     lat: lat / n,
-                    lon: lon / n,
+                    lon: wrap_lon(lon / n),
                     start: t0,
                     duration_ms: t1 - t0,
                 });
@@ -608,4 +611,28 @@ pub fn detect_stops<'a>(segments: impl IntoIterator<Item = &'a [Point]>) -> Vec<
         }
     }
     stops
+}
+
+/// Boylamı `reference`'a en yakın gösterimiyle verir (±360): 180. boylamın iki
+/// yanındaki noktalar ortalanabilsin.
+fn near_lon(lon: f64, reference: f64) -> f64 {
+    let d = lon - reference;
+    if d > 180.0 {
+        lon - 360.0
+    } else if d < -180.0 {
+        lon + 360.0
+    } else {
+        lon
+    }
+}
+
+/// Boylamı [-180, 180] aralığına getirir.
+fn wrap_lon(lon: f64) -> f64 {
+    if lon > 180.0 {
+        lon - 360.0
+    } else if lon < -180.0 {
+        lon + 360.0
+    } else {
+        lon
+    }
 }
