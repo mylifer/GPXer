@@ -127,4 +127,21 @@ describe("dedupedDays", () => {
     expect(t.distanceM).toBe(30_000 + 1_000 + 3_000);
     expect(t.gainM).toBeCloseTo(100 + 100 * (1_000 / 24_000) + 100);
   });
+
+  it("aynı saatte art arda yapılan ayrı etkinlikler ikisi de sayılır", async () => {
+    const { dedupedTotals } = await import("./days");
+    const h = Date.UTC(2024, 5, 4, 8);
+    const rec = (start: number, end: number, dist: number) =>
+      ({
+        path: String(start),
+        timeZone: "UTC",
+        hours: [[h, dist, end - start]],
+        stats: { startTime: start, endTime: end, distanceM: dist, movingMs: end - start },
+      }) as unknown as import("./api").FileSummary;
+    const bike = rec(h + 5 * 60_000, h + 25 * 60_000, 5_000);
+    const run = rec(h + 35 * 60_000, h + 55 * 60_000, 4_000);
+    expect(dedupedTotals([bike, run], "", "").distanceM).toBe(9_000);
+    // Aynı bisiklet turunun kopyası yine bir kez.
+    expect(dedupedTotals([bike, run, rec(h + 5 * 60_000, h + 25 * 60_000, 5_000)], "", "").distanceM).toBe(9_000);
+  });
 });

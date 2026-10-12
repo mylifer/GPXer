@@ -94,6 +94,25 @@ struct Base {
     last: i64,
 }
 
+/// Eşitleme sürerken burada değişen öğeler (eşitleme başındaki halinden
+/// farklı olanlar) birleştirilmiş sonuçta şimdiki halleriyle kalır: uzun bir
+/// eşitleme bu arada yazılan notu, yeri ya da yer imini ezmesin.
+fn keep_local_edits<V: Clone + PartialEq>(
+    merged: &mut BTreeMap<String, V>,
+    before: &BTreeMap<String, V>,
+    now: &BTreeMap<String, V>,
+) {
+    let keys: BTreeSet<&String> = now.keys().chain(before.keys()).collect();
+    for k in keys {
+        if now.get(k) != before.get(k) {
+            match now.get(k) {
+                Some(v) => merged.insert(k.clone(), v.clone()),
+                None => merged.remove(k),
+            };
+        }
+    }
+}
+
 /// Yerel kütüphaneye uygulanan işlemler (uygulamada [`Library`], testte klasör).
 pub(crate) trait LocalRecords {
     /// Yereldeki kayıtlar: ad → (yol, boyut, değiştirilme zamanı).
@@ -685,6 +704,8 @@ pub(crate) async fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
             journal: app.state::<crate::journal::JournalStore>().all(),
         };
         let before_meta = data.meta.clone();
+        let before_places = data.places.clone();
+        let before_bookmarks = data.bookmarks.clone();
         let before_journal = data.journal.clone();
         let mut records = AppRecords {
             app: &app,
@@ -699,6 +720,13 @@ pub(crate) async fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
         let (added, updated, removed) = (records.added, records.updated, records.removed);
         let _ = app.state::<Library>().flush_cache();
         if counts.meta_changed {
+            // Eşitleme sürerken burada düzenlenen kayıt bilgileri ezilmez.
+            let meta_now = app.state::<MetaStore>().all();
+            let edited = |name: &str| {
+                let p = library_dir.join(name).to_string_lossy().into_owned();
+                meta_now.get(&p) != before_meta.get(name)
+            };
+            data.meta.retain(|name, _| !edited(name));
             let mut items: HashMap<String, FileMeta> = HashMap::new();
             for (name, m) in &data.meta {
                 if before_meta.get(name) != Some(m) {
@@ -708,7 +736,10 @@ pub(crate) async fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
                     );
                 }
             }
-            for name in before_meta.keys().filter(|n| !data.meta.contains_key(*n)) {
+            for name in before_meta
+                .keys()
+                .filter(|n| !data.meta.contains_key(*n) && !edited(n))
+            {
                 items.insert(
                     library_dir.join(name).to_string_lossy().into_owned(),
                     FileMeta::default(),
@@ -719,11 +750,25 @@ pub(crate) async fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
                 .map_err(|e| format!("Kayıt bilgileri yazılamadı: {e}"))?;
         }
         if counts.places_changed {
+            let now: BTreeMap<String, NamedPlace> = app
+                .state::<PlacesStore>()
+                .all()
+                .into_iter()
+                .map(|p| (p.id.clone(), p))
+                .collect();
+            keep_local_edits(&mut data.places, &before_places, &now);
             app.state::<PlacesStore>()
                 .set(data.places.into_values().collect())
                 .map_err(|e| format!("Yerler yazılamadı: {e}"))?;
         }
         if counts.bookmarks_changed {
+            let now: BTreeMap<String, Bookmark> = app
+                .state::<BookmarkStore>()
+                .all()
+                .into_iter()
+                .map(|b| (b.id.clone(), b))
+                .collect();
+            keep_local_edits(&mut data.bookmarks, &before_bookmarks, &now);
             let mut list: Vec<Bookmark> = data.bookmarks.into_values().collect();
             list.sort_by_key(|b| b.created);
             app.state::<BookmarkStore>()
@@ -731,20 +776,10 @@ pub(crate) async fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
                 .map_err(|e| format!("Yer imleri yazılamadı: {e}"))?;
         }
         if counts.journal_changed {
-            // Eşitleme sürerken yazılan notlar ezilmez: başından beri burada
-            // değişen günlerde şimdiki hal kalır.
+            // Eşitleme sürerken yazılan notlar ezilmez.
             let store = app.state::<crate::journal::JournalStore>();
-            let now = store.all();
             let mut merged = data.journal;
-            let days: BTreeSet<String> = now.keys().chain(before_journal.keys()).cloned().collect();
-            for d in days {
-                if now.get(&d) != before_journal.get(&d) {
-                    match now.get(&d) {
-                        Some(t) => merged.insert(d, t.clone()),
-                        None => merged.remove(&d),
-                    };
-                }
-            }
+            keep_local_edits(&mut merged, &before_journal, &store.all());
             store
                 .set_all(merged)
                 .map_err(|e| format!("Günlük yazılamadı: {e}"))?;

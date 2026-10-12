@@ -233,15 +233,16 @@ export interface DayTotal {
 const dedupCache = new WeakMap<FileSummary[], { tz: string; days: Map<string, DayTotal> }>();
 
 /** Kayıtların gün gün toplamı, kopyalar bir kez sayılarak: aynı saatte
- * birden çok kaydın verisi varsa (aynı yolculuğun kopyaları, konum geçmişi
- * ile o günün kaydı) o saat için en çok mesafeli kayıt sayılır. Aynı gün
- * farklı saatlerdeki ayrı etkinlikler etkilenmez. Saatlik dökümü olmayan
+ * zamanları çakışan birden çok kayıt varsa (aynı yolculuğun kopyaları, konum
+ * geçmişi ile o günün kaydı) o saat için en çok mesafelisi sayılır. Aynı
+ * saatte art arda yapılan ayrı etkinlikler (08:05 bisiklet, 08:35 koşu)
+ * çakışmadığı için ikisi de sayılır. Saatlik dökümü olmayan
  * (zamansız ya da eski önbellek) kayıtlar başladıkları güne olduğu gibi yazılır. */
 export function dedupedDays(files: FileSummary[]): Map<string, DayTotal> {
   const tz = files.map(tzKey).join("|");
   const hit = dedupCache.get(files);
   if (hit && hit.tz === tz) return hit.days;
-  const best = new Map<number, { d: number; m: number; s: FileSummary }>();
+  const byHour = new Map<number, { d: number; m: number; s: FileSummary }[]>();
   const days = new Map<string, DayTotal>();
   const add = (day: string, d: number, m: number, g: number) => {
     const x = days.get(day);
@@ -259,14 +260,33 @@ export function dedupedDays(files: FileSummary[]): Map<string, DayTotal> {
       continue;
     }
     for (const [h, d, m] of hours) {
-      const cur = best.get(h);
-      if (!cur || d > cur.d || (d === cur.d && m > cur.m)) best.set(h, { d, m, s });
+      const list = byHour.get(h);
+      if (list) list.push({ d, m, s });
+      else byHour.set(h, [{ d, m, s }]);
     }
   }
-  for (const [h, { d, m, s }] of best) {
-    const total = s.stats.distanceM;
-    const g = total > 0 ? ((s.stats.elevationGainM ?? 0) * d) / total : 0;
-    for (const [k, f] of hourDays(h, s.stats.startTime, tzOf(s))) add(k, d * f, m * f, g * f);
+  // Kaydın zaman aralığı (bitiş yoksa son saatlik dilimin sonu).
+  const span = (s: FileSummary): [number, number] => {
+    const hs = Array.isArray(s.hours) ? s.hours : [];
+    const start = s.stats.startTime ?? hs[0]?.[0] ?? -Infinity;
+    const end = s.stats.endTime ?? (hs.length ? hs[hs.length - 1][0] + 3_600_000 : Infinity);
+    return [start, Math.max(end, start + 1)];
+  };
+  const overlaps = (a: FileSummary, b: FileSummary) => {
+    const [a0, a1] = span(a);
+    const [b0, b1] = span(b);
+    return a0 < b1 && b0 < a1;
+  };
+  for (const [h, list] of byHour) {
+    // En çok mesafeliden başlayarak, seçilenlerle zamanı çakışmayanlar eklenir.
+    list.sort((a, b) => b.d - a.d || b.m - a.m);
+    const chosen: typeof list = [];
+    for (const e of list) if (!chosen.some((c) => overlaps(c.s, e.s))) chosen.push(e);
+    for (const { d, m, s } of chosen) {
+      const total = s.stats.distanceM;
+      const g = total > 0 ? ((s.stats.elevationGainM ?? 0) * d) / total : 0;
+      for (const [k, f] of hourDays(h, s.stats.startTime, tzOf(s))) add(k, d * f, m * f, g * f);
+    }
   }
   dedupCache.set(files, { tz, days });
   return days;
