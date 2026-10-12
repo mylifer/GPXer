@@ -5,6 +5,8 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "e2e",
   timeout: 60_000,
+  // Her test kendi sayfasıyla açılır: aynı dosyadakiler de paralel koşar.
+  fullyParallel: true,
   retries: 0,
   // CI'da başarısızlıklar GitHub'da doğrudan not olarak da görünür.
   reporter: process.env.CI ? [["list"], ["github"]] : "list",

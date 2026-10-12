@@ -47,7 +47,8 @@ ile yazılmıştır.
 - *Ziyaret defteri*: duraklardaki kafe, lokanta, müze… adları (OpenStreetMap);
   Özet'te en çok gidilen mekânlar, ilk ve son ziyaret.
 - *İkinci yedek klasörü ve yedek doğrulama*: otomatik yedek ikinci bir yere de
-  kopyalanır; ayda bir son yedek açılıp her kayıt yeniden okunur.
+  kopyalanır; ayda bir son yedek açılıp her kayıt yeniden okunur. Otomatik
+  yedekler isteğe bağlı parolayla şifrelenir (AES-256).
 - *Yaşam dönemleri* (Özet): günlerin başladığı yere göre "ev" dönemleri ve
   taşınmalar; geziler her dönemin evine göre bulunur.
 - *Belge iliştirme*: bilet, fatura, ses kaydı… kayda iliştirilir; yedeğe ve

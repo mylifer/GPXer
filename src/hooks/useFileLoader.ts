@@ -254,7 +254,9 @@ export function useFileLoader({
         } else {
           filesRef.current = [...filesRef.current, ...batch];
           unsent.push(...batch);
-          if (unsent.length >= Math.max(CHUNK, shown) || performance.now() - sentAt >= 2000) send();
+          // Her gönderim haritayı baştan çizer: liste büyüdükçe süreye bağlı
+          // gönderim seyrekleşir (10.000 kayıtta 4 sn).
+          if (unsent.length >= Math.max(CHUNK, shown) || performance.now() - sentAt >= 2000 + shown / 5) send();
         }
         setLoading({ done: Math.min(todo.length, i + CHUNK), total: todo.length });
       }

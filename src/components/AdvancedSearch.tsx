@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { fmtNumber } from "../format";
 import { resetFilters, type Filters, type SavedSearch } from "../prefs";
 import { ACTIVITIES } from "../types";
@@ -29,7 +29,10 @@ export function AdvancedSearch({
   const [name, setName] = useState("");
   const set = (patch: Partial<Filters>) => setF((x) => ({ ...x, ...patch }));
   const num = (v: string) => Math.max(0, Number(v.replace(",", ".")) || 0);
-  const n = count(f);
+  // Sayım binlerce kayıtta yavaş olabilir: yazma ertelenmiş değere göre sayılır.
+  const deferred = useDeferredValue(f);
+  const n = useMemo(() => count(deferred), [count, deferred]);
+  const savedCounts = useMemo(() => new Map(saved.map((s) => [s.name, count(s.filters)])), [saved, count]);
 
   return (
     <Modal title="Gelişmiş arama" onClose={onClose} wide>
@@ -142,7 +145,7 @@ export function AdvancedSearch({
                   <button type="button" className="link" onClick={() => onApply({ ...s.filters, sort: filters.sort })} data-no-i18n>
                     {s.name}
                   </button>
-                  <span className="muted">{`${fmtNumber(count(s.filters))} kayıt`}</span>
+                  <span className="muted">{`${fmtNumber(savedCounts.get(s.name) ?? 0)} kayıt`}</span>
                   <button type="button" className="icon-btn" onClick={() => onSaved(saved.filter((x) => x.name !== s.name))} aria-label="Kayıtlı aramayı sil">
                     ×
                   </button>

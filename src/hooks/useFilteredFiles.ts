@@ -6,7 +6,7 @@ import { linesHitBox } from "../geo";
 import { SEQ_DARK, SEQ_LIGHT, placeLabel, rampColor, type FileEntry } from "../types";
 import type { Filters, Prefs } from "../prefs";
 import { dayBuckets, dedupedTotals, touchesRange } from "../days";
-import { dayKey, monthLabel, searchKey, tzOf } from "../format";
+import { dayKey, fastDayKey, monthLabel, searchKey, tzOf } from "../format";
 import { findOverlaps } from "../overlaps";
 import { flightsOf, uniqueFlights, type Flight } from "../flights";
 import { detectTrips, type Trip } from "../trips";
@@ -86,7 +86,7 @@ export function useFilteredFiles({
         if (fl.person && !m?.people?.includes(fl.person)) return false;
         if (fl.weekday) {
           if (s.stats.startTime == null) return false;
-          const wd = new Date(`${dayKey(s.stats.startTime, tzOf(s))}T12:00:00Z`).getUTCDay();
+          const wd = new Date(`${fastDayKey(s.stats.startTime, tzOf(s))}T12:00:00Z`).getUTCDay();
           if ((wd === 0 || wd === 6) !== (fl.weekday === "weekend")) return false;
         }
         if (!dateOn) return true;
