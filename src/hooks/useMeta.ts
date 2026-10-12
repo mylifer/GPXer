@@ -1,7 +1,7 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { SetDialog } from "./dialog";
 import { open } from "@tauri-apps/plugin-dialog";
-import { addTag, attachFiles, openAttachment, removeAttachment, setMeta as saveMeta, type FileMeta } from "../api";
+import { addTag, attachFiles, getMeta, openAttachment, removeAttachment, setMeta as saveMeta, type FileMeta } from "../api";
 import { fmtNumber } from "../format";
 import type { FileEntry } from "../types";
 
@@ -39,10 +39,23 @@ export function useMeta({
     [meta],
   );
 
+  /** Yazılmakta olan bilgiler: bu sırada gelen yenileme onları eski haliyle ezmesin. */
+  const inflight = useRef(new Map<string, FileMeta>());
+
+  /** Bilgileri arka uçtan yeniden okur (yazılmakta olanlar korunur). */
+  const refreshMeta = useCallback(
+    () =>
+      getMeta()
+        .then((all) => setMetaState({ ...(all ?? {}), ...Object.fromEntries(inflight.current) }))
+        .catch(() => {}),
+    [],
+  );
+
   /** Kaydın tür/etiket/notunu kaydeder; tür değişince özeti günceller. */
   const updateMeta = useCallback(
     async (path: string, m: FileMeta) => {
       setMetaState((prev) => ({ ...prev, [path]: m }));
+      inflight.current.set(path, m);
       try {
         const res = await saveMeta(path, m);
         if (res?.status === "ok") {
@@ -50,6 +63,8 @@ export function useMeta({
         } else if (res?.status === "error") fail(res.message, path);
       } catch (e) {
         fail(String(e), path);
+      } finally {
+        if (inflight.current.get(path) === m) inflight.current.delete(path);
       }
     },
     [fail, patchFiles],
@@ -104,5 +119,5 @@ export function useMeta({
     [multi, say, fail],
   );
 
-  return { meta, setMetaState, allTags, allPeople, updateMeta, tagMany, attach, detach, openDoc };
+  return { meta, setMetaState, allTags, allPeople, updateMeta, tagMany, attach, detach, openDoc, refreshMeta };
 }

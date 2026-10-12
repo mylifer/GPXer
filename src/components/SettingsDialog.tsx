@@ -64,6 +64,7 @@ export function SettingsDialog({
   const [backupFolder, setBackupFolder] = useState<string | null>(settings.backupFolder ?? null);
   const [backupDays, setBackupDays] = useState(settings.backupDays || 7);
   const [backupFolder2, setBackupFolder2] = useState<string | null>(settings.backupFolder2 ?? null);
+  const [backupPassword, setBackupPassword] = useState(settings.backupPassword ?? "");
   const [archive, setArchive] = useState<{
     busy?: string;
     report?: ArchiveReport;
@@ -118,6 +119,7 @@ export function SettingsDialog({
         backupFolder,
         backupDays,
         backupFolder2: backupFolder ? backupFolder2 : null,
+        backupPassword: backupFolder && backupPassword ? backupPassword : null,
       },
       { tzMode: tz, customLayers: layers, goals: { km: Math.max(0, goals.km || 0), days: Math.max(0, goals.days || 0) }, fuel: { ...fuel, per100: Math.max(0, fuel.per100 || 0), price: Math.max(0, fuel.price || 0) } },
       places
@@ -378,7 +380,7 @@ export function SettingsDialog({
           <small>
             Kayıtlarınızın içerik parmak izi saklanır; haftada bir (ya da “Arşivi denetle” ile) kaybolan ve bozulan dosyalar
             aranır. Bir klasör seçerseniz (harici disk, bulut klasörü) seçtiğiniz aralıkla otomatik yedek alınır; son 5 yedek
-            kalır; istenirse ikinci bir klasöre de kopyalanır ve ayda bir son yedek açılıp doğrulanır. Otomatik yedekler şifresizdir; şifreli yedek için Dosya menüsündeki Yedek al… kullanılır.
+            kalır; istenirse ikinci bir klasöre de kopyalanır ve ayda bir son yedek açılıp doğrulanır. Parola girilirse otomatik yedekler şifrelenir (parola yalnızca bu bilgisayarda saklanır; unutulursa yedek açılamaz).
           </small>
           {backupFolder ? (
             <ul className="folder-list">
@@ -391,6 +393,19 @@ export function SettingsDialog({
             </ul>
           ) : (
             <span className="muted small-note">Otomatik yedek kapalı.</span>
+          )}
+          {backupFolder && (
+            <label className="inline-field" title="Yedek klasörü bir bulut klasörüyse konum geçmişiniz açıkta kalmasın: otomatik yedekler AES-256 ile şifrelenir. Parolayı unutursanız yedek açılamaz.">
+              <span>Parola (isteğe bağlı)</span>
+              <input
+                type="password"
+                value={backupPassword}
+                onChange={(e) => setBackupPassword(e.target.value)}
+                placeholder="Boş: şifresiz"
+                aria-label="Otomatik yedek parolası"
+                autoComplete="new-password"
+              />
+            </label>
           )}
           {backupFolder && (
             <div className="form-actions" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>

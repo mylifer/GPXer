@@ -613,6 +613,29 @@ pub fn run() {
         .expect("uygulama başlatılamadı");
 
     app.run(|_app, _event| {
+        // Pencere kapatılırken arayüzün bekleyen yazımları (not, günlük,
+        // tercihler) gönderebilmesi için kapanış kısa süre ertelenir.
+        if let tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::CloseRequested { api, .. },
+            ..
+        } = &_event
+        {
+            static CLOSING: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if !CLOSING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                api.prevent_close();
+                let _ = _app.emit("app-closing", ());
+                let app = _app.clone();
+                let label = label.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(600));
+                    if let Some(w) = app.get_webview_window(&label) {
+                        let _ = w.destroy();
+                    }
+                });
+            }
+        }
         // macOS dosya ilişkilendirmesi argüman yerine bu olayla gelir.
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         if let tauri::RunEvent::Opened { urls } = &_event {

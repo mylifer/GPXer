@@ -30,19 +30,25 @@ export function MetaEditor({ summary, meta, allTags, allPeople, onChange, onAtta
   // bekleyen not eski kayda yazılır (yalnızca alandan çıkınca kaydetmek,
   // odak kaybı olmadan seçim değişince yazılanı kaybettiriyordu).
   const pending = useRef<(() => void) | null>(null);
+  // onChange her çizimde yeni olabilir: zamanlayıcı onun yüzünden baştan
+  // başlamasın (yükleme sırasında not hiç kaydedilmiyordu).
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
   useEffect(() => {
     if (note === meta.note) {
       pending.current = null;
       return;
     }
+    // Bu kaydın kaydedicisi (seçim değişince bekleyen not eski kayda yazılır).
+    const write = onChangeRef.current;
     const save = () => {
       pending.current = null;
-      onChange({ ...meta, note });
+      write({ ...meta, note });
     };
     pending.current = save;
     const t = setTimeout(save, 800);
     return () => clearTimeout(t);
-  }, [note, meta, onChange]);
+  }, [note, meta]);
   useEffect(() => () => pending.current?.(), [summary.path]);
   // Kapanırken (güncelleme kurulumu, pencereyi kapatma) bekleyen not yazılır.
   useEffect(() => {

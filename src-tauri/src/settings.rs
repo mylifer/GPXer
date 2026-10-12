@@ -24,6 +24,9 @@ pub struct Settings {
     /// Otomatik yedeğin kopyalandığı ikinci klasör (ör. harici disk ya da
     /// bulut klasörü); yoksa tek kopya.
     pub backup_folder2: Option<String>,
+    /// Otomatik yedeklerin parolası (AES-256); boşsa şifresiz. Yalnızca bu
+    /// bilgisayarın ayar dosyasında durur, yedeğe ya da eşitlemeye girmez.
+    pub backup_password: Option<String>,
 }
 
 /// İzlenen klasör: kullanıcının seçtiği yol ve gerçek (kanonik) yolu. macOS

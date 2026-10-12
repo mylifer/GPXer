@@ -700,8 +700,8 @@ export const EN: Record<string, string> = {
   "Kopyalandı": "Copied",
   "Geziye göre": "By trip",
   "Güzergâh": "Route",
-  "Kayıtlarınızın içerik parmak izi saklanır; haftada bir (ya da “Arşivi denetle” ile) kaybolan ve bozulan dosyalar aranır. Bir klasör seçerseniz (harici disk, bulut klasörü) seçtiğiniz aralıkla otomatik yedek alınır; son 5 yedek kalır; istenirse ikinci bir klasöre de kopyalanır ve ayda bir son yedek açılıp doğrulanır. Otomatik yedekler şifresizdir; şifreli yedek için Dosya menüsündeki Yedek al… kullanılır.":
-    "A content fingerprint of every recording is kept; missing and corrupted files are looked for weekly (or with “Check archive”). If you choose a folder (external disk, cloud folder), automatic backups are taken at the chosen interval; the last 5 are kept; optionally they are also copied to a second folder, and the latest backup is opened and verified monthly. Automatic backups are not encrypted; use File → Back up… for an encrypted one.",
+  "Kayıtlarınızın içerik parmak izi saklanır; haftada bir (ya da “Arşivi denetle” ile) kaybolan ve bozulan dosyalar aranır. Bir klasör seçerseniz (harici disk, bulut klasörü) seçtiğiniz aralıkla otomatik yedek alınır; son 5 yedek kalır; istenirse ikinci bir klasöre de kopyalanır ve ayda bir son yedek açılıp doğrulanır. Parola girilirse otomatik yedekler şifrelenir (parola yalnızca bu bilgisayarda saklanır; unutulursa yedek açılamaz).":
+    "A content fingerprint of every recording is kept; missing and corrupted files are looked for weekly (or with “Check archive”). If you choose a folder (external disk, cloud folder), automatic backups are taken at the chosen interval; the last 5 are kept; optionally they are also copied to a second folder, and the latest backup is opened and verified monthly. With a password, automatic backups are encrypted (the password is kept only on this computer; a forgotten password cannot be recovered).",
   "Otomatik yedek kapalı.": "Automatic backup is off.",
   "Otomatik yedeği kapat": "Turn off automatic backup",
   "Yedek klasörü seç…": "Choose backup folder…",
@@ -1077,6 +1077,10 @@ export const EN: Record<string, string> = {
   "Yakıt tutarı Ayarlar'daki tüketim ve fiyatla hesaplanır.": "Fuel cost uses the consumption and price in Settings.",
   "Kilometre defteri kaydedildi.": "Mileage log saved.",
   "Önceki düzeltme sürüyor; bitince yeniden deneyin.": "The previous correction is still running; try again when it finishes.",
+  "Yedek klasörü bir bulut klasörüyse konum geçmişiniz açıkta kalmasın: otomatik yedekler AES-256 ile şifrelenir. Parolayı unutursanız yedek açılamaz.": "Keep your location history private if the backup folder is a cloud folder: automatic backups are encrypted with AES-256. A forgotten password cannot be recovered.",
+  "Parola (isteğe bağlı)": "Password (optional)",
+  "Boş: şifresiz": "Empty: not encrypted",
+  "Otomatik yedek parolası": "Automatic backup password",
 };
 
 /** Değişken içeren iletiler: `{0}`, `{1}`… yer tutucuları (İngilizcede sırası

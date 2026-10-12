@@ -1883,3 +1883,19 @@ fn in_place_edits_keep_the_rest_of_the_file() {
     g.waypoints.clear();
     assert!(patch_gpx(text, &g).is_none());
 }
+
+#[test]
+fn implausible_point_times_are_ignored() {
+    let text = r#"<gpx><trk><trkseg>
+      <trkpt lat="41" lon="29"><time>1970-01-01T00:00:00Z</time></trkpt>
+      <trkpt lat="41.001" lon="29.001"><time>2024-05-01T08:00:00Z</time></trkpt>
+      <trkpt lat="41.002" lon="29.002"><time>2024-05-01T08:05:00Z</time></trkpt>
+    </trkseg></trk></gpx>"#;
+    let p = prepare(
+        parse::parse_gpx(text.as_bytes()).unwrap(),
+        &StatsConfig::default(),
+    );
+    let s = summarize(&p.gpx, "a.gpx", 0, &StatsConfig::default()).unwrap();
+    assert_eq!(s.stats.start_time, Some(1_714_550_400_000));
+    assert_eq!(s.stats.end_time, Some(1_714_550_700_000));
+}

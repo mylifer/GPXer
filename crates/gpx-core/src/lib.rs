@@ -93,6 +93,10 @@ impl Prepared {
     }
 }
 
+/// Kabul edilen zaman aralığı (1990–2100); dışındaki nokta zamanları bozuk sayılır.
+const PLAUSIBLE_FROM_MS: i64 = 631_152_000_000;
+const PLAUSIBLE_TO_MS: i64 = 4_102_444_800_000;
+
 /// Okunan kayda ayarların gerektirdiği ön işlemleri uygular (sıçrama
 /// temizliği, duraklamaları tek noktaya indirme). Kalan noktaların ham
 /// kayıttaki sıraları tutulur.
@@ -103,6 +107,20 @@ pub fn prepare(mut gpx: Gpx, cfg: &StatsConfig) -> Prepared {
     } else {
         &mut gpx.tracks
     };
+    // Uydu kilidinden önceki noktalar 1970 (sıfır) ya da saçma tarihler
+    // taşıyabilir: tek nokta kaydı onlarca yıllık ve yanlış günde gösteriyordu.
+    // Böyle zamanlar yok sayılır (nokta kalır).
+    for p in source
+        .iter_mut()
+        .flat_map(|t| t.segments.iter_mut())
+        .flatten()
+    {
+        if p.time
+            .is_some_and(|t| !(PLAUSIBLE_FROM_MS..PLAUSIBLE_TO_MS).contains(&t))
+        {
+            p.time = None;
+        }
+    }
     // Önce bütünüyle yanlış yerdeki segmentler (ham veride: segment içi
     // temizlik onları kısaltmadan).
     let teleported: Vec<usize> = if cfg.clean_spikes {

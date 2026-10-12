@@ -179,6 +179,8 @@ export interface Settings {
   backupDays?: number;
   /** Otomatik yedeğin kopyalandığı ikinci klasör. */
   backupFolder2?: string | null;
+  /** Otomatik yedek parolası (boşsa şifresiz). */
+  backupPassword?: string | null;
 }
 
 /** Yedek doğrulamasının sonucu. */

@@ -13,7 +13,7 @@ import {
   type PhotoInfo,
   type Settings,
 } from "../api";
-import type { Prefs } from "../prefs";
+import { FLUSH_EVENT, type Prefs } from "../prefs";
 import type { FileEntry } from "../types";
 import { isImagePath } from "../photos";
 import type { OpenOptions } from "./useFileLoader";
@@ -74,6 +74,8 @@ export function useStartup({
       }),
     );
     unlisten.push(listen("pending-paths", drainPending));
+    // Pencere kapanıyor: bekleyen not, günlük ve tercihler hemen yazılır.
+    unlisten.push(listen("app-closing", () => window.dispatchEvent(new Event(FLUSH_EVENT))));
     unlisten.push(listen<string[]>("watched-paths", (e) => openPaths(e.payload, { quiet: true, noFit: true, noSelect: true, watched: true })));
     return () => unlisten.forEach((p) => p.then((fn) => fn()));
   }, [openPaths, fail]);

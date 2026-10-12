@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   fixElevation,
-  getMeta,
   pickSavePath,
   writeTextFile,
   snapToRoads,
@@ -165,7 +164,7 @@ export default function App() {
     closeAll,
   } = useFileLoader({ prefsRef, persistedSel, up, say, fail, setErrors, setDuplicates, setEmpties, mapRef, setCompare, setMulti, routeInfoRef });
   const { places, setPlacesState, namePrompt, setNamePrompt, updatePlaces, onNamePlace, namePlace } = usePlaces(say, fail);
-  const { meta, setMetaState, allTags, allPeople, updateMeta, tagMany, attach, detach, openDoc } = useMeta({ fail, say, patchFiles, multi, setDialog });
+  const { meta, setMetaState, allTags, allPeople, updateMeta, tagMany, attach, detach, openDoc, refreshMeta } = useMeta({ fail, say, patchFiles, multi, setDialog });
 
   // ---------- Türetilen veriler ----------
 
@@ -260,13 +259,7 @@ export default function App() {
     say,
     fail,
   });
-  const refreshMeta = useCallback(
-    () =>
-      getMeta()
-        .then(setMetaState)
-        .catch(() => {}),
-    [setMetaState],
-  );
+
   useEffect(() => {
     const on = () => void refreshMeta();
     window.addEventListener(META_CHANGED, on);

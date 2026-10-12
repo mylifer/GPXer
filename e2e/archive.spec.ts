@@ -76,9 +76,11 @@ test("Ayarlar → Arşiv: ikinci yedek klasörü ve yedek doğrulama", async ({ 
   const v = app.getByTestId("backup-verify");
   await expect(v).toContainText("1 kayıt bozuk (kayit-3.gpx)");
   await expect(v).toHaveClass(/error/);
+  await app.getByLabel("Otomatik yedek parolası").fill("gizli parola");
   await app.getByRole("button", { name: "İkinci klasör seç…" }).click();
   await expect(app.getByTestId("backup-folder2")).toHaveText("/Users/ben/Drive/GPXer");
   await app.getByRole("button", { name: "Kaydet", exact: true }).click();
   await expect.poll(() => saved).not.toBeNull();
   expect(saved!.backupFolder2).toBe("/Users/ben/Drive/GPXer");
+  expect(saved!.backupPassword).toBe("gizli parola");
 });

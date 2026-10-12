@@ -225,17 +225,45 @@ impl Health {
 
 /// Yedeği açar, her kaydı açılıp ayrıştırılabiliyor mu diye dener (zip CRC
 /// denetimi dahil) ve kütüphanedeki dosyalarla karşılaştırır.
-pub(crate) fn verify_backup(path: &Path, library: &[String]) -> Result<Verify, String> {
+pub(crate) fn verify_backup(
+    path: &Path,
+    library: &[String],
+    password: Option<&str>,
+) -> Result<Verify, String> {
     use std::io::Read;
     let f = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut zip = zip::ZipArchive::new(f).map_err(|e| format!("Yedek açılamadı: {e}"))?;
+    // Şifreli mi (bildirim dosyası hep açık): değilse parola kullanılmaz.
+    let encrypted = {
+        let mut b = Vec::new();
+        zip.by_name("gpxer-yedek.json")
+            .ok()
+            .and_then(|mut f| f.read_to_end(&mut b).ok())
+            .and_then(|_| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|m| m["encrypted"].as_bool())
+            .unwrap_or(false)
+    };
+    let password =
+        if encrypted {
+            Some(password.ok_or(
+                "Yedek şifreli; doğrulamak için Ayarlar'da otomatik yedek parolasını girin",
+            )?)
+        } else {
+            None
+        };
     let mut v = Verify {
         path: path.to_string_lossy().into_owned(),
         ..Verify::default()
     };
     let mut names = std::collections::HashSet::new();
     for i in 0..zip.len() {
-        let mut e = match zip.by_index(i) {
+        // Bildirim dosyası şifreli yedekte de açıktır.
+        let plain = zip.name_for_index(i) == Some("gpxer-yedek.json");
+        let opened = match password.filter(|_| !plain) {
+            Some(pw) => zip.by_index_decrypt(i, pw.as_bytes()),
+            None => zip.by_index(i),
+        };
+        let mut e = match opened {
             Ok(e) => e,
             Err(err) => {
                 v.bad.push(format!("#{i}: {err}"));
@@ -348,7 +376,10 @@ fn auto_backup(app: &AppHandle, force: bool) -> Option<Result<String, String>> {
                     journal: &app.state::<crate::journal::JournalStore>().all(),
                     attachments: Some(&app.state::<crate::attachments::Attachments>().0),
                 },
-                None,
+                settings
+                    .backup_password
+                    .as_deref()
+                    .filter(|p| !p.is_empty()),
             )
         })
         .map(|_| {
@@ -416,7 +447,12 @@ pub(crate) fn on_startup(app: &AppHandle) {
 fn verify_latest(app: &AppHandle) -> Option<Result<Verify, String>> {
     let dir = PathBuf::from(app.state::<SettingsStore>().current().backup_folder?);
     let path = latest_backup(&dir)?;
-    let r = verify_backup(&path, &app.state::<Library>().files());
+    let pw = app.state::<SettingsStore>().current().backup_password;
+    let r = verify_backup(
+        &path,
+        &app.state::<Library>().files(),
+        pw.as_deref().filter(|p| !p.is_empty()),
+    );
     app.state::<Health>().note_verify();
     Some(r)
 }
@@ -538,11 +574,33 @@ mod tests {
         assert_eq!(latest_backup(&dir), Some(dest.clone()));
         let mut lib = files.clone();
         lib.push(dir.join("c.gpx").to_string_lossy().into_owned());
-        let v = verify_backup(&dest, &lib).unwrap();
+        let v = verify_backup(&dest, &lib, None).unwrap();
         assert_eq!((v.records, v.ok), (2, 1));
         assert_eq!(v.bad, vec!["b.gpx".to_owned()]);
         assert_eq!(v.absent, vec!["c.gpx".to_owned()]);
-        assert!(verify_backup(&dir.join("yok.zip"), &lib).is_err());
+        assert!(verify_backup(&dir.join("yok.zip"), &lib, None).is_err());
+        // Şifreli yedek: parolasız doğrulanmaz, doğru parolayla doğrulanır.
+        let locked = dir.join(format!("{PREFIX}2025-01-02.zip"));
+        write_backup(
+            &locked,
+            &BackupData {
+                files: &files[..1],
+                meta: &HashMap::new(),
+                places: &[],
+                bookmarks: &[],
+                journal: &Default::default(),
+                attachments: None,
+            },
+            Some("gizli"),
+        )
+        .unwrap();
+        assert!(verify_backup(&locked, &lib, None).is_err());
+        let v = verify_backup(&locked, &lib, Some("gizli")).unwrap();
+        assert_eq!((v.records, v.ok), (1, 1));
+        assert!(!verify_backup(&locked, &lib, Some("yanlis"))
+            .unwrap()
+            .bad
+            .is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

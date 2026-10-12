@@ -107,7 +107,14 @@ export function useFileLoader({
   const [settings, setSettingsState] = useState<Settings | null>(null);
 
   const filesRef = useRef(files);
-  filesRef.current = files;
+  // Yalnızca liste gerçekten değişince eşitlenir: yükleme sırasında başka
+  // nedenle (ilerleme) yapılan çizimler, listeye henüz gönderilmemiş ama
+  // filesRef'e eklenmiş kayıtları silmesin.
+  const lastFiles = useRef(files);
+  if (lastFiles.current !== files) {
+    lastFiles.current = files;
+    filesRef.current = files;
+  }
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const selectedRef = useRef(selected);
