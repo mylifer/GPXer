@@ -460,6 +460,75 @@ fn is_jitter(pts: &[Point]) -> bool {
     median(ratios).is_none_or(|r| r < JITTER_MAX_PROGRESS)
 }
 
+/// Gerçek hareket sınaması: noktadan en az bu kadar sonraki noktaya (en az
+/// [`MOVE_SPAN_STEPS`] adım) kadar ...
+const MOVE_SPAN_MS: i64 = 60_000;
+const MOVE_SPAN_STEPS: usize = 6;
+/// ... kuş uçuşu ilerleme yolun en az bu oranı ...
+const MOVE_MIN_PROGRESS: f64 = 0.6;
+/// ... ve ilerleme hızı en az bu kadarsa nokta hareket hâlindedir. Titremede
+/// yol adım sayısıyla uzar ama ilerleme bulut çapını aşamaz; uzun aralıkta
+/// oran düşük kalır.
+const MOVE_MIN_SPEED_MS: f64 = 0.5;
+/// ... ve böyle ardışık noktaların yolu en az bu kadarsa hareket gerçektir
+/// (titreşen konum bazen birkaç saniye bir yöne kayar).
+const MOVE_MIN_PATH_M: f64 = 60.0;
+
+/// Gerçek hareketteki (yürüyüş, park yeri arayan araba) noktalar. Duraklama
+/// penceresi bunların üzerinden geçemez: merkez noktalarla birlikte kaydığından
+/// yavaş bir tur ya da bekleme yerine yürüyüş yoksa duraklamaya katılırdı.
+fn moving_mask(pts: &[Point]) -> Vec<bool> {
+    let n = pts.len();
+    let mut cum = Vec::with_capacity(n);
+    let mut d = 0.0;
+    for (k, p) in pts.iter().enumerate() {
+        if k > 0 {
+            d += haversine_m(&pts[k - 1], p);
+        }
+        cum.push(d);
+    }
+    let mut mv = vec![false; n];
+    let mut j = 0;
+    for k in 0..n {
+        let Some(tk) = pts[k].time else { continue };
+        j = j.max(k + MOVE_SPAN_STEPS);
+        while j < n && pts[j].time.is_none_or(|t| t - tk < MOVE_SPAN_MS) {
+            j += 1;
+        }
+        if j >= n {
+            break;
+        }
+        let Some(tj) = pts[j].time else { continue };
+        let (path, disp) = (cum[j] - cum[k], haversine_m(&pts[k], &pts[j]));
+        if path > 0.0
+            && disp / path >= MOVE_MIN_PROGRESS
+            && disp / ((tj - tk) as f64 / 1000.0) >= MOVE_MIN_SPEED_MS
+        {
+            // Yalnızca aralığın başı: hareketin bittiği yerden sonraki
+            // bekleme hareket sayılmasın (son birkaç on metre duraklama
+            // penceresine girerse baştan kırpılır).
+            mv[k] = true;
+        }
+    }
+    // Kısa kaymalar hareket sayılmaz.
+    let mut k = 0;
+    while k < n {
+        if !mv[k] {
+            k += 1;
+            continue;
+        }
+        let mut e = k;
+        while e + 1 < n && mv[e + 1] {
+            e += 1;
+        }
+        if cum[e] - cum[k] < MOVE_MIN_PATH_M {
+            mv[k..=e].fill(false);
+        }
+        k = e + 1;
+    }
+    mv
+}
+
 /// Uzun duraklamaları tek noktaya indirir: bir yerde uzun süre kalınırken GPS
 /// konumu onlarca, yüzlerce metre titrer ve iz yumak gibi görünür. Bu
 /// aralıktaki noktalar duraklamanın merkezinde, başlangıç ve bitiş zamanlı iki
@@ -487,14 +556,20 @@ pub fn collapse_segment_stays_indexed(seg: &mut Vec<Point>, idx: &mut Vec<u32>) 
     let ids = std::mem::take(idx);
     let mut out: Vec<Point> = Vec::with_capacity(n);
     let mut out_ids: Vec<u32> = Vec::with_capacity(n);
+    let moving = moving_mask(&pts);
     let mut i = 0;
+    let mut end = 0;
     while i < n {
-        let Some(t0) = pts[i].time else {
+        let Some(t0) = pts[i].time.filter(|_| !moving[i]) else {
             out.push(pts[i]);
             out_ids.push(ids[i]);
             i += 1;
             continue;
         };
+        // Pencere bir sonraki gerçek hareketin başında biter.
+        if end <= i {
+            end = (i..n).find(|&k| moving[k]).unwrap_or(n);
+        }
         // Yarıçap içindeki noktaların ortalaması merkezdir; dışarı çıkıp kısa
         // sürede dönen noktalar duraklamaya dahildir ama merkezi etkilemez.
         // Boylamlar ilk noktaya göre açılır: 180. boylamı aşan duraklamanın
@@ -503,7 +578,7 @@ pub fn collapse_segment_stays_indexed(seg: &mut Vec<Point>, idx: &mut Vec<u32>) 
         let (mut sum_lat, mut sum_lon, mut count) = (pts[i].lat, pts[i].lon, 1.0);
         let mut last_in = i;
         let mut j = i + 1;
-        while j < n {
+        while j < end {
             let center = Point {
                 lat: sum_lat / count,
                 lon: wrap_lon(sum_lon / count),

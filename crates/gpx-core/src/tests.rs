@@ -2093,3 +2093,74 @@ fn walk_into_long_stay_is_kept() {
         "varış yolu silindi: en yakın nokta {nearest:.0} m"
     );
 }
+
+#[test]
+fn slow_drive_and_walk_around_long_stay_are_kept() {
+    // Gerçek kayıttaki gibi (1 sn aralık): park yeri ararken bloğun çevresinde
+    // 3 m/sn tur, park, bekleme yerine 100 m yürüyüş, 90 dakika bekleme,
+    // arabaya dönüş. Bekleme penceresi tura ve yürüyüşe taşmamalı.
+    let m = 1.0 / 111_320.0;
+    let lon_m = m / (41.0f64).to_radians().cos();
+    let at = |x: f64, y: f64| Point {
+        lat: 41.0 + y * m,
+        lon: 29.0 + x * lon_m,
+        ..Default::default()
+    };
+    let mut seg = Vec::new();
+    let mut t = 1_700_000_000_000i64;
+    let go = |seg: &mut Vec<Point>, t: &mut i64, from: (f64, f64), to: (f64, f64), v: f64| {
+        let n = ((to.0 - from.0).hypot(to.1 - from.1) / v).round().max(1.0) as usize;
+        for s in 0..n {
+            let f = s as f64 / n as f64;
+            seg.push(Point {
+                time: Some(*t),
+                ..at(from.0 + (to.0 - from.0) * f, from.1 + (to.1 - from.1) * f)
+            });
+            *t += 1_000;
+        }
+    };
+    // Bekleme yeri (0, 0); blok 100 m kuzeyde, 150 m x 100 m.
+    let block = [
+        (0.0, 100.0),
+        (0.0, 200.0),
+        (-150.0, 200.0),
+        (-150.0, 100.0),
+        (0.0, 100.0),
+    ];
+    go(&mut seg, &mut t, (0.0, 0.0), block[0], 3.0);
+    for w in block.windows(2) {
+        go(&mut seg, &mut t, w[0], w[1], 3.0);
+    }
+    // 3 dakika park, sonra bekleme yerine yürüyüş.
+    for _ in 0..180 {
+        seg.push(Point {
+            time: Some(t),
+            ..at(0.0, 100.0)
+        });
+        t += 1_000;
+    }
+    go(&mut seg, &mut t, (0.0, 100.0), (0.0, 0.0), 1.2);
+    let mut s = 0;
+    while s < 90 * 60 {
+        let p = at(((s * 7) % 9) as f64 - 4.0, ((s * 5) % 7) as f64 - 3.0);
+        seg.push(Point { time: Some(t), ..p });
+        t += 1_000;
+        s += 1;
+    }
+    go(&mut seg, &mut t, (0.0, 0.0), (0.0, 100.0), 1.2);
+    let n = seg.len();
+    let removed = analysis::collapse_segment_stays(&mut seg);
+    assert!(removed > 5000, "bekleme sadeleşmeli: {removed} / {n}");
+    // Bloğun uzak köşesi ve yürüyüşün ortası izde kalmalı.
+    for (x, y) in [(-150.0, 200.0), (0.0, 50.0)] {
+        let q = at(x, y);
+        let nearest = seg
+            .iter()
+            .map(|p| stats::haversine_m(p, &q))
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            nearest < 5.0,
+            "({x}, {y}) silindi: en yakın nokta {nearest:.0} m"
+        );
+    }
+}
