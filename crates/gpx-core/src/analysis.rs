@@ -406,6 +406,9 @@ const STAY_RADIUS_M: f64 = 120.0;
 /// dönülebilir (titreme ya da kısa sıçrama); daha uzunsa duraklama biter.
 const STAY_MAX_OUT_POINTS: usize = 8;
 const STAY_MAX_OUT_MS: i64 = 5 * 60 * 1000;
+/// Duraklamanın ilk ve son noktası merkeze en fazla bu kadar uzak olabilir;
+/// daha uzaktaki baş ve son noktalar duraklamaya varış ya da oradan ayrılıştır.
+const STAY_EDGE_M: f64 = 60.0;
 
 /// Titreme sınaması: noktadan en az bu kadar sonraki noktaya bakılır ...
 const JITTER_SPAN_MS: i64 = 30_000;
@@ -522,7 +525,39 @@ pub fn collapse_segment_stays_indexed(seg: &mut Vec<Point>, idx: &mut Vec<u32>) 
             }
             j += 1;
         }
-        let t1 = pts[last_in].time.unwrap_or(t0);
+        let mut t1 = pts[last_in].time.unwrap_or(t0);
+        if last_in > i + 1 && t1 - t0 >= STAY_MIN_MS {
+            // Merkez noktalarla birlikte kaydığından duraklamaya yürüyerek
+            // varılan ya da oradan ayrılınan yol da pencereye girer. Bitmiş
+            // merkezden uzak baş ve son noktalar duraklama değildir: baştakiler
+            // olduğu gibi yazılır, sondakiler sonraki pencereye kalır.
+            let center = Point {
+                lat: sum_lat / count,
+                lon: wrap_lon(sum_lon / count),
+                ..Point::default()
+            };
+            let near = |p: &Point| haversine_m(&center, p) <= STAY_EDGE_M;
+            let head = (i..=last_in).find(|&k| near(&pts[k])).unwrap_or(last_in);
+            if head > i {
+                out.extend_from_slice(&pts[i..head]);
+                out_ids.extend_from_slice(&ids[i..head]);
+                i = head;
+                continue;
+            }
+            let tail = (i..=last_in).rev().find(|&k| near(&pts[k])).unwrap_or(i);
+            if tail < last_in {
+                last_in = tail;
+                t1 = pts[last_in].time.unwrap_or(t0);
+                (sum_lat, sum_lon, count) = (0.0, 0.0, 0.0);
+                for p in &pts[i..=last_in] {
+                    if haversine_m(&center, p) <= STAY_RADIUS_M {
+                        sum_lat += p.lat;
+                        sum_lon += near_lon(p.lon, ref_lon);
+                        count += 1.0;
+                    }
+                }
+            }
+        }
         let long = last_in > i + 1 && t1 - t0 >= STAY_MIN_MS;
         if long && !is_jitter(&pts[i..=last_in]) {
             // Küçük alanda gerçek hareket: noktalar korunur. Sonraki pencereler

@@ -1903,3 +1903,193 @@ fn implausible_point_times_are_ignored() {
     assert_eq!(s.stats.start_time, Some(1_714_550_400_000));
     assert_eq!(s.stats.end_time, Some(1_714_550_700_000));
 }
+
+#[test]
+fn walk_after_long_stay_is_kept() {
+    // 15 dakika bir kapının önünde (±8 m titreme), ardından yakındaki sokak
+    // bloğunun çevresinde 1,3 m/sn yürüyüş, sonra uzaklaşma.
+    let m = 1.0 / 111_320.0;
+    let lon_m = m / (41.0f64).to_radians().cos();
+    let at = |x: f64, y: f64| (41.0 + y * m, 29.0 + x * lon_m);
+    let mut seg = Vec::new();
+    let mut t = 1_700_000_000_000i64;
+    for k in 0..90 {
+        let (la, lo) = at(((k * 7) % 17) as f64 - 8.0, ((k * 5) % 13) as f64 - 6.0);
+        seg.push(Point {
+            lat: la,
+            lon: lo,
+            time: Some(t),
+            ..Default::default()
+        });
+        t += 10_000;
+    }
+    // Blok: 150 m doğu, 80 m kuzey, 150 m batı, 80 m güney (5 sn'de 6,5 m).
+    let corners: [(f64, f64); 5] = [
+        (0.0, 0.0),
+        (150.0, 0.0),
+        (150.0, 80.0),
+        (0.0, 80.0),
+        (0.0, 0.0),
+    ];
+    let mut walk = Vec::new();
+    for w in corners.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let len = (b.0 - a.0).hypot(b.1 - a.1);
+        let n = (len / 6.5).round() as usize;
+        for s in 0..n {
+            let f = s as f64 / n as f64;
+            walk.push((a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f));
+        }
+    }
+    for (x, y) in &walk {
+        let (la, lo) = at(*x, *y);
+        seg.push(Point {
+            lat: la,
+            lon: lo,
+            time: Some(t),
+            ..Default::default()
+        });
+        t += 5_000;
+    }
+    for k in 1..60 {
+        let (la, lo) = at(0.0, -(k as f64) * 6.5);
+        seg.push(Point {
+            lat: la,
+            lon: lo,
+            time: Some(t),
+            ..Default::default()
+        });
+        t += 5_000;
+    }
+    let mut s2 = seg.clone();
+    analysis::collapse_segment_stays(&mut s2);
+    // Bloğun uzak köşesi (150 m doğu, 80 m kuzey) izde kalmalı.
+    let (la, lo) = at(150.0, 80.0);
+    let far = Point {
+        lat: la,
+        lon: lo,
+        ..Default::default()
+    };
+    let nearest = s2
+        .iter()
+        .map(|p| stats::haversine_m(p, &far))
+        .fold(f64::INFINITY, f64::min);
+    assert!(
+        nearest < 15.0,
+        "blok yürüyüşü silindi: en yakın nokta {nearest:.0} m, {} nokta kaldı",
+        s2.len()
+    );
+    // Bekleme yine de sadeleşir.
+    assert!(s2.len() < seg.len() - 50, "{} / {}", s2.len(), seg.len());
+}
+
+#[test]
+fn sparse_walk_around_block_is_kept() {
+    // Telefon/konum geçmişi gibi seyrek kayıt (dakikada bir nokta): 120×80 m
+    // bloğun çevresinde iki tur yürüyüş (1,2 m/sn), sonra uzaklaşma.
+    let m = 1.0 / 111_320.0;
+    let lon_m = m / (41.0f64).to_radians().cos();
+    let at = |x: f64, y: f64| Point {
+        lat: 41.0 + y * m,
+        lon: 29.0 + x * lon_m,
+        ..Default::default()
+    };
+    let perim = [(0.0, 0.0), (120.0, 0.0), (120.0, 80.0), (0.0, 80.0)];
+    let pos = |d: f64| {
+        let d = d % 400.0;
+        let lens = [120.0, 80.0, 120.0, 80.0];
+        let mut acc = 0.0;
+        for i in 0..4 {
+            if d <= acc + lens[i] {
+                let f = (d - acc) / lens[i];
+                let (a, b) = (perim[i], perim[(i + 1) % 4]);
+                return (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
+            }
+            acc += lens[i];
+        }
+        perim[0]
+    };
+    let mut seg = Vec::new();
+    let mut t = 1_700_000_000_000i64;
+    for k in 0..=12 {
+        let (x, y) = pos(k as f64 * 72.0);
+        seg.push(Point {
+            time: Some(t),
+            ..at(x, y)
+        });
+        t += 60_000;
+    }
+    for k in 1..10 {
+        seg.push(Point {
+            time: Some(t),
+            ..at(0.0, -(k as f64) * 70.0)
+        });
+        t += 60_000;
+    }
+    let mut s2 = seg.clone();
+    analysis::collapse_segment_stays(&mut s2);
+    let far = at(120.0, 80.0);
+    let nearest = s2
+        .iter()
+        .map(|p| stats::haversine_m(p, &far))
+        .fold(f64::INFINITY, f64::min);
+    assert!(
+        nearest < 40.0,
+        "blok yürüyüşü silindi: en yakın nokta {nearest:.0} m, {} / {} nokta kaldı",
+        s2.len(),
+        seg.len()
+    );
+}
+
+#[test]
+fn walk_into_long_stay_is_kept() {
+    // Gerçek kayıttaki gibi: 1 sn'de 1,3 m hızla 240 m yürüyüp bir kapının
+    // önünde 10 dakika durmak. Duraklamanın merkezi noktalarla kayarken
+    // varış yolunu da yutmamalı; yoksa iz binaların içinden kestirir.
+    let m = 1.0 / 111_320.0;
+    let lon_m = m / (41.0f64).to_radians().cos();
+    let at = |x: f64, y: f64| (41.0 + y * m, 29.0 + x * lon_m);
+    let mut seg = Vec::new();
+    let mut t = 1_700_000_000_000i64;
+    for k in 0..185 {
+        let (la, lo) = at(0.0, k as f64 * 1.3);
+        seg.push(Point {
+            lat: la,
+            lon: lo,
+            time: Some(t),
+            ..Default::default()
+        });
+        t += 1_000;
+    }
+    for k in 0..600 {
+        let (la, lo) = at(
+            ((k * 7) % 17) as f64 - 8.0,
+            240.0 + ((k * 5) % 13) as f64 - 6.0,
+        );
+        seg.push(Point {
+            lat: la,
+            lon: lo,
+            time: Some(t),
+            ..Default::default()
+        });
+        t += 1_000;
+    }
+    let mut s2 = seg.clone();
+    let removed = analysis::collapse_segment_stays(&mut s2);
+    assert!(removed > 500, "duraklama sadeleşmeli: {removed}");
+    // Yürüyüşün ortası (120 m kuzey) izde kalmalı.
+    let (la, lo) = at(0.0, 120.0);
+    let mid = Point {
+        lat: la,
+        lon: lo,
+        ..Default::default()
+    };
+    let nearest = s2
+        .iter()
+        .map(|p| stats::haversine_m(p, &mid))
+        .fold(f64::INFINITY, f64::min);
+    assert!(
+        nearest < 5.0,
+        "varış yolu silindi: en yakın nokta {nearest:.0} m"
+    );
+}

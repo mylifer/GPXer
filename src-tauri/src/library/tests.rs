@@ -141,6 +141,14 @@ fn cache_log_appends_and_replays() {
         lib.flush_cache().unwrap();
         assert_eq!(std::fs::read_to_string(&log).unwrap().lines().count(), n0);
         std::fs::write(&pa, track("40.0")).unwrap();
+        // Aynı boyut, aynı saniye: değişiklik zamanı ilerletilmezse önbellek
+        // dosyayı değişmemiş sayabilir.
+        std::fs::File::options()
+            .write(true)
+            .open(&pa)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5))
+            .unwrap();
         lib.summarize(&pa, &cfg, None).unwrap();
         // Silinen dosya: silme satırı.
         std::fs::remove_file(&pb).unwrap();
