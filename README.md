@@ -51,8 +51,8 @@ ile yazılmıştır.
   yedekler isteğe bağlı parolayla şifrelenir (AES-256).
 - *Yaşam dönemleri* (Özet): günlerin başladığı yere göre "ev" dönemleri ve
   taşınmalar; geziler her dönemin evine göre bulunur.
-- *Belge iliştirme*: bilet, fatura, ses kaydı… kayda iliştirilir; yedeğe ve
-  açık arşive dahildir.
+- *Belge iliştirme*: bilet, fatura, ses kaydı… kayda iliştirilir; yedeğe,
+  açık arşive ve cihazlar arası eşitlemeye dahildir.
 - *Açık arşiv haritası*: dışa aktarılan index.html'de internetsiz, etkileşimli
   harita.
 - *Kişi albümü*: bir kişiyle yapılan bütün yolculuklar tek PDF'te.

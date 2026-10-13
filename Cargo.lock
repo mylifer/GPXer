@@ -1668,7 +1668,7 @@ dependencies = [
 
 [[package]]
 name = "gpxer"
-version = "0.9.36"
+version = "0.9.37"
 dependencies = [
  "base64 0.22.1",
  "flate2",
