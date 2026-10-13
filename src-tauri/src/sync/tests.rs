@@ -253,3 +253,27 @@ fn edits_made_during_sync_are_kept() {
         m(&[("a", "2"), ("b", "yerel"), ("d", "1"), ("e", "yeni")])
     );
 }
+
+#[test]
+fn attachments_are_copied_both_ways() {
+    let root = std::env::temp_dir().join(format!("gpxer-sync-ekler-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (local, remote) = (root.join("yerel"), root.join("uzak"));
+    std::fs::create_dir_all(&local).unwrap();
+    std::fs::create_dir_all(&remote).unwrap();
+    std::fs::write(local.join("1-bilet.pdf"), b"bilet").unwrap();
+    std::fs::write(remote.join("2-fatura.pdf"), b"fatura").unwrap();
+    let names: BTreeSet<String> = ["1-bilet.pdf", "2-fatura.pdf", "3-yok.pdf", "../kacak"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    assert_eq!(sync_attachments(&remote, &local, &names), 2);
+    assert_eq!(std::fs::read(remote.join("1-bilet.pdf")).unwrap(), b"bilet");
+    assert_eq!(
+        std::fs::read(local.join("2-fatura.pdf")).unwrap(),
+        b"fatura"
+    );
+    // İkinci eşitlemede kopyalanacak bir şey yok.
+    assert_eq!(sync_attachments(&remote, &local, &names), 0);
+    let _ = std::fs::remove_dir_all(&root);
+}

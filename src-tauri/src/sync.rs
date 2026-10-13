@@ -27,6 +27,7 @@ use tauri::{AppHandle, Manager};
 const VERSION: u32 = 1;
 const DIR: &str = "GPXer-esitleme";
 const RECORDS: &str = "kayitlar";
+const ATTACHMENTS: &str = "ekler";
 const STATE: &str = "durum.json";
 
 /// Kararlı 64 bit özet (FNV-1a): Rust sürümünden bağımsız, cihazlar arasında aynı.
@@ -94,6 +95,38 @@ struct Base {
     last: i64,
 }
 
+/// Eklerin iki yönlü kopyası: `names` içinden bir tarafta olup öbüründe
+/// olmayan her dosya kopyalanır (önce geçici adla, sonra yerine). Kopyalanan
+/// sayı döner; kopyalanamayanlar sonraki eşitlemeye kalır.
+fn sync_attachments(remote: &Path, local: &Path, names: &BTreeSet<String>) -> usize {
+    let copy = |from: &Path, to: &Path| -> bool {
+        let Some(dir) = to.parent() else { return false };
+        let tmp = to.with_extension("gpxer-tmp");
+        let ok = std::fs::create_dir_all(dir).is_ok()
+            && std::fs::copy(from, &tmp).is_ok()
+            && std::fs::rename(&tmp, to).is_ok();
+        if !ok {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        ok
+    };
+    let mut n = 0;
+    for name in names {
+        let (Some(l), Some(r)) = (
+            crate::attachments::path_in(local, name),
+            crate::attachments::path_in(remote, name),
+        ) else {
+            continue;
+        };
+        match (l.is_file(), r.is_file()) {
+            (true, false) if copy(&l, &r) => n += 1,
+            (false, true) if copy(&r, &l) => n += 1,
+            _ => {}
+        }
+    }
+    n
+}
+
 /// Eşitleme sürerken burada değişen öğeler (eşitleme başındaki halinden
 /// farklı olanlar) birleştirilmiş sonuçta şimdiki halleriyle kalır: uzun bir
 /// eşitleme bu arada yazılan notu, yeri ya da yer imini ezmesin.
@@ -151,6 +184,8 @@ pub(crate) struct SyncCounts {
     pub places_changed: bool,
     pub bookmarks_changed: bool,
     pub journal_changed: bool,
+    /// Cihazlar arasında kopyalanan ek (belge) sayısı.
+    pub attachments_copied: usize,
 }
 
 fn read_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T, String> {
@@ -784,6 +819,20 @@ pub(crate) async fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
                 .set_all(merged)
                 .map_err(|e| format!("Günlük yazılamadı: {e}"))?;
         }
+        // Ekler: kayıt bilgilerinin andığı belgeler, eksik olan tarafa kopyalanır.
+        // Adları zaman damgalı ve değişmez olduğundan çakışma yoktur.
+        let mut counts = counts;
+        let names: BTreeSet<String> = app
+            .state::<MetaStore>()
+            .all()
+            .into_values()
+            .flat_map(|m| m.attachments)
+            .collect();
+        counts.attachments_copied = sync_attachments(
+            &root.join(ATTACHMENTS),
+            &app.state::<crate::attachments::Attachments>().0,
+            &names,
+        );
         Ok(SyncReport {
             counts,
             added,

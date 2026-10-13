@@ -1086,6 +1086,7 @@ export const EN: Record<string, string> = {
 /** Değişken içeren iletiler: `{0}`, `{1}`… yer tutucuları (İngilizcede sırası
  * değişebilir). */
 export const EN_T: [string, string][] = [
+  ["{0} belge eşitlendi", "{0} documents synced"],
   ["{0} yer", "{0} places"],
   ["{0} yolculuk · {1} km · {2}", "{0} trips · {1} km · {2}"],
   ["📖 {0}", "📖 {0}"],

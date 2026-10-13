@@ -52,6 +52,7 @@ export function useSync({
         const parts = [
           r.pulled && `${fmtNumber(r.pulled)} kayıt alındı`,
           r.pushed && `${fmtNumber(r.pushed)} kayıt gönderildi`,
+          r.attachmentsCopied && `${fmtNumber(r.attachmentsCopied)} belge eşitlendi`,
           r.removedLocal && `${fmtNumber(r.removedLocal)} kayıt öbür cihazda silindiği için çöp kutusuna taşındı`,
           r.removedRemote && `${fmtNumber(r.removedRemote)} silme öbür cihazlara bildirildi`,
           (r.metaChanged || r.placesChanged || r.bookmarksChanged || r.journalChanged) && "etiket, not, yer, yer imleri ya da günlük güncellendi",

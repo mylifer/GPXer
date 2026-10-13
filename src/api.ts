@@ -382,6 +382,8 @@ export interface SyncReport {
   placesChanged: boolean;
   bookmarksChanged: boolean;
   journalChanged?: boolean;
+  /** Cihazlar arasında kopyalanan belge sayısı. */
+  attachmentsCopied?: number;
   added: LoadResult[];
   updated: LoadResult[];
   removed: string[];
