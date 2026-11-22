@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { backupLibrary, getPlaces, NEED_PASSWORD, pickSavePath, restoreLibrary, type LoadResult, type NamedPlace } from "../api";
 import type { PasswordAsk } from "../components/PasswordModal";
-import { fmtBytes, fmtNumber } from "../format";
+import { fmtBytes, fmtNumber, isoOf } from "../format";
 import type { FileEntry } from "../types";
 import type { SetDialog } from "./dialog";
 
@@ -33,7 +33,8 @@ export function useBackup({
         create: true,
       });
       if (pw == null) return;
-      const day = new Date().toISOString().slice(0, 10);
+      // Yerel gün: UTC günü gece yarısından sonraki saatlerde bir önceki günü veriyordu.
+      const day = isoOf(new Date());
       const dest = await pickSavePath(`GPXer-yedek-${day}.zip`, [{ name: "GPXer yedeği", extensions: ["zip"] }]);
       if (!dest) return;
       const path = /\.zip$/i.test(dest) ? dest : `${dest}.zip`;

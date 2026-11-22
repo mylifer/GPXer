@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { archiveInfo, type ArchiveReport, type BackupVerify, type Settings } from "../api";
-import { fmtNumber } from "../format";
+import { fmtNumber, isoOf } from "../format";
 import { t } from "../i18n";
 
 const DAY = 86_400_000;
@@ -62,7 +62,7 @@ export function useArchive({ settings, records, say, fail }: { settings: Setting
   useEffect(() => {
     if (auto || records === 0 || !settings) return;
     const timer = setTimeout(async () => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = isoOf(new Date());
       try {
         if (localStorage.getItem(REMIND_KEY) === today) return;
       } catch {
