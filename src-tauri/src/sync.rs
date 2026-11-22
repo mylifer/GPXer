@@ -434,9 +434,12 @@ pub(crate) fn sync_core(
                     }
                     Some(r) if !r.deleted && r.hash == lh => {}
                     Some(r) if !r.deleted && r.hash != b.hash && changed => {
-                        // İki tarafta da değişmiş: bu cihazdaki kazanır.
+                        // İki tarafta da değişmiş: ikisine de dokunulmaz, çakışma
+                        // bildirilir. Bu cihazdakini göndermek, öbür cihazın
+                        // düzenlemesini onun bir sonraki eşitlemesinde kopyası
+                        // kalmadan siliyordu.
                         c.conflicts.push(name.clone());
-                        push(&mut c, &mut remote, &path, &lh)?;
+                        continue;
                     }
                     _ if changed || r_live.is_none() => push(&mut c, &mut remote, &path, &lh)?,
                     _ => {}

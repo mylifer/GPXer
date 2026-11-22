@@ -277,3 +277,26 @@ fn attachments_are_copied_both_ways() {
     assert_eq!(sync_attachments(&remote, &local, &names), 0);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn edits_on_both_devices_are_not_lost() {
+    let (root, cloud, mut a, mut b) = setup("both");
+    a.write("k.gpx", "<gpx>0</gpx>");
+    a.sync(&cloud, 1);
+    b.sync(&cloud, 2);
+    assert_eq!(b.read("k.gpx").as_deref(), Some("<gpx>0</gpx>"));
+    // İki cihaz da aynı kaydı düzenler; önce A eşitler, sonra B.
+    a.write("k.gpx", "<gpx>A düzenledi</gpx>");
+    b.write("k.gpx", "<gpx>B düzenledi, daha uzun</gpx>");
+    a.sync(&cloud, 3);
+    let c = b.sync(&cloud, 4);
+    assert_eq!(c.conflicts, vec!["k.gpx".to_string()]);
+    // A yeniden eşitlenince kendi düzenlemesi ezilmemeli.
+    a.sync(&cloud, 5);
+    assert_eq!(a.read("k.gpx").as_deref(), Some("<gpx>A düzenledi</gpx>"));
+    assert_eq!(
+        b.read("k.gpx").as_deref(),
+        Some("<gpx>B düzenledi, daha uzun</gpx>")
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
